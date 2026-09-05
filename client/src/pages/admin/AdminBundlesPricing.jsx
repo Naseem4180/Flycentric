@@ -8,7 +8,7 @@ import {
   KpiCard, EmptyState, ErrorState, Skeleton, Badge, StatusBadge, RowMenu,
 } from '../../ui';
 
-const BLANK = { title: '', description: '', exam_type: 'CPL', price_inr: '', subject_ids: [] };
+const BLANK = { title: '', description: '', exam_type: 'CPL', is_free: true, price_inr: '', subject_ids: [] };
 
 export default function AdminBundlesPricing() {
   const toast = useToast();
@@ -27,7 +27,7 @@ export default function AdminBundlesPricing() {
 
   const load = useCallback(() => {
     setError('');
-    api.get('/content/bundles').then((d) => setBundles(d.bundles)).catch((e) => { setError(e.message); setBundles([]); });
+    api.get('/content/bundles?include_drafts=true').then((d) => setBundles(d.bundles)).catch((e) => { setError(e.message); setBundles([]); });
   }, []);
 
   useEffect(() => {
@@ -53,6 +53,7 @@ export default function AdminBundlesPricing() {
         title: bundle.title,
         description: bundle.description || '',
         exam_type: bundle.exam_type || 'CPL',
+        is_free: bundle.is_free ?? Number(bundle.price_inr || 0) === 0,
         price_inr: String(bundle.price_inr ?? ''),
         subject_ids: (bundle.subjects || []).map((s) => s.id),
       });
@@ -67,7 +68,7 @@ export default function AdminBundlesPricing() {
     const errs = {};
     if (!form.title.trim()) errs.title = 'Bundle title is required.';
     const price = Number(form.price_inr);
-    if (form.price_inr !== '' && (Number.isNaN(price) || price < 0)) errs.price_inr = 'Price must be greater than or equal to 0.';
+    if (!form.is_free && (form.price_inr === '' || Number.isNaN(price) || price <= 0)) errs.price_inr = 'Enter a price greater than 0 for paid bundles.';
     setFormErrors(errs);
     return !Object.keys(errs).length;
   }
@@ -81,7 +82,8 @@ export default function AdminBundlesPricing() {
         title: form.title.trim(),
         description: form.description,
         exam_type: form.exam_type,
-        price_inr: Number(form.price_inr) || 0,
+        is_free: form.is_free,
+        price_inr: form.is_free ? 0 : Number(form.price_inr),
         subject_ids: form.subject_ids,
       };
       if (editing) {
@@ -193,8 +195,8 @@ export default function AdminBundlesPricing() {
 
               {mostSubjects?.id === b.id && <Badge tone="pink" className="mb-0">Most complete</Badge>}
 
-              <div className="bundle-price" style={{ margin: '10px 0 14px' }}>
-                ₹{Number(b.price_inr || 0).toLocaleString('en-IN')}
+                <div className="bundle-price" style={{ margin: '10px 0 14px' }}>
+                  {b.is_free || Number(b.price_inr || 0) === 0 ? 'Free' : `₹${Number(b.price_inr).toLocaleString('en-IN')}`}
               </div>
 
               {b.description && <p className="muted" style={{ fontSize: '.81rem', marginTop: -6 }}>{b.description}</p>}
@@ -267,8 +269,15 @@ export default function AdminBundlesPricing() {
               <input id="bu-type" value={form.exam_type} onChange={(e) => setForm({ ...form, exam_type: e.target.value })} placeholder="e.g. CPL" />
             </div>
             <div className="field">
-              <label htmlFor="bu-price">Price (₹)</label>
-              <input id="bu-price" type="number" min="0" value={form.price_inr} className={formErrors.price_inr ? 'has-error' : ''} onChange={(e) => setForm({ ...form, price_inr: e.target.value })} placeholder="0" />
+              <label>Access type</label>
+              <div className="segmented-control">
+                <button type="button" className={form.is_free ? 'active' : ''} onClick={() => setForm({ ...form, is_free: true, price_inr: '' })}>Free</button>
+                <button type="button" className={!form.is_free ? 'active' : ''} onClick={() => setForm({ ...form, is_free: false })}>Paid</button>
+              </div>
+            </div>
+            <div className="field">
+              <label htmlFor="bu-price">Price (₹) {!form.is_free && <span className="field-req">*</span>}</label>
+              <input id="bu-price" type="number" min="1" disabled={form.is_free} value={form.price_inr} className={formErrors.price_inr ? 'has-error' : ''} onChange={(e) => setForm({ ...form, price_inr: e.target.value })} placeholder={form.is_free ? 'Free bundle' : 'e.g. 4999'} />
               {formErrors.price_inr && <p className="field-error">{formErrors.price_inr}</p>}
             </div>
           </div>
@@ -304,7 +313,7 @@ export default function AdminBundlesPricing() {
               <Badge tone="orange">{preview.exam_type || '—'}</Badge>
               <StatusBadge status={preview.status === 'live' ? 'live' : 'draft'} />
             </div>
-            <div className="bundle-price">₹{Number(preview.price_inr || 0).toLocaleString('en-IN')}</div>
+            <div className="bundle-price">{preview.is_free || !Number(preview.price_inr) ? 'Free' : `₹${Number(preview.price_inr).toLocaleString('en-IN')}`}</div>
             <p className="muted" style={{ marginTop: 10 }}>{preview.description || 'No description yet.'}</p>
             <strong style={{ display: 'block', marginTop: 14, fontSize: '.82rem' }}>
               <Layers size={14} style={{ verticalAlign: -2, marginRight: 6 }} />Included subjects

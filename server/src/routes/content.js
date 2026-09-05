@@ -27,13 +27,13 @@ async function attachIncludedSubjects(bundles) {
 
 router.get('/bundles', async (req, res) => {
   const { status } = req.query;
-  const isAdmin = req.headers.authorization; // best-effort: admins can request drafts too
+  const includeDrafts = req.query.include_drafts === 'true';
   let query = 'SELECT * FROM bundles WHERE deleted_at IS NULL';
   const params = [];
   if (status) {
     params.push(status);
     query += ` AND status = $${params.length}`;
-  } else if (!isAdmin) {
+  } else if (!includeDrafts) {
     query += " AND status = 'live'";
   }
   query += ' ORDER BY created_at DESC';
@@ -42,12 +42,13 @@ router.get('/bundles', async (req, res) => {
 });
 
 router.post('/bundles', authenticate, authorize('admin'), async (req, res) => {
-  const { title, description, exam_type, price_inr, subject_ids } = req.body;
+  const { title, description, exam_type, price_inr, is_free, subject_ids } = req.body;
+  const bundleIsFree = is_free === undefined ? Number(price_inr || 0) === 0 : !!is_free;
   if (!title) return res.status(400).json({ error: 'title required' });
   const result = await pool.query(
-    `INSERT INTO bundles (title, slug, description, exam_type, price_inr, status, created_by)
-     VALUES ($1,$2,$3,$4,$5,'draft',$6) RETURNING *`,
-    [title, slugify(title), description || null, exam_type || 'CPL', price_inr || 0, req.user.id]
+    `INSERT INTO bundles (title, slug, description, exam_type, price_inr, is_free, status, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,'draft',$7) RETURNING *`,
+    [title, slugify(title), description || null, exam_type || 'CPL', bundleIsFree ? 0 : (price_inr || 0), bundleIsFree, req.user.id]
   );
   const bundle = result.rows[0];
   if (Array.isArray(subject_ids) && subject_ids.length) {
@@ -59,15 +60,17 @@ router.post('/bundles', authenticate, authorize('admin'), async (req, res) => {
 });
 
 router.patch('/bundles/:id', authenticate, authorize('admin'), async (req, res) => {
-  const { title, description, exam_type, price_inr, subject_ids } = req.body;
+  const { title, description, exam_type, price_inr, is_free, subject_ids } = req.body;
+  const bundleIsFree = is_free === undefined ? Number(price_inr || 0) === 0 : !!is_free;
   const result = await pool.query(
     `UPDATE bundles SET
        title = COALESCE($1, title),
        description = COALESCE($2, description),
        exam_type = COALESCE($3, exam_type),
-       price_inr = COALESCE($4, price_inr)
+       price_inr = CASE WHEN $6 THEN 0 ELSE COALESCE($4, price_inr) END,
+      is_free = $6
      WHERE id = $5 AND deleted_at IS NULL RETURNING *`,
-    [title, description, exam_type, price_inr, req.params.id]
+    [title, description, exam_type, price_inr, bundleIsFree, req.params.id]
   );
   if (!result.rows.length) return res.status(404).json({ error: 'Bundle not found' });
   if (Array.isArray(subject_ids)) {

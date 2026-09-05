@@ -14,9 +14,10 @@ export default function BundleView() {
   const [bundle, setBundle] = useState(null);
   const [quizzes, setQuizzes] = useState([]);
   const [hasAccess, setHasAccess] = useState(false);
+  const [enrolling, setEnrolling] = useState(false);
 
   useEffect(() => {
-    const calls = [api.get(`/content/bundles/${id}/subjects`), api.get(`/content/bundles`), api.get(`/exams/quizzes?bundle_id=${id}`)];
+    const calls = [api.get(`/content/bundles/${id}/subjects`), api.get('/content/bundles?status=live'), api.get(`/exams/quizzes?bundle_id=${id}`)];
     if (user?.role === 'student') calls.push(api.get('/payments/my-access'));
     Promise.all(calls)
       .then(([subjectData, bundleData, quizData, accessData]) => {
@@ -30,6 +31,16 @@ export default function BundleView() {
   // Admins/instructors always see full content; students see it once they've
   // purchased the bundle. Free-preview chapters are unlocked either way.
   const fullAccess = hasAccess || (user && user.role !== 'student');
+
+  async function enrollFree() {
+    setEnrolling(true);
+    try {
+      await api.post('/payments/enroll-free', { bundle_id: id });
+      setHasAccess(true);
+    } finally {
+      setEnrolling(false);
+    }
+  }
 
   async function toggleSubject(subjectId) {
     if (openSubject === subjectId) { setOpenSubject(null); return; }
@@ -52,6 +63,11 @@ export default function BundleView() {
               <Lock size={13} style={{ verticalAlign: -2, marginRight: 4 }} />
               Free-preview chapters are open to everyone. Unlock the rest by enrolling in this course.
             </p>
+          )}
+          {!fullAccess && bundle && (bundle.is_free || !Number(bundle.price_inr)) && (
+            <button className="btn btn-primary btn-sm" onClick={enrollFree} disabled={enrolling}>
+              {enrolling ? 'Adding…' : 'Add to my learning'}
+            </button>
           )}
         </div>
         <div className="stack">
@@ -108,7 +124,7 @@ export default function BundleView() {
                     {fullAccess ? (
                       <Link to={`/take-exam/${quiz.id}`} className="btn btn-primary btn-sm">Start test</Link>
                     ) : (
-                      <Link to="/checkout" className="btn btn-outline btn-sm"><Lock size={13} style={{ marginRight: 4 }} />Enrol to unlock</Link>
+                      <Link to={`/bundles/${id}`} className="btn btn-outline btn-sm"><Lock size={13} style={{ marginRight: 4 }} />Enrol to unlock</Link>
                     )}
                   </div>
                 </div>

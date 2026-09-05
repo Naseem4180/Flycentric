@@ -7,6 +7,7 @@ import {
 import useAuth from '../context/useAuth';
 import useTheme from '../hooks/useTheme';
 import { api } from '../api';
+import { readCart } from '../utils/cart';
 
 const CATEGORY_META = {
   Users: { icon: UsersIcon, tone: 'indigo' },
@@ -182,13 +183,15 @@ export default function AppTopbar({ onToggleSidebar, quickLinks = [], onNotifica
   useEffect(() => {
     function readCart() {
       if (user?.role !== 'student') { setCartCount(0); return; }
-      try { setCartCount(localStorage.getItem('fc_cart_bundle') ? 1 : 0); } catch { setCartCount(0); }
+      try { setCartCount(readCart().length); } catch { setCartCount(0); }
     }
     readCart();
     window.addEventListener('storage', readCart);
+    window.addEventListener('cartchange', readCart);
     window.addEventListener('focus', readCart);
     return () => {
       window.removeEventListener('storage', readCart);
+      window.removeEventListener('cartchange', readCart);
       window.removeEventListener('focus', readCart);
     };
   }, [user?.role]);

@@ -15,7 +15,7 @@ export default function AdminContent() {
   const [newChapterTitle, setNewChapterTitle] = useState('');
 
   function load() {
-    api.get('/content/bundles', { auth: true }).then((d) => setBundles(d.bundles)).catch((e) => setError(e.message));
+    api.get('/content/bundles?include_drafts=true', { auth: true }).then((d) => setBundles(d.bundles)).catch((e) => setError(e.message));
   }
   useEffect(load, []);
 

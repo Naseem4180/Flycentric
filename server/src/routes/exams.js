@@ -58,6 +58,15 @@ router.get('/quizzes', authenticate, async (req, res) => {
   // full list (drafts included) and can additionally filter by status.
   if (req.user.role === 'student') {
     clauses.push(`q.status = 'published'`);
+    params.push(req.user.id);
+    clauses.push(`EXISTS (
+      SELECT 1 FROM bundle_access ba
+      WHERE ba.user_id = $${params.length}
+        AND (
+          ba.bundle_id = q.bundle_id
+          OR q.subject_id IN (SELECT subject_id FROM bundle_subjects WHERE bundle_id = ba.bundle_id)
+        )
+    )`);
   } else if (status) {
     params.push(status); clauses.push(`q.status = $${params.length}`);
   }
@@ -122,6 +131,15 @@ router.post('/quizzes/:id/start', authenticate, authorize('student'), async (req
   const quiz = quizResult.rows[0];
   if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
   if (quiz.status !== 'published') return res.status(403).json({ error: 'This quiz is not published yet' });
+
+  const entitlement = await pool.query(
+    `SELECT 1 FROM bundle_access ba
+     WHERE ba.user_id = $1
+       AND (ba.bundle_id = $2 OR $3 IN (SELECT subject_id FROM bundle_subjects WHERE bundle_id = ba.bundle_id))
+     LIMIT 1`,
+    [req.user.id, quiz.bundle_id, quiz.subject_id]
+  );
+  if (!entitlement.rows.length) return res.status(403).json({ error: 'Enroll in this course bundle before starting the test' });
 
   if (quiz.attempt_limit > 0) {
     const countResult = await pool.query(

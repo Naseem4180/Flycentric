@@ -128,6 +128,11 @@ ALTER TABLE questions ADD COLUMN IF NOT EXISTS is_faq BOOLEAN NOT NULL DEFAULT f
 -- question bank can show exactly which exam years used this question.
 ALTER TABLE questions ADD COLUMN IF NOT EXISTS appearances TEXT[] NOT NULL DEFAULT '{}';
 
+-- Bundle pricing mode. Existing zero-priced bundles remain free; new bundles
+-- can choose the mode explicitly in the admin catalogue form.
+ALTER TABLE bundles ADD COLUMN IF NOT EXISTS is_free BOOLEAN NOT NULL DEFAULT false;
+UPDATE bundles SET is_free = true WHERE price_inr = 0;
+
 -- Question Versioning: content edits to an active question are prohibited at
 -- the application layer (see routes/questions.js PATCH /:id). Editing content
 -- archives the current row and inserts a brand-new row; appearance-only

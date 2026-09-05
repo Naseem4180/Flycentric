@@ -11,24 +11,6 @@ export const BASE_URL = configuredApiUrl
 let accessToken = null;
 let refreshToken = null;
 let onUnauthorized = () => {};
-let refreshScheduled = false;
-
-function shouldRefreshAfterMutation(method, path) {
-  if (method === 'GET') return false;
-  if (/^\/admin\//.test(path)) return true;
-  if (/^\/(content|batches|jobs|doubts)(\/|$)/.test(path)) return true;
-  if (/^\/questions(\/|$)/.test(path)) return !/\/reports?$|\/appearance$/.test(path);
-  if (/^\/exams\/quizzes(\/|$)/.test(path)) return !/\/start$|\/attempts\//.test(path);
-  if (/^\/payments\/[^/]+\/refund$/.test(path)) return true;
-  return false;
-}
-
-function scheduleRefresh() {
-  if (refreshScheduled || typeof window === 'undefined') return;
-  refreshScheduled = true;
-  window.setTimeout(() => window.location.reload(), 0);
-}
-
 export function setTokens(access, refresh) {
   accessToken = access;
   refreshToken = refresh;
@@ -81,7 +63,6 @@ async function request(path, { method = 'GET', body, isForm = false, auth = true
       : (data && (data.detail || data.error)) || `Request failed (${res.status})`;
     throw new Error(message);
   }
-  if (shouldRefreshAfterMutation(method, path)) scheduleRefresh();
   return data;
 }
 

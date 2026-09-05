@@ -676,6 +676,25 @@ tbody tr:hover { background: var(--page-bg); }
 .course-sky { display: none; }
 .quiz-card { position:relative; overflow:hidden; }
 .quiz-card::after { display: none; }
+.dashboard-section-heading { margin-top: 30px; align-items: center; }
+.dashboard-section-heading h2 { margin: 4px 0 0; }
+.dashboard-section-heading p { margin: 6px 0 0; }
+.empty-inline { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 4px; padding: 24px; border: 1px dashed var(--line-strong); border-radius: var(--radius); background: var(--card-bg); color: var(--ink-soft); }
+.empty-inline strong { color: var(--ink); }
+.bundle-explorer { margin-top: 42px; padding: 28px; border: 1px solid var(--line); border-radius: 18px; background: linear-gradient(135deg, rgba(238,245,255,.78), var(--card-bg)); box-shadow: var(--shadow-card); }
+.explore-bundle-card { display: flex; flex-direction: column; min-height: 230px; padding: 20px; border: 1px solid var(--line); border-radius: 14px; background: var(--card-bg); box-shadow: 0 8px 22px rgba(27, 42, 72, .06); }
+.explore-bundle-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.bundle-access-pill { display: inline-flex; align-items: center; border-radius: 999px; padding: 5px 9px; font-size: .68rem; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; }
+.bundle-access-pill.free { color: #087b59; background: #dcf8eb; }
+.bundle-access-pill.paid { color: #7042b3; background: #efe4ff; }
+.bundle-type { color: var(--ink-muted); font: 700 .68rem var(--font-mono); }
+.explore-bundle-card h3 { margin: 16px 0 7px; font-size: 1.05rem; }
+.explore-bundle-card p { min-height: 40px; margin: 0; color: var(--ink-soft); font-size: .8rem; line-height: 1.5; }
+.explore-bundle-meta { display: flex; align-items: baseline; justify-content: space-between; margin: auto 0 14px; padding-top: 18px; }
+.explore-bundle-meta strong { color: var(--ink); font-size: 1.35rem; }
+.explore-bundle-meta span { color: var(--ink-muted); font-size: .72rem; }
+.explore-bundle-actions { display: flex; gap: 8px; }
+.explore-bundle-actions .btn { flex: 1; justify-content: center; }
 .dashboard-skeleton { display:grid; gap:16px; }
 .dashboard-skeleton i { height:140px; display:block; border-radius: var(--radius); background:linear-gradient(90deg,var(--card-bg),var(--line),var(--card-bg)); background-size:200%; animation:sheen 1.2s infinite; }
 @keyframes sheen { to { background-position:-200%; } }
@@ -720,9 +739,17 @@ tbody tr:hover { background: var(--page-bg); }
 .checkout-summary span { font-size:.68rem; font-weight:800; color: var(--blue); }
 .checkout-summary h3 { margin:8px 0; }
 .checkout-summary strong { display:block; font-size:1.6rem; margin-top:10px; }
+.checkout-items { display: grid; gap: 10px; }
+.checkout-items .checkout-summary { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 14px; margin: 0; }
+.checkout-items .checkout-summary h3 { margin: 5px 0 0; }
+.checkout-items .checkout-summary strong { margin: 0; font-size: 1.1rem; }
+.checkout-items .checkout-summary .btn { white-space: nowrap; }
+.segmented-control { display: flex; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 9px; background: var(--page-bg); }
+.segmented-control button { flex: 1; border: 0; border-radius: 6px; padding: 8px 10px; color: var(--ink-soft); background: transparent; font: 700 .78rem var(--font-body); cursor: pointer; }
+.segmented-control button.active { color: var(--blue); background: var(--card-bg); box-shadow: 0 1px 4px rgba(20, 34, 58, .12); }
 .payment-note { margin-top:14px; color: var(--ink-muted); text-align:center; font-size:.75rem; }
 .success-banner { color: var(--success); background: var(--success-bg); padding:10px; border-radius:8px; font-size:.88rem; }
-@media(max-width:720px) { .feature-grid,.pricing-grid { grid-template-columns:1fr; } }
+@media(max-width:720px) { .feature-grid,.pricing-grid { grid-template-columns:1fr; } .bundle-explorer { padding: 18px; } .checkout-items .checkout-summary { grid-template-columns: 1fr auto; } .checkout-items .checkout-summary .btn { grid-column: 1 / -1; } }
 
 /* ==========================================================================
    LMS course cards (Falcon "All courses" list style)

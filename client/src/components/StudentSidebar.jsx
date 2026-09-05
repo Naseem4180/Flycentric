@@ -1,8 +1,8 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import SidebarBrand from './SidebarBrand';
 import SidebarProCard from './SidebarProCard';
 import {
-  LayoutDashboard, BookOpen, MessageCircle, CalendarClock, History, Brain, LineChart,
+  LayoutDashboard, BookOpen, MessageCircle, CalendarClock, History, Brain, LineChart, Compass,
 } from 'lucide-react';
 
 const NAV_GROUPS = [
@@ -13,6 +13,7 @@ const NAV_GROUPS = [
   {
     label: 'Learning',
     items: [
+      { to: '/#bundle-explorer', icon: Compass, label: 'Explore Bundles' },
       { to: '/my-subjects', icon: BookOpen, label: 'My Subjects' },
       { to: '/my-results', icon: History, label: 'My Results' },
       { to: '/memory-bank', icon: Brain, label: 'Memory Box' },
@@ -29,6 +30,16 @@ const NAV_GROUPS = [
 ];
 
 export default function StudentSidebar({ collapsed }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  function handleExploreClick(event) {
+    if (location.pathname !== '/') return;
+    event.preventDefault();
+    if (location.hash !== '#bundle-explorer') navigate('/#bundle-explorer');
+    else document.getElementById('bundle-explorer')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   return (
     <aside className={`admin-sidebar student-sidebar ${collapsed ? 'collapsed' : ''}`}>
       <SidebarBrand collapsed={collapsed} />
@@ -41,7 +52,8 @@ export default function StudentSidebar({ collapsed }) {
                 key={to}
                 to={to}
                 end={end}
-                className={({ isActive }) => `admin-nav-link ${isActive ? 'active' : ''}`}
+                onClick={to === '/#bundle-explorer' ? handleExploreClick : undefined}
+                className={({ isActive }) => `admin-nav-link ${to === '/#bundle-explorer' ? (location.hash === '#bundle-explorer' ? 'active' : '') : (isActive && !location.hash ? 'active' : '')}`}
                 title={collapsed ? label : undefined}
               >
                 <Icon size={18} strokeWidth={2.4} />

@@ -28,6 +28,19 @@ router.post('/order', authenticate, authorize('student'), async (req, res) => {
   res.status(201).json({ payment: result.rows[0], razorpayOrderId: fakeOrderId, amount: bundle.price_inr });
 });
 
+router.post('/enroll-free', authenticate, authorize('student'), async (req, res) => {
+  const result = await pool.query(
+    'SELECT id, is_free, price_inr FROM bundles WHERE id = $1 AND status = $2 AND deleted_at IS NULL',
+    [req.body.bundle_id, 'live']
+  );
+  const bundle = result.rows[0];
+  if (!bundle || (!bundle.is_free && Number(bundle.price_inr) > 0)) {
+    return res.status(400).json({ error: 'This bundle requires payment.' });
+  }
+  const { granted } = await grantBundleAccess({ userId: req.user.id, bundleId: bundle.id, reason: 'free.enrollment', req });
+  res.status(201).json({ ok: true, granted });
+});
+
 // Server-side webhook — the source of truth for payment confirmation, per BRD
 // Phase 5 requirement (not client-side verification alone).
 //

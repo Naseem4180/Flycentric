@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Check, X } from 'lucide-react';
 import { api } from '../api';
 import useAuth from '../context/useAuth';
+import { addToCart } from '../utils/cart';
 
 const FREE_FEATURES = [
   ['Browse published courses', true],
@@ -32,7 +33,7 @@ export default function Pricing() {
   const [bundles, setBundles] = useState([]);
 
   useEffect(() => {
-    api.get('/content/bundles').then((d) => setBundles(d.bundles)).catch(() => {});
+    api.get('/content/bundles?status=live').then((d) => setBundles(d.bundles)).catch(() => {});
   }, []);
 
   function choosePro() {
@@ -41,7 +42,7 @@ export default function Pricing() {
     // unlocking your first live course bundle rather than a separate
     // subscription product, since that's the purchase path the platform
     // already has wired up end to end.
-    localStorage.setItem('fc_cart_bundle', JSON.stringify(bundles[0]));
+    addToCart(bundles[0]);
     navigate(user?.role === 'student' ? '/checkout' : '/register');
   }
 

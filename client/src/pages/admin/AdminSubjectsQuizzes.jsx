@@ -66,7 +66,7 @@ export default function AdminSubjectsQuizzes() {
     setError('');
     try {
       const [{ bundles }, { subjects: allSubjects }] = await Promise.all([
-        api.get('/content/bundles'),
+        api.get('/content/bundles?include_drafts=true'),
         api.get('/content/subjects'),
       ]);
       const links = await Promise.all(

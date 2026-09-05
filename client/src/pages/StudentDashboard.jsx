@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import useAuth from '../context/useAuth';
 import ReadinessGauge from '../components/ReadinessGauge';
+import { addToCart } from '../utils/cart';
 
 // Same bands, applied to a plain score/readiness number: low / average / good
 // / strong, each mapped to a theme color so performance reads at a glance
@@ -19,17 +20,21 @@ export default function StudentDashboard() {
   const [bundles, setBundles] = useState([]);
   const [quizzes, setQuizzes] = useState([]);
   const [attempts, setAttempts] = useState([]);
+  const [accessIds, setAccessIds] = useState(new Set());
   const [weakTopics, setWeakTopics] = useState([]);
   const [masteryTopics, setMasteryTopics] = useState([]);
   const [readiness, setReadiness] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const { user } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
 
   useEffect(() => {
-    Promise.all([api.get('/content/bundles'), api.get('/exams/quizzes'), api.get('/exams/attempts/mine'), api.get('/analytics/me')])
-      .then(([b, q, a, m]) => {
+    Promise.all([api.get('/content/bundles?status=live'), api.get('/exams/quizzes'), api.get('/exams/attempts/mine'), api.get('/analytics/me'), api.get('/payments/my-access')])
+      .then(([b, q, a, m, access]) => {
         setBundles(b.bundles);
+        setAccessIds(new Set((access.bundles || []).map((bundle) => String(bundle.id))));
         setQuizzes(q.quizzes);
         setAttempts(a.attempts);
         // Students only ever get their OWN weak topics here — this is the
@@ -48,6 +53,14 @@ export default function StudentDashboard() {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    if (location.hash !== '#bundle-explorer' || loading) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById('bundle-explorer')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [location.hash, loading]);
+
   if (loading) return <div className="page"><div className="container dashboard-skeleton"><i /><i /><i /></div></div>;
 
   const completed = attempts.filter((attempt) => attempt.status === 'submitted' && Object.keys(attempt.answers || {}).length > 0);
@@ -55,6 +68,22 @@ export default function StudentDashboard() {
   const average = completed.length ? Math.round(completed.reduce((sum, attempt) => sum + Number(attempt.score || 0), 0) / completed.length) : 0;
   const totalCorrect = completed.reduce((sum, attempt) => sum + Number(attempt.correct_count || 0), 0);
   const nextQuiz = quizzes[0];
+  const enrolledBundles = bundles.filter((bundle) => accessIds.has(String(bundle.id)));
+  const exploreBundles = bundles.filter((bundle) => !accessIds.has(String(bundle.id)));
+
+  async function enrollFree(bundle) {
+    try {
+      await api.post('/payments/enroll-free', { bundle_id: bundle.id });
+      setAccessIds((previous) => new Set([...previous, String(bundle.id)]));
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  function addPaidBundle(bundle) {
+    addToCart(bundle);
+    navigate('/checkout');
+  }
 
   // Real study streak: consecutive calendar days (up to today) that have at
   // least one submitted attempt. No attempts today/yesterday breaks the streak.
@@ -100,7 +129,7 @@ export default function StudentDashboard() {
             <div className="eyebrow">Flight deck / study plan</div>
             <h1>Good to see you, {user?.name?.split(' ')[0] || 'Pilot'}.</h1>
             <p>Your next focused session is ready. Build confident decisions, one question at a time.</p>
-            {nextQuiz ? <Link to={`/take-exam/${nextQuiz.id}`} className="btn btn-accent">Start an exam <span>→</span></Link> : <Link to="/jobs" className="btn btn-accent">Explore opportunities <span>→</span></Link>}
+            {nextQuiz ? <Link to={`/take-exam/${nextQuiz.id}`} className="btn btn-accent">Start an exam <span>→</span></Link> : <a href="#bundle-explorer" className="btn btn-accent">Explore bundles <span>→</span></a>}
           </div>
           <div className="hero-gauge-wrap">
             <ReadinessGauge score={readiness?.score} band={readiness?.band} size={168} sub="readiness" />
@@ -201,9 +230,9 @@ export default function StudentDashboard() {
         </div>
         {error && <div className="error-banner">{error}</div>}
 
-        <h3>Your courses</h3>
+        <div className="section-heading dashboard-section-heading"><div><div className="eyebrow">Your learning hangar</div><h2>Your courses</h2></div><span>{enrolledBundles.length} enrolled</span></div>
         <div className="grid grid-2">
-          {bundles.map((b) => (
+          {enrolledBundles.map((b) => (
             <div className="card course-card" key={b.id}>
               <div className="course-sky" />
               <div className="flex-between">
@@ -212,13 +241,28 @@ export default function StudentDashboard() {
               </div>
               <p className="muted">{b.description}</p>
               <div className="flex-between">
-                <strong>{b.price_inr ? `₹${b.price_inr}` : 'Included'}</strong>
+                <strong>{b.is_free || !Number(b.price_inr) ? 'Free access' : `₹${Number(b.price_inr).toLocaleString('en-IN')}`}</strong>
                 <Link to={`/bundles/${b.id}`} className="btn btn-outline btn-sm">Open course</Link>
               </div>
             </div>
           ))}
-          {!bundles.length && <p className="muted">No published courses yet.</p>}
+          {!enrolledBundles.length && <div className="empty-inline"><strong>Your learning plan is waiting.</strong><span>Explore the catalogue below to find your next subject.</span></div>}
         </div>
+
+        <section className="bundle-explorer" id="bundle-explorer">
+          <div className="section-heading dashboard-section-heading"><div><div className="eyebrow">Course catalogue</div><h2>Explore bundles</h2><p className="muted">Choose a free learning path or add a paid bundle to your cart.</p></div><a href="#bundle-explorer" className="btn btn-outline btn-sm">View catalogue</a></div>
+          <div className="grid grid-3">
+            {exploreBundles.map((b) => {
+              const free = b.is_free || !Number(b.price_inr);
+              return <article className="explore-bundle-card" key={b.id}>
+                <div className="explore-bundle-top"><span className={`bundle-access-pill ${free ? 'free' : 'paid'}`}>{free ? 'Free' : 'Paid'}</span><span className="bundle-type">{b.exam_type}</span></div>
+                <h3>{b.title}</h3><p>{b.description || 'Structured preparation with subject-wise practice.'}</p>
+                <div className="explore-bundle-meta"><strong>{free ? '₹0' : `₹${Number(b.price_inr).toLocaleString('en-IN')}`}</strong><span>{b.subjects?.length || 0} subjects</span></div>
+                <div className="explore-bundle-actions"><Link to={`/bundles/${b.id}`} className="btn btn-outline btn-sm">Explore</Link>{free ? <button className="btn btn-primary btn-sm" onClick={() => enrollFree(b)}>Add to learning</button> : <button className="btn btn-primary btn-sm" onClick={() => addPaidBundle(b)}>Add to cart</button>}</div>
+              </article>;
+            })}
+          </div>
+        </section>
 
         <div className="section-heading"><div><div className="eyebrow">Simulator</div><h2>Mock exams & practice</h2></div><span>{quizzes.length} available</span></div>
         <div className="grid grid-3">

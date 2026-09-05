@@ -1,11 +1,12 @@
-// Same-origin dev setups (running client+server on the same machine) work with
-// window.location.hostname automatically — this avoids every API call silently
-// failing when the app is opened via a LAN IP, a different hostname, or a port
-// forward, which previously broke every feature that talks to the API (adding
-// questions, the live monitor, CSV import/export, starting an exam) because
-// the browser was pointed at a literal "localhost" that didn't match how the
-// page itself was being accessed.
-export const BASE_URL = import.meta.env.VITE_API_URL || `${window.location.protocol}//${window.location.hostname}:4000/api`;
+// Local development uses the separate Express server. A deployed client uses
+// same-origin /api by default, which works when the frontend host proxies that
+// path to the deployed API. Set VITE_API_URL when the API has its own domain.
+const configuredApiUrl = import.meta.env.VITE_API_URL?.trim().replace(/\/$/, '');
+const isLocalHost = ['localhost', '127.0.0.1'].includes(window.location.hostname)
+  || window.location.hostname.startsWith('192.168.')
+  || window.location.hostname.startsWith('10.');
+export const BASE_URL = configuredApiUrl
+  || (isLocalHost ? `${window.location.protocol}//${window.location.hostname}:4000/api` : '/api');
 
 let accessToken = null;
 let refreshToken = null;
@@ -75,7 +76,9 @@ async function request(path, { method = 'GET', body, isForm = false, auth = true
   const data = contentType.includes('application/json') ? await res.json() : await res.text();
 
   if (!res.ok) {
-    const message = (data && (data.detail || data.error)) || `Request failed (${res.status})`;
+    const message = typeof data === 'string' && data.includes('<!doctype html')
+      ? 'The API server is not connected to this deployment. Set VITE_API_URL to the deployed API URL and redeploy the client.'
+      : (data && (data.detail || data.error)) || `Request failed (${res.status})`;
     throw new Error(message);
   }
   if (shouldRefreshAfterMutation(method, path)) scheduleRefresh();

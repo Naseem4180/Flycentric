@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: flycentric-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: flycentric
+      POSTGRES_PASSWORD: flycentric_dev_pw
+      POSTGRES_DB: flycentric
+    ports:
+      - "5432:5432"
+    volumes:
+      - flycentric_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flycentric -d flycentric"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  flycentric_pgdata:

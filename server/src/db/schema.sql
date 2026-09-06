@@ -199,6 +199,51 @@ CREATE TABLE IF NOT EXISTS quizzes (
 );
 ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS subject_id INTEGER REFERENCES subjects(id) ON DELETE CASCADE;
 
+-- Chapter titles are globally unique taxonomy keys. Older imports could create
+-- the same chapter under several subjects, leaving questions on one record and
+-- an empty duplicate in the quiz picker. Keep the record with the most active
+-- questions, move all references to it, and soft-delete the duplicates.
+CREATE TEMP TABLE chapter_merge_map ON COMMIT DROP AS
+WITH chapter_counts AS (
+  SELECT c.id, c.title, c.subject_id, COUNT(q.id) FILTER (WHERE q.deleted_at IS NULL) AS question_count
+  FROM chapters c
+  LEFT JOIN questions q ON q.chapter_id = c.id
+  WHERE c.deleted_at IS NULL
+  GROUP BY c.id, c.title, c.subject_id
+), ranked AS (
+  SELECT id, subject_id,
+    FIRST_VALUE(id) OVER (PARTITION BY lower(trim(title)) ORDER BY question_count DESC, id) AS canonical_id,
+    FIRST_VALUE(subject_id) OVER (PARTITION BY lower(trim(title)) ORDER BY question_count DESC, id) AS canonical_subject_id
+  FROM chapter_counts
+)
+SELECT id AS duplicate_id, canonical_id, canonical_subject_id
+FROM ranked
+WHERE id <> canonical_id;
+
+UPDATE sections s
+SET chapter_id = m.canonical_id
+FROM chapter_merge_map m
+WHERE s.chapter_id = m.duplicate_id;
+
+UPDATE questions q
+SET chapter_id = m.canonical_id, subject_id = m.canonical_subject_id
+FROM chapter_merge_map m
+WHERE q.chapter_id = m.duplicate_id;
+
+UPDATE quizzes q
+SET chapter_id = m.canonical_id, subject_id = m.canonical_subject_id
+FROM chapter_merge_map m
+WHERE q.chapter_id = m.duplicate_id;
+
+UPDATE chapters c
+SET deleted_at = now()
+FROM chapter_merge_map m
+WHERE c.id = m.duplicate_id AND c.deleted_at IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS chapters_unique_active_title
+  ON chapters (lower(trim(title)))
+  WHERE deleted_at IS NULL;
+
 -- Publish workflow: quizzes are built as drafts and only become visible to
 -- students once explicitly published. Existing installs (created before this
 -- column existed) are backfilled to 'published' exactly once, on first
@@ -304,6 +349,13 @@ CREATE TABLE IF NOT EXISTS student_question_stats (
   last_attempt TIMESTAMPTZ,
   UNIQUE(student_id, question_id)
 );
+-- Time-Per-Question persistence. total_time_seconds accumulates across every
+-- attempt on a question; avg_time_seconds is derived from it and attempt_count
+-- on each submission (see routes/exams.js) so the average stays correct on
+-- re-attempts without replaying attempt history.
+ALTER TABLE student_question_stats ADD COLUMN IF NOT EXISTS total_time_seconds INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE student_question_stats ADD COLUMN IF NOT EXISTS avg_time_seconds NUMERIC(10,2) NOT NULL DEFAULT 0;
+
 CREATE INDEX IF NOT EXISTS idx_sqs_student ON student_question_stats (student_id);
 CREATE INDEX IF NOT EXISTS idx_sqs_question ON student_question_stats (question_id);
 
@@ -475,3 +527,33 @@ CREATE TABLE IF NOT EXISTS media_uploads (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_media_uploads_uploader ON media_uploads (uploaded_by);
+
+-- Mode-specific timer logic: a practice quiz is untimed and stores NULL for
+-- duration_minutes, so the column must be nullable. Exam-mode quizzes still
+-- always carry a positive value (enforced in routes/exams.js).
+ALTER TABLE quizzes ALTER COLUMN duration_minutes DROP NOT NULL;
+
+-- Memory Bank practice quizzes are generated per-student and owned by that
+-- student. `source` distinguishes them from admin-authored quizzes so they
+-- can be refreshed in place and kept out of the public quiz catalogue.
+ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'admin';
+ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();
+CREATE INDEX IF NOT EXISTS idx_quizzes_source_owner ON quizzes (source, created_by);
+
+-- Question type constraint. Authoring is restricted to 'mcq' and 'image'
+-- (enforced in routes/questions.js); the legacy values stay permitted at the
+-- DB level so historical rows remain valid and gradable.
+ALTER TABLE questions DROP CONSTRAINT IF EXISTS questions_question_type_check;
+ALTER TABLE questions ADD CONSTRAINT questions_question_type_check
+  CHECK (question_type IN ('mcq','image','multi_select','true_false','numerical','short_answer','descriptive'));
+
+-- Live-presence tracking for the exam monitor. Without this, "who is online"
+-- was inferred purely from status = 'in_progress', which persists until the
+-- attempt is submitted — so a student who closed their laptop still showed as
+-- actively taking the test for hours. The client pings a heartbeat while an
+-- attempt is open; last_seen_at is what the monitor actually reads.
+ALTER TABLE attempts ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_attempts_last_seen ON attempts (status, last_seen_at);
+
+-- Backfill so existing in-progress rows don't all read as "never seen".
+UPDATE attempts SET last_seen_at = COALESCE(submitted_at, started_at) WHERE last_seen_at IS NULL;

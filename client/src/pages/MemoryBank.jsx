@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Brain, Check, RotateCcw, Sparkles } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Brain, Check, RotateCcw, Sparkles, Play } from 'lucide-react';
 import { api } from '../api';
 
 // Spaced Repetition "Memory Bank" — a Tinder-style swipe deck. Swipe right
@@ -11,6 +11,9 @@ import { api } from '../api';
 const SWIPE_THRESHOLD = 110;
 
 export default function MemoryBank() {
+  const navigate = useNavigate();
+  const [startingQuiz, setStartingQuiz] = useState(false);
+  const [quizError, setQuizError] = useState('');
   const [allItems, setAllItems] = useState(null);
   const [dueItems, setDueItems] = useState(null);
   const [deck, setDeck] = useState([]);
@@ -85,6 +88,21 @@ export default function MemoryBank() {
   const swipeOpacity = Math.min(1, Math.abs(dragX) / SWIPE_THRESHOLD);
   const rotation = dragX / 18;
 
+  // Generates (or refreshes) this student's personal Memory Bank practice
+  // quiz on the server, then jumps straight into it.
+  async function startPracticeQuiz() {
+    setStartingQuiz(true);
+    setQuizError('');
+    try {
+      const { quiz } = await api.post('/memory-bank/practice-quiz', {});
+      navigate(`/take-exam/${quiz.id}`);
+    } catch (err) {
+      setQuizError(err.message);
+    } finally {
+      setStartingQuiz(false);
+    }
+  }
+
   return (
     <div className="admin-main-inner">
       <div className="page-header flex-between">
@@ -92,8 +110,21 @@ export default function MemoryBank() {
           <h1>Memory Bank</h1>
           <p className="muted" style={{ marginTop: 4 }}>{dueItems.length} due for review today · {allItems.length} total saved</p>
         </div>
-        <button className="btn btn-outline btn-sm" onClick={load}><RotateCcw size={13} /> Refresh</button>
+        <div className="row" style={{ gap: 8 }}>
+          {/* Turns the saved-question deck into a real, playable practice
+              quiz — previously the Memory Bank was review-only. */}
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={startPracticeQuiz}
+            disabled={startingQuiz || !allItems.length}
+            title={allItems.length ? 'Practice every question you have saved' : 'Save some questions first'}
+          >
+            <Play size={13} /> {startingQuiz ? 'Building…' : 'Start Practice Quiz'}
+          </button>
+          <button className="btn btn-outline btn-sm" onClick={load}><RotateCcw size={13} /> Refresh</button>
+        </div>
       </div>
+      {quizError && <div className="error-banner">{quizError}</div>}
 
       {card ? (
         <div className="swipe-deck-wrap">

@@ -1,7 +1,10 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { LoaderCircle } from 'lucide-react';
 import { AuthProvider } from './context/AuthContext';
 import useAuth from './context/useAuth';
 import Navbar from './components/Navbar';
+import BrandLogo from './components/BrandLogo';
+import SessionExpiredModal from './components/SessionExpiredModal';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import ForgotPassword from './pages/ForgotPassword';
@@ -13,6 +16,8 @@ import ExamReview from './pages/ExamReview';
 import MemoryBank from './pages/MemoryBank';
 import StudentAnalytics from './pages/StudentAnalytics';
 import MySubjects from './pages/MySubjects';
+import SubjectDetail from './pages/SubjectDetail';
+import ExploreBundles from './pages/ExploreBundles';
 import MyDoubts from './pages/MyDoubts';
 import ReportExamQuestion from './pages/ReportExamQuestion';
 import MyResults from './pages/MyResults';
@@ -46,9 +51,23 @@ import Pricing from './pages/Pricing';
 import Checkout from './pages/Checkout';
 import Support from './pages/Support';
 
+function AppLoadingScreen() {
+  return (
+    <main className="app-loading-screen" role="status" aria-live="polite">
+      <div className="app-loading-panel">
+        <BrandLogo size={42} theme="light" to={null} />
+        <div className="app-loading-icon"><LoaderCircle size={18} /></div>
+        <h1>Preparing your flight deck</h1>
+        <p>Loading your FlyCentric experience…</p>
+        <div className="app-loading-track" aria-hidden="true"><span /></div>
+      </div>
+    </main>
+  );
+}
+
 function Protected({ roles, children }) {
   const { user, loading } = useAuth();
-  if (loading) return <div className="page"><div className="container">Loading…</div></div>;
+  if (loading) return <AppLoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
   if (roles && !roles.includes(user.role)) return <Navigate to="/" replace />;
   return children;
@@ -65,7 +84,7 @@ function StudentAware({ children }) {
 
 function HomeRoute() {
   const { user, loading } = useAuth();
-  if (loading) return <div className="page"><div className="container">Loading…</div></div>;
+  if (loading) return <AppLoadingScreen />;
   if (!user) return <Landing />;
   if (user.role === 'admin') return <Navigate to="/admin" replace />;
   if (user.role === 'instructor') return <Navigate to="/instructor" replace />;
@@ -83,6 +102,9 @@ function AppRoutes() {
   return (
     <div className="app-shell">
       {showPublicNavbar && <Navbar />}
+      {/* Global: a recoverable 401 is retried silently by the api layer; only
+          a genuinely dead session reaches this modal. */}
+      <SessionExpiredModal />
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
@@ -96,6 +118,10 @@ function AppRoutes() {
         <Route path="/take-exam/:quizId" element={<Protected roles={['student']}><TakeExam /></Protected>} />
         <Route path="/review/:attemptId" element={<Protected><StudentAware><ExamReview /></StudentAware></Protected>} />
         <Route path="/my-subjects" element={<Protected roles={['student']}><StudentShell><MySubjects /></StudentShell></Protected>} />
+        {/* Explore Bundles is now its own page rather than an anchor that
+            scrolled the dashboard. */}
+        <Route path="/explore" element={<Protected roles={['student']}><StudentShell><ExploreBundles /></StudentShell></Protected>} />
+        <Route path="/subjects/:subjectId" element={<Protected roles={['student']}><StudentShell><SubjectDetail /></StudentShell></Protected>} />
         <Route path="/my-doubts" element={<Protected roles={['student']}><StudentShell><MyDoubts /></StudentShell></Protected>} />
         <Route path="/report-exam-question" element={<Protected roles={['student']}><StudentShell><ReportExamQuestion /></StudentShell></Protected>} />
         <Route path="/my-results" element={<Protected roles={['student']}><StudentShell><MyResults /></StudentShell></Protected>} />

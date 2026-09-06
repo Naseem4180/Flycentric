@@ -3,7 +3,7 @@ import SidebarBrand from './SidebarBrand';
 import {
   LayoutGrid, Users, Layers, BookOpen, PackageSearch, Database, ListChecks,
   Flag, MessageCircle, Bookmark, BarChart3, Trash2, Settings as SettingsIcon,
-  ScrollText, Sparkles, ArrowRight,
+  ScrollText, Sparkles, ArrowRight, Radio,
 } from 'lucide-react';
 
 // Grouped navigation: Academics / Engagement / System. Every route that
@@ -21,6 +21,9 @@ const NAV_GROUPS = [
       { to: '/admin/bundles-pricing', icon: PackageSearch, label: 'Bundles & Pricing' },
       { to: '/admin/questions', icon: Database, label: 'Question Bank' },
       { to: '/admin/mark-faq', icon: ListChecks, label: 'Mark FAQ' },
+      // Live Monitor existed as a page but was never linked from the sidebar,
+      // so admins had no way to reach it except by typing the URL.
+      { to: '/admin/monitor', icon: Radio, label: 'Live Monitor' },
     ],
   },
   {

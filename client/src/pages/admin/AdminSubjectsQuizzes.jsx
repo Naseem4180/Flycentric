@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Plus, BookOpen, ListChecks, Pencil, Trash2, Copy, Eye, Search, Layers,
+  Plus, BookOpen, ListChecks, Pencil, Trash2, Copy, Eye, Search, Layers, X,
   FileQuestion, GaugeCircle, RotateCcw, Lightbulb, ShieldCheck, Globe, EyeOff,
 } from 'lucide-react';
 import { api } from '../../api';
 import {
-  PageHeader, Card, CardHead, Button, Modal, ConfirmModal, useToast,
-  EmptyState, ErrorState, Skeleton, Badge, DifficultyBadge, StatusBadge, RowMenu,
+  PageHeader, Card, Button, Modal, ConfirmModal, useToast,
+  EmptyState, Skeleton, Badge, DifficultyBadge, StatusBadge, RowMenu,
 } from '../../ui';
 
 const QUIZ_TYPES = [
@@ -24,7 +24,7 @@ const QUIZ_TYPES = [
 // routes/exams.js) makes that whole class of bug impossible.
 const BLANK_QUIZ = {
   title: '', type: 'practice', duration_minutes: 30, pass_percent: 70, question_ids: [],
-  status: 'draft', allow_review_after_submit: true,
+  status: 'draft', allow_review_after_submit: true, chapter_id: '',
 };
 
 export default function AdminSubjectsQuizzes() {
@@ -48,6 +48,7 @@ export default function AdminSubjectsQuizzes() {
   // Chapter dialog
   const [chapterOpen, setChapterOpen] = useState(false);
   const [chapterTitle, setChapterTitle] = useState('');
+  const [chapterSelection, setChapterSelection] = useState('__new__');
   const [savingChapter, setSavingChapter] = useState(false);
 
   // Quiz dialog
@@ -57,7 +58,7 @@ export default function AdminSubjectsQuizzes() {
   const [quizErrors, setQuizErrors] = useState({});
   const [savingQuiz, setSavingQuiz] = useState(false);
   const [pickerSearch, setPickerSearch] = useState('');
-  const [pickerScope, setPickerScope] = useState('subject'); // 'subject' | 'all'
+  const [pickerChapterId, setPickerChapterId] = useState('');
   const [viewQuiz, setViewQuiz] = useState(null);
   const [confirm, setConfirm] = useState(null);
 
@@ -81,10 +82,21 @@ export default function AdminSubjectsQuizzes() {
       setSubjectBundleIds(memberships);
       setSubjects(allSubjects.map((s) => ({ ...s, unlinked: !linkedIds.has(String(s.id)) })));
 
-      const chapterLists = await Promise.all(
-        allSubjects.map((s) => api.get(`/content/subjects/${s.id}/chapters`).then((r) => r.chapters).catch(() => []))
-      );
-      setChapters(chapterLists.flatMap((list, i) => list.map((c) => ({ ...c, subject_id: allSubjects[i].id }))));
+      // Keep the page usable while an older API process is still running or
+      // a deployment does not yet expose the global chapter endpoint.
+      try {
+        const { chapters: allChapters } = await api.get('/content/chapters');
+        setChapters(allChapters);
+      } catch {
+        const chapterLists = await Promise.all(
+          allSubjects.map((subject) => api.get(`/content/subjects/${subject.id}/chapters`).then((r) => r.chapters).catch(() => []))
+        );
+        setChapters(chapterLists.flatMap((list, i) => list.map((chapter) => ({
+          ...chapter,
+          subject_id: allSubjects[i].id,
+          subject_title: allSubjects[i].title,
+        }))));
+      }
     } catch (e) {
       setError(e.message);
       setSubjects([]);
@@ -95,8 +107,23 @@ export default function AdminSubjectsQuizzes() {
   // only fetched questions already tagged with the selected subject, so a
   // freshly-added question (which often has no subject yet) simply never
   // appeared and could not be put into a quiz.
-  const loadQuestions = useCallback(() => {
-    api.get('/questions?limit=500').then((d) => setAllQuestions(d.questions)).catch(() => setAllQuestions([]));
+  const loadQuestions = useCallback(async () => {
+    // The old fixed `limit=500` silently hid every question after #500 from
+    // the quiz builder. Fetch every page so the bank count and picker are
+    // truthful even when an academy has thousands of questions.
+    const pageSize = 500;
+    const collected = [];
+    try {
+      for (let offset = 0; ; offset += pageSize) {
+        const data = await api.get(`/questions?limit=${pageSize}&offset=${offset}`);
+        const page = data.questions || [];
+        collected.push(...page);
+        if (page.length < pageSize) break;
+      }
+      setAllQuestions(collected);
+    } catch {
+      setAllQuestions([]);
+    }
   }, []);
 
   useEffect(() => { loadTree(); loadQuestions(); }, [loadTree, loadQuestions]);
@@ -109,17 +136,56 @@ export default function AdminSubjectsQuizzes() {
 
   const subjectById = useMemo(() => Object.fromEntries((subjects || []).map((s) => [String(s.id), s])), [subjects]);
   const activeChapters = useMemo(() => chapters.filter((c) => String(c.subject_id) === String(active?.id)), [chapters, active]);
+  const activeChapterIds = useMemo(() => new Set(activeChapters.map((chapter) => String(chapter.id))), [activeChapters]);
   const subjectQuestions = useMemo(
-    () => allQuestions.filter((q) => String(q.subject_id || '') === String(active?.id || '')),
-    [allQuestions, active]
+    () => allQuestions.filter((q) => (
+      String(q.subject_id || '') === String(active?.id || '')
+      || activeChapterIds.has(String(q.chapter_id || ''))
+    )),
+    [allQuestions, active, activeChapterIds]
   );
+  // Show the complete subject curriculum, while also retaining any chapter
+  // discovered on imported Question Bank rows. A chapter with no questions
+  // must still be selectable; it simply produces an empty result until
+  // questions are assigned to it.
+  const pickerChapters = useMemo(() => {
+    const byId = new Map(activeChapters.map((chapter) => [String(chapter.id), chapter]));
+    subjectQuestions.forEach((question) => {
+      if (!question.chapter_id) return;
+      const id = String(question.chapter_id);
+      if (!byId.has(id)) {
+        byId.set(id, chapters.find((chapter) => String(chapter.id) === id) || { id, title: `Chapter #${id}` });
+      }
+    });
+    return [...byId.entries()].map(([id, chapter]) => {
+      return { id, title: chapter?.title || `Chapter #${id}` };
+    });
+  }, [activeChapters, subjectQuestions, chapters]);
 
   const pickerQuestions = useMemo(() => {
-    const base = pickerScope === 'all' ? allQuestions : subjectQuestions;
+    const inChapter = pickerChapterId
+      ? subjectQuestions.filter((q) => String(q.chapter_id || '') === pickerChapterId)
+      : subjectQuestions;
     const term = pickerSearch.trim().toLowerCase();
-    if (!term) return base;
-    return base.filter((q) => (q.question_text || '').toLowerCase().includes(term) || String(q.id).includes(term));
-  }, [pickerScope, allQuestions, subjectQuestions, pickerSearch]);
+    if (!term) return inChapter;
+    return inChapter.filter((q) => (q.question_text || '').toLowerCase().includes(term) || String(q.id).includes(term));
+  }, [subjectQuestions, pickerChapterId, pickerSearch]);
+
+  const uniqueChapterOptions = useMemo(() => {
+    const seen = new Set();
+    return chapters.filter((chapter) => {
+      const key = chapter.title.trim().toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [chapters]);
+
+  function openChapterDialog() {
+    setChapterSelection('__new__');
+    setChapterTitle('');
+    setChapterOpen(true);
+  }
 
   /* -------------------------- Subject CRUD --------------------------- */
   function openSubject(subject) {
@@ -163,7 +229,7 @@ export default function AdminSubjectsQuizzes() {
   function askDeleteSubject(subject) {
     setConfirm({
       title: 'Delete subject?',
-      message: `“${subject.title}” will be moved to the Trash Bin along with its place in the curriculum. Quizzes and questions are not deleted.`,
+      message: `“${subject.title}” and its quizzes will be moved to the Trash Bin. Questions will be preserved in the Question Bank but removed from this subject.`,
       confirmLabel: 'Delete Subject',
       onConfirm: async () => {
         try {
@@ -190,25 +256,67 @@ export default function AdminSubjectsQuizzes() {
 
   async function saveChapter(e) {
     e?.preventDefault();
+    const selectedChapter = chapterSelection !== '__new__'
+      ? chapters.find((chapter) => String(chapter.id) === String(chapterSelection))
+      : null;
+    if (selectedChapter) {
+      if (String(selectedChapter.subject_id) === String(active.id)) {
+        toast.info('Chapter already added', selectedChapter.title);
+        setChapterOpen(false);
+      } else {
+        toast.warning('Chapter belongs to another subject', `${selectedChapter.title} is under ${selectedChapter.subject_title || 'another subject'}.`);
+      }
+      return;
+    }
     if (!chapterTitle.trim()) { toast.warning('Chapter name is required'); return; }
     setSavingChapter(true);
     try {
       await api.post(`/content/subjects/${active.id}/chapters`, { title: chapterTitle.trim() });
       toast.success('Chapter added', chapterTitle.trim());
       setChapterTitle('');
+      setChapterSelection('__new__');
       setChapterOpen(false);
       await loadTree();
     } catch (err) {
-      toast.error('Could not add the chapter', err.message);
+      const duplicate = err.message.toLowerCase().includes('duplicate')
+        || err.message.toLowerCase().includes('already exists');
+      toast.error(
+        duplicate ? 'Chapter already exists' : 'Could not add the chapter',
+        duplicate && err.message.includes('belongs')
+          ? err.message
+          : duplicate
+            ? 'This chapter belongs to another subject. Select that subject from the curriculum before adding questions.'
+            : err.message
+      );
     } finally {
       setSavingChapter(false);
     }
+  }
+
+  function askDeleteChapter(chapter) {
+    setConfirm({
+      title: 'Remove chapter?',
+      message: `“${chapter.title}” will be removed from ${active.title}. Questions and quizzes will remain, but they will no longer be assigned to this chapter.`,
+      confirmLabel: 'Remove Chapter',
+      onConfirm: async () => {
+        try {
+          await api.del(`/content/chapters/${chapter.id}`);
+          toast.success('Chapter removed', chapter.title);
+          setPickerChapterId('');
+          await loadTree();
+        } catch (err) {
+          toast.error('Could not remove the chapter', err.message);
+        }
+        setConfirm(null);
+      },
+    });
   }
 
   /* ---------------------------- Quiz CRUD ---------------------------- */
   function openQuiz(quiz) {
     setQuizErrors({});
     setPickerSearch('');
+    setPickerChapterId('');
     if (quiz) {
       setQuizEditing(quiz);
       setQuizForm({
@@ -216,15 +324,14 @@ export default function AdminSubjectsQuizzes() {
         type: quiz.type,
         duration_minutes: quiz.duration_minutes,
         pass_percent: quiz.pass_percent,
+        chapter_id: quiz.chapter_id ? String(quiz.chapter_id) : '',
         question_ids: (quiz.question_ids || []).map(Number),
         status: quiz.status || 'draft',
         allow_review_after_submit: quiz.allow_review_after_submit ?? true,
       });
-      setPickerScope('all');
     } else {
       setQuizEditing(null);
       setQuizForm(BLANK_QUIZ);
-      setPickerScope(subjectQuestions.length ? 'subject' : 'all');
     }
     setQuizOpen(true);
   }
@@ -237,11 +344,11 @@ export default function AdminSubjectsQuizzes() {
       type: quiz.type,
       duration_minutes: quiz.duration_minutes,
       pass_percent: quiz.pass_percent,
+      chapter_id: quiz.chapter_id ? String(quiz.chapter_id) : '',
       question_ids: (quiz.question_ids || []).map(Number),
       status: 'draft',
       allow_review_after_submit: quiz.allow_review_after_submit ?? true,
     });
-    setPickerScope('all');
     setQuizOpen(true);
     toast.info('Duplicated', 'Review the copy and save it as a new quiz.');
   }
@@ -311,6 +418,23 @@ export default function AdminSubjectsQuizzes() {
         ? f.question_ids.filter((x) => String(x) !== String(id))
         : [...f.question_ids, Number(id)],
     }));
+  }
+
+  const allPickerQuestionsSelected = pickerQuestions.length > 0
+    && pickerQuestions.every((question) => quizForm.question_ids.some((id) => String(id) === String(question.id)));
+
+  function toggleAllPickerQuestions() {
+    setQuizForm((f) => {
+      const visibleIds = pickerQuestions.map((question) => Number(question.id));
+      const visibleIdSet = new Set(visibleIds.map(String));
+      if (allPickerQuestionsSelected) {
+        return { ...f, question_ids: f.question_ids.filter((id) => !visibleIdSet.has(String(id))) };
+      }
+      return {
+        ...f,
+        question_ids: [...new Set([...f.question_ids, ...visibleIds])],
+      };
+    });
   }
 
   const totalQuestionsInQuizzes = (quizzes || []).reduce((s, q) => s + (q.question_count || 0), 0);
@@ -417,7 +541,7 @@ export default function AdminSubjectsQuizzes() {
                       {active.status === 'live' ? 'Unpublish' : 'Publish'}
                     </Button>
                     <RowMenu items={[
-                      { label: 'Add chapter', icon: Plus, onClick: () => setChapterOpen(true) },
+                      { label: 'Add chapter', icon: Plus, onClick: openChapterDialog },
                       { separator: true },
                       { label: 'Delete subject', icon: Trash2, danger: true, onClick: () => askDeleteSubject(active) },
                     ]} />
@@ -434,14 +558,21 @@ export default function AdminSubjectsQuizzes() {
                 {!!activeChapters.length && (
                   <div className="row" style={{ marginTop: 16, gap: 6 }}>
                     <span className="muted" style={{ fontSize: '.78rem' }}>Chapters:</span>
-                    {activeChapters.map((c) => <Badge key={c.id} tone="purple">{c.title}</Badge>)}
-                    <Button size="xs" variant="ghost" icon={Plus} onClick={() => setChapterOpen(true)}>Add</Button>
+                    {activeChapters.map((c) => (
+                      <span key={c.id} className="chapter-chip">
+                        <Badge tone="purple">{c.title}</Badge>
+                        <button type="button" className="chapter-remove-btn" aria-label={`Remove ${c.title}`} title="Remove chapter" onClick={() => askDeleteChapter(c)}>
+                          <X size={12} />
+                        </button>
+                      </span>
+                    ))}
+                    <Button size="xs" variant="ghost" icon={Plus} onClick={openChapterDialog}>Add</Button>
                   </div>
                 )}
                 {!activeChapters.length && (
                   <div className="row" style={{ marginTop: 16 }}>
                     <span className="muted" style={{ fontSize: '.78rem' }}>No chapters yet.</span>
-                    <Button size="xs" variant="ghost" icon={Plus} onClick={() => setChapterOpen(true)}>Add Chapter</Button>
+                    <Button size="xs" variant="ghost" icon={Plus} onClick={openChapterDialog}>Add Chapter</Button>
                   </div>
                 )}
               </Card>
@@ -573,8 +704,23 @@ export default function AdminSubjectsQuizzes() {
       >
         <form onSubmit={saveChapter}>
           <div className="field">
-            <label htmlFor="c-title">Chapter name <span className="field-req">*</span></label>
-            <input id="c-title" value={chapterTitle} onChange={(e) => setChapterTitle(e.target.value)} placeholder="e.g. Chapter 1 — Great Circles" />
+            <label htmlFor="c-existing">Choose a chapter</label>
+            <select id="c-existing" value={chapterSelection} onChange={(e) => setChapterSelection(e.target.value)}>
+              <option value="__new__">Create a new chapter</option>
+              {uniqueChapterOptions.map((chapter) => (
+                <option key={chapter.id} value={String(chapter.id)}>
+                  {chapter.title}{chapter.subject_title ? ` · ${chapter.subject_title}` : ''}
+                </option>
+              ))}
+            </select>
+            {chapterSelection === '__new__' ? (
+              <>
+                <label htmlFor="c-title" style={{ marginTop: 12 }}>New chapter name <span className="field-req">*</span></label>
+                <input id="c-title" value={chapterTitle} onChange={(e) => setChapterTitle(e.target.value)} placeholder="e.g. Chapter 1 — Great Circles" />
+              </>
+            ) : (
+              <p className="field-hint">Existing chapters are unique. Choosing one already in this subject will use it in the quiz picker.</p>
+            )}
           </div>
         </form>
       </Modal>
@@ -619,6 +765,14 @@ export default function AdminSubjectsQuizzes() {
               <label htmlFor="q-pass">Pass percentage</label>
               <input id="q-pass" type="number" min="0" max="100" value={quizForm.pass_percent} className={quizErrors.pass ? 'has-error' : ''} onChange={(e) => setQuizForm({ ...quizForm, pass_percent: Number(e.target.value) })} />
               {quizErrors.pass && <p className="field-error">{quizErrors.pass}</p>}
+            </div>
+            <div className="field full">
+              <label htmlFor="q-chapter">Assignment chapter</label>
+              <select id="q-chapter" value={quizForm.chapter_id} onChange={(e) => setQuizForm({ ...quizForm, chapter_id: e.target.value })}>
+                <option value="">— No chapter assignment —</option>
+                {activeChapters.map((chapter) => <option key={chapter.id} value={String(chapter.id)}>{chapter.title}</option>)}
+              </select>
+              <p className="field-hint">Students can open this quiz from this chapter only. Questions can still be selected from any chapter below.</p>
             </div>
           </div>
 
@@ -672,14 +826,16 @@ export default function AdminSubjectsQuizzes() {
           <div className="field">
             <label>Questions <span className="field-req">*</span></label>
             <div className="row" style={{ marginBottom: 8 }}>
-              <div className="seg">
-                <button type="button" className={pickerScope === 'subject' ? 'active' : ''} onClick={() => setPickerScope('subject')}>
-                  This subject ({subjectQuestions.length})
-                </button>
-                <button type="button" className={pickerScope === 'all' ? 'active' : ''} onClick={() => setPickerScope('all')}>
-                  All questions ({allQuestions.length})
-                </button>
-              </div>
+              <select
+                aria-label="Filter questions by chapter"
+                value={pickerChapterId}
+                onChange={(e) => setPickerChapterId(e.target.value)}
+                disabled={!pickerChapters.length}
+                style={{ minWidth: 150 }}
+              >
+                <option value="">All chapters</option>
+                {pickerChapters.map((chapter) => <option key={chapter.id} value={String(chapter.id)}>{chapter.title}</option>)}
+              </select>
               <label className="input-with-icon" style={{ flex: 1, minWidth: 180 }}>
                 <Search size={14} />
                 <input placeholder="Search questions…" value={pickerSearch} onChange={(e) => setPickerSearch(e.target.value)} aria-label="Search questions" />
@@ -687,6 +843,13 @@ export default function AdminSubjectsQuizzes() {
               <Button size="xs" variant="ghost" icon={RotateCcw} onClick={loadQuestions}>Refresh</Button>
             </div>
 
+            {!!pickerQuestions.length && (
+              <label className="picker-select-all">
+                <input type="checkbox" checked={allPickerQuestionsSelected} onChange={toggleAllPickerQuestions} />
+                <span>Select all {pickerSearch.trim() || pickerChapterId ? 'shown' : 'chapter'} questions</span>
+                <span className="muted">({pickerQuestions.length})</span>
+              </label>
+            )}
             <div className="check-list" style={{ maxHeight: 300 }}>
               {pickerQuestions.length ? pickerQuestions.map((question) => {
                 const checked = quizForm.question_ids.some((x) => String(x) === String(question.id));
@@ -697,6 +860,11 @@ export default function AdminSubjectsQuizzes() {
                       <span className="td-muted" style={{ marginRight: 6 }}>#{question.id}</span>
                       {question.question_text}
                     </span>
+                    {question.chapter_id && (
+                      <span className="td-muted" style={{ fontSize: '.72rem' }}>
+                        {chapters.find((chapter) => String(chapter.id) === String(question.chapter_id))?.title || 'Chapter'}
+                      </span>
+                    )}
                     <DifficultyBadge difficulty={question.difficulty} />
                   </label>
                 );
@@ -705,16 +873,14 @@ export default function AdminSubjectsQuizzes() {
                   <div className="empty-state-icon tone-purple"><FileQuestion size={20} /></div>
                   <h3>No questions here</h3>
                   <p>
-                    {pickerScope === 'subject'
-                      ? 'This subject has no questions yet — switch to “All questions” or add some in the Question Bank.'
-                      : 'Add questions in the Question Bank first.'}
+                    {'This subject has no questions in the selected chapter yet. Add or assign them in the Question Bank.'}
                   </p>
                   <Button variant="primary" to="/admin/questions?new=1" icon={Plus}>Add Question</Button>
                 </div>
               )}
             </div>
             {quizErrors.questions && <p className="field-error" style={{ marginTop: 6 }}>{quizErrors.questions}</p>}
-            <p className="field-hint">Newly created questions appear here immediately — use “All questions” if a question hasn’t been filed under this subject yet.</p>
+            <p className="field-hint">Questions are automatically limited to this subject. Use Chapter to build a focused quiz.</p>
           </div>
         </form>
       </Modal>

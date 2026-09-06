@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { BookOpen, ChevronDown, ChevronUp, Lock, Play } from 'lucide-react';
+import { BookOpen, ChevronRight, Lock } from 'lucide-react';
 import { api } from '../api';
 import useAuth from '../context/useAuth';
 import { Badge } from '../ui';
@@ -8,8 +8,6 @@ import { Badge } from '../ui';
 export default function MySubjects() {
   const { user } = useAuth();
   const [subjects, setSubjects] = useState([]);
-  const [openSubject, setOpenSubject] = useState(null);
-  const [quizzesBySubject, setQuizzesBySubject] = useState({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -26,43 +24,24 @@ export default function MySubjects() {
     load.then((d) => setSubjects(d.subjects)).finally(() => setLoading(false));
   }, [user]);
 
-  async function toggleSubject(subjectId) {
-    if (openSubject === subjectId) { setOpenSubject(null); return; }
-    setOpenSubject(subjectId);
-    if (!quizzesBySubject[subjectId]) {
-      const d = await api.get(`/exams/quizzes?subject_id=${subjectId}`);
-      setQuizzesBySubject((prev) => ({ ...prev, [subjectId]: d.quizzes }));
-    }
-  }
 
   return (
     <div className="admin-main-inner">
-      <div className="page-header"><div className="eyebrow">Learning library</div><h1>My Subjects</h1><p className="muted">Open a subject to continue with your available quizzes.</p></div>
+      <div className="page-header"><div className="eyebrow">Learning library</div><h1>My Subjects</h1><p className="muted">Open a subject to see its chapters, assignments and progress.</p></div>
       {loading ? (
         <p className="muted">Loading…</p>
       ) : subjects.length ? (
         <div className="stack">
           {subjects.map((s) => (
-            <div className="card subject-card" key={s.id}>
-              <button type="button" className="subject-card-head" onClick={() => toggleSubject(s.id)} aria-expanded={openSubject === s.id}>
-                <span className="icon-box icon-box-sm tone-purple"><BookOpen size={16} /></span>
+            <Link className="card subject-card subject-card-link" key={s.id} to={`/subjects/${s.id}`}>
+              <span className="icon-box icon-box-sm tone-purple"><BookOpen size={16} /></span>
+              <div className="subject-card-body">
                 <h3>{s.title}</h3>
-                <Badge tone="purple">{(quizzesBySubject[s.id] || []).length || 'Explore'}</Badge>
-                {openSubject === s.id ? <ChevronUp size={17} /> : <ChevronDown size={17} />}
-              </button>
-              {openSubject === s.id && (
-                <div style={{ marginTop: 12 }}>
-                  {(quizzesBySubject[s.id] || []).map((quiz) => (
-                    <div key={quiz.id} className="lesson-row">
-                      <span className="lesson-row-title">{quiz.title}</span>
-                      <span className="muted">{quiz.question_count} questions</span>
-                      <Link to={`/take-exam/${quiz.id}`} className="btn btn-primary btn-sm"><Play size={13} /> Start</Link>
-                    </div>
-                  ))}
-                  {quizzesBySubject[s.id] && !quizzesBySubject[s.id].length && <p className="muted">No quizzes yet.</p>}
-                </div>
-              )}
-            </div>
+                <p className="muted">{s.description || 'Open to see chapters, assignments and your progress.'}</p>
+              </div>
+              <Badge tone="purple">Open</Badge>
+              <ChevronRight size={17} className="muted" />
+            </Link>
           ))}
         </div>
       ) : (

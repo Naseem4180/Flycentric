@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 
 const REPORT_REASONS = [
+  { value: 'appeared_in_exam_exact', label: 'Appeared in exam (Exact match)' },
+  { value: 'appeared_in_exam_similar', label: 'Appeared in exam (Similar)' },
   { value: 'general', label: 'Something else / general feedback' },
   { value: 'doubtful', label: 'A question or answer seems doubtful' },
   { value: 'wrong_answer', label: 'An answer looks incorrect' },

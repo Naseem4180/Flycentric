@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Frontend build output
+client/dist/
+
+# Runtime uploads
+server/uploads/
+
+# Logs and local OS files
+*.log
+npm-debug.log*
+.DS_Store

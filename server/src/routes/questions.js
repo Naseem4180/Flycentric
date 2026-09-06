@@ -5,12 +5,22 @@ const { parse } = require('csv-parse/sync');
 const pool = require('../db/pool');
 const { authenticate, authorize } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
+const { parseQuestionUpload } = require('../utils/importParser');
 
 const router = express.Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
-const QUESTION_TYPES = ['mcq', 'multi_select', 'true_false', 'numerical', 'short_answer', 'descriptive'];
+// Authoring is restricted to exactly two types: a standard multiple-choice
+// question, and an image-based question (the stem is a diagram/chart the
+// student reads, answered with the same option set). Legacy rows may still
+// carry older types, so those remain readable/gradable — LEGACY_TYPES keeps
+// existing content valid while AUTHORABLE_TYPES is what new writes accept.
+const AUTHORABLE_TYPES = ['mcq', 'image'];
+const LEGACY_TYPES = ['multi_select', 'true_false', 'numerical', 'short_answer', 'descriptive'];
+const QUESTION_TYPES = [...AUTHORABLE_TYPES, ...LEGACY_TYPES];
 const DIFFICULTIES = ['easy', 'medium', 'hard'];
+// Types that require an option list + a correct option.
+const OPTION_TYPES = ['mcq', 'image', 'multi_select', 'true_false'];
 
 function normalizeAppearances(value) {
   const years = Array.isArray(value) ? value : String(value || '').split(',');
@@ -42,7 +52,7 @@ function contentHash(questionText, options) {
 // to the client. Returns an error string, or null if the payload is valid.
 async function validateQuestionPayload({ question_type, difficulty, subject_id, chapter_id, tags }) {
   if (question_type && !QUESTION_TYPES.includes(question_type)) {
-    return `question_type must be one of: ${QUESTION_TYPES.join(', ')}`;
+    return `question_type must be one of: ${AUTHORABLE_TYPES.join(', ')}`;
   }
   if (difficulty && !DIFFICULTIES.includes(difficulty)) {
     return `difficulty must be one of: ${DIFFICULTIES.join(', ')}`;
@@ -52,8 +62,11 @@ async function validateQuestionPayload({ question_type, difficulty, subject_id, 
     if (!found.rows.length) return `subject_id ${subject_id} does not exist`;
   }
   if (chapter_id) {
-    const found = await pool.query('SELECT id FROM chapters WHERE id = $1 AND deleted_at IS NULL', [chapter_id]);
+    const found = await pool.query('SELECT id, subject_id FROM chapters WHERE id = $1 AND deleted_at IS NULL', [chapter_id]);
     if (!found.rows.length) return `chapter_id ${chapter_id} does not exist`;
+    if (subject_id && String(found.rows[0].subject_id) !== String(subject_id)) {
+      return `chapter_id ${chapter_id} does not belong to subject_id ${subject_id}`;
+    }
   }
   if (tags && !Array.isArray(tags)) return 'tags must be an array of strings';
   return null;
@@ -72,7 +85,13 @@ router.get('/', async (req, res) => {
   // ever show the current, editable version of each question.
   if (!include_old_versions) clauses.push('is_latest = true');
   if (chapter_id) { params.push(chapter_id); clauses.push(`chapter_id = $${params.length}`); }
-  if (subject_id) { params.push(subject_id); clauses.push(`subject_id = $${params.length}`); }
+  if (subject_id) {
+    params.push(subject_id);
+    const subjectParam = `$${params.length}`;
+    clauses.push(`(subject_id = ${subjectParam} OR chapter_id IN (
+      SELECT id FROM chapters WHERE subject_id = ${subjectParam} AND deleted_at IS NULL
+    ))`);
+  }
   if (difficulty) { params.push(difficulty); clauses.push(`difficulty = $${params.length}`); }
   if (is_faq) { params.push(is_faq === 'true'); clauses.push(`is_faq = $${params.length}`); }
   if (q) { params.push(q); clauses.push(`to_tsvector('english', question_text) @@ plainto_tsquery($${params.length})`); }
@@ -133,7 +152,15 @@ router.patch('/appearances/:id', authenticate, authorize('admin'), async (req, r
 router.post('/', authenticate, authorize('admin', 'instructor'), async (req, res) => {
   const { chapter_id, subject_id, question_text, question_type, options, correct_option, explanation, difficulty, tags, image_url, appearances, allow_duplicate } = req.body;
   const type = question_type || 'mcq';
-  const needsOptions = ['mcq', 'multi_select', 'true_false'].includes(type);
+  if (!AUTHORABLE_TYPES.includes(type)) {
+    return res.status(400).json({ error: `question_type must be one of: ${AUTHORABLE_TYPES.join(', ')}` });
+  }
+  // An image question is defined by having an image — without one it is just
+  // an MCQ mislabelled, and would render an empty figure to the student.
+  if (type === 'image' && !image_url) {
+    return res.status(400).json({ error: 'An image question requires an uploaded image (image_url).' });
+  }
+  const needsOptions = OPTION_TYPES.includes(type);
   if (!question_text) return res.status(400).json({ error: 'question_text required' });
   if (needsOptions && (!options || !options.length || !correct_option)) {
     return res.status(400).json({ error: 'options and correct_option are required for this question type' });
@@ -297,133 +324,185 @@ router.get('/trash/list', authenticate, authorize('admin'), async (req, res) => 
 // chapter_title are matched by name and created when they don't exist yet.
 // question_type defaults to "mcq" when the column is omitted (keeps older template files working).
 router.post('/bulk/import', authenticate, authorize('admin'), upload.single('file'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'CSV file required (field name "file")' });
+  if (!req.file) return res.status(400).json({ error: 'A .csv, .xlsx or .xls file is required (field name "file")' });
+  let parsed;
   try {
-    const records = parse(req.file.buffer.toString('utf8'), { columns: true, skip_empty_lines: true, trim: true });
-    const client = await pool.connect();
-    let inserted = 0;
-    let duplicatesSkipped = 0;
-    const errors = [];
-    try {
-      await client.query('BEGIN');
-      // Name-based columns (subject_title / chapter_title) are resolved to ids
-      // here so the CSV template stays readable. Names are matched
-      // case-insensitively against existing rows, and created when missing, so
-      // the same question text can be imported under several subjects.
-      const subjectCache = new Map();
-      const chapterCache = new Map();
-
-      async function resolveSubject(title) {
-        const key = title.trim().toLowerCase();
-        if (!key) return null;
-        if (subjectCache.has(key)) return subjectCache.get(key);
-        const found = await client.query('SELECT id FROM subjects WHERE lower(title) = $1 AND deleted_at IS NULL LIMIT 1', [key]);
-        let id = found.rows[0]?.id;
-        if (!id) {
-          const created = await client.query('INSERT INTO subjects (title) VALUES ($1) RETURNING id', [title.trim()]);
-          id = created.rows[0].id;
-        }
-        subjectCache.set(key, id);
-        return id;
-      }
-
-      async function resolveChapter(title, subjectId) {
-        const key = `${subjectId || 'none'}::${title.trim().toLowerCase()}`;
-        if (!title.trim()) return null;
-        if (chapterCache.has(key)) return chapterCache.get(key);
-        const found = await client.query(
-          `SELECT id FROM chapters WHERE lower(title) = $1 AND deleted_at IS NULL
-           ${subjectId ? 'AND subject_id = $2' : ''} LIMIT 1`,
-          subjectId ? [title.trim().toLowerCase(), subjectId] : [title.trim().toLowerCase()]
-        );
-        let id = found.rows[0]?.id;
-        if (!id && subjectId) {
-          const created = await client.query('INSERT INTO chapters (subject_id, title) VALUES ($1,$2) RETURNING id', [subjectId, title.trim()]);
-          id = created.rows[0].id;
-        }
-        if (id) chapterCache.set(key, id);
-        return id || null;
-      }
-
-      const seenHashesThisFile = new Set();
-
-      for (const [idx, row] of records.entries()) {
-        const type = (row.question_type || 'mcq').trim() || 'mcq';
-        const needsOptions = ['mcq', 'multi_select', 'true_false'].includes(type);
-        if (!row.question_text || (needsOptions && !row.correct_option)) {
-          errors.push({ row: idx + 2, error: 'Missing question_text or correct_option' });
-          continue;
-        }
-        if (!QUESTION_TYPES.includes(type)) {
-          errors.push({ row: idx + 2, error: `Invalid question_type "${type}". Must be one of: ${QUESTION_TYPES.join(', ')}` });
-          continue;
-        }
-        if (row.difficulty && !DIFFICULTIES.includes(row.difficulty)) {
-          errors.push({ row: idx + 2, error: `Invalid difficulty "${row.difficulty}". Must be one of: ${DIFFICULTIES.join(', ')}` });
-          continue;
-        }
-        const options = ['a', 'b', 'c', 'd']
-          .filter((k) => row[`option_${k}`])
-          .map((k) => ({ key: k.toUpperCase(), text: row[`option_${k}`] }));
-
-        // Duplicate Detection: flag exact repeats (by normalized text +
-        // options) both within this same CSV and against everything already
-        // in the bank, instead of silently importing copies.
-        const hash = contentHash(row.question_text, options);
-        if (seenHashesThisFile.has(hash)) {
-          errors.push({ row: idx + 2, error: 'Duplicate of another row in this same file — skipped.' });
-          duplicatesSkipped += 1;
-          continue;
-        }
-        const existingDup = await client.query(
-          'SELECT id FROM questions WHERE content_hash = $1 AND deleted_at IS NULL AND is_latest = true LIMIT 1',
-          [hash]
-        );
-        if (existingDup.rows.length) {
-          errors.push({ row: idx + 2, error: `Duplicate of existing question #${existingDup.rows[0].id} — skipped.` });
-          duplicatesSkipped += 1;
-          continue;
-        }
-        seenHashesThisFile.add(hash);
-
-        // Explicit ids win; otherwise fall back to the title columns.
-        let subjectId = row.subject_id || null;
-        if (!subjectId && row.subject_title) subjectId = await resolveSubject(row.subject_title);
-        let chapterId = row.chapter_id || null;
-        if (!chapterId && row.chapter_title) chapterId = await resolveChapter(row.chapter_title, subjectId);
-
-        const createdRow = await client.query(
-          `INSERT INTO questions (chapter_id, subject_id, question_text, question_type, options, correct_option, explanation, difficulty, tags, created_by, content_hash)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
-          [
-            chapterId,
-            subjectId,
-            row.question_text,
-            type,
-            JSON.stringify(options),
-            row.correct_option ? row.correct_option.toUpperCase() : null,
-            row.explanation || null,
-            row.difficulty || 'medium',
-            row.tags ? row.tags.split('|').map((t) => t.trim()) : [],
-            req.user.id,
-            hash,
-          ]
-        );
-        await client.query('UPDATE questions SET root_question_id = $1 WHERE id = $1', [createdRow.rows[0].id]);
-        inserted += 1;
-      }
-      await client.query('COMMIT');
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
-    res.json({ inserted, duplicatesSkipped, errors, totalRows: records.length });
+    parsed = parseQuestionUpload(req.file.buffer, req.file.originalname);
   } catch (err) {
-    console.error(err);
-    res.status(400).json({ error: 'Failed to parse/import CSV', detail: err.message });
+    console.error('Import parse failed', err);
+    return res.status(400).json({ error: 'Could not read that file', detail: err.message });
   }
+
+  // `records` here is ALREADY sanitized: every row with a null/empty/
+  // whitespace-only question_text has been stripped out by the parser and
+  // counted in blankRowsRemoved. Duplicate detection and validation below
+  // therefore run against real questions only, which is what makes the
+  // final counts add up exactly.
+  const { records, totalRows, blankRowsRemoved } = parsed;
+  const dataRows = records.length;
+
+  const client = await pool.connect();
+  let imported = 0;
+  let duplicatesInFile = 0;
+  let duplicatesInBank = 0;
+  const errors = [];
+  const duplicates = [];
+
+  try {
+    await client.query('BEGIN');
+    const subjectCache = new Map();
+    const chapterCache = new Map();
+
+    async function resolveSubject(title) {
+      const key = String(title || '').trim().toLowerCase();
+      if (!key) return null;
+      if (subjectCache.has(key)) return subjectCache.get(key);
+      const found = await client.query('SELECT id FROM subjects WHERE lower(title) = $1 AND deleted_at IS NULL LIMIT 1', [key]);
+      let id = found.rows[0]?.id;
+      if (!id) {
+        const created = await client.query('INSERT INTO subjects (title) VALUES ($1) RETURNING id', [String(title).trim()]);
+        id = created.rows[0].id;
+      }
+      subjectCache.set(key, id);
+      return id;
+    }
+
+    async function resolveChapter(title, subjectId) {
+      const clean = String(title || '').trim();
+      if (!clean) return null;
+      const key = `${subjectId || 'none'}::${clean.toLowerCase()}`;
+      if (chapterCache.has(key)) return chapterCache.get(key);
+      const found = await client.query(
+        `SELECT id FROM chapters WHERE lower(title) = $1 AND deleted_at IS NULL
+         ${subjectId ? 'AND subject_id = $2' : ''} LIMIT 1`,
+        subjectId ? [clean.toLowerCase(), subjectId] : [clean.toLowerCase()]
+      );
+      let id = found.rows[0]?.id;
+      if (!id && subjectId) {
+        const created = await client.query('INSERT INTO chapters (subject_id, title) VALUES ($1,$2) RETURNING id', [subjectId, clean]);
+        id = created.rows[0].id;
+      }
+      if (id) chapterCache.set(key, id);
+      return id || null;
+    }
+
+    const seenHashesThisFile = new Map();
+
+    for (const row of records) {
+      const fileRow = row.__row;
+      const rawType = String(row.question_type || '').trim().toLowerCase();
+      const type = rawType || 'mcq';
+      const needsOptions = OPTION_TYPES.includes(type);
+
+      if (!QUESTION_TYPES.includes(type)) {
+        errors.push({ row: fileRow, question_text: row.question_text, error: `Invalid question_type "${row.question_type}". Must be one of: ${QUESTION_TYPES.join(', ')}` });
+        continue;
+      }
+      if (needsOptions && !row.correct_option) {
+        errors.push({ row: fileRow, question_text: row.question_text, error: 'Missing correct_option' });
+        continue;
+      }
+      const difficulty = String(row.difficulty || '').trim().toLowerCase() || 'medium';
+      if (!DIFFICULTIES.includes(difficulty)) {
+        errors.push({ row: fileRow, question_text: row.question_text, error: `Invalid difficulty "${row.difficulty}". Must be one of: ${DIFFICULTIES.join(', ')}` });
+        continue;
+      }
+
+      const options = ['a', 'b', 'c', 'd']
+        .filter((k) => row[`option_${k}`])
+        .map((k) => ({ key: k.toUpperCase(), text: row[`option_${k}`] }));
+
+      if (needsOptions && options.length < 2) {
+        errors.push({ row: fileRow, question_text: row.question_text, error: 'At least two options are required for this question type' });
+        continue;
+      }
+
+      const hash = contentHash(row.question_text, options);
+      if (seenHashesThisFile.has(hash)) {
+        duplicatesInFile += 1;
+        duplicates.push({ row: fileRow, question_text: row.question_text, scope: 'file', duplicate_of_row: seenHashesThisFile.get(hash) });
+        continue;
+      }
+      const existingDup = await client.query(
+        'SELECT id FROM questions WHERE content_hash = $1 AND deleted_at IS NULL AND is_latest = true LIMIT 1',
+        [hash]
+      );
+      if (existingDup.rows.length) {
+        duplicatesInBank += 1;
+        duplicates.push({ row: fileRow, question_text: row.question_text, scope: 'bank', duplicate_of_id: existingDup.rows[0].id });
+        continue;
+      }
+      seenHashesThisFile.set(hash, fileRow);
+
+      let subjectId = row.subject_id || null;
+      if (!subjectId && row.subject_title) subjectId = await resolveSubject(row.subject_title);
+      let chapterId = row.chapter_id || null;
+      if (!chapterId && row.chapter_title) chapterId = await resolveChapter(row.chapter_title, subjectId);
+
+      const appearanceYears = normalizeAppearances(row.appearances) || [];
+
+      const createdRow = await client.query(
+        `INSERT INTO questions (chapter_id, subject_id, question_text, question_type, options, correct_option, explanation, difficulty, tags, appearances, created_by, content_hash)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+        [
+          chapterId,
+          subjectId,
+          row.question_text,
+          type,
+          JSON.stringify(options),
+          row.correct_option ? String(row.correct_option).trim().toUpperCase() : null,
+          row.explanation || null,
+          difficulty,
+          row.tags ? String(row.tags).split('|').map((t) => t.trim()).filter(Boolean) : [],
+          appearanceYears,
+          req.user.id,
+          hash,
+        ]
+      );
+      await client.query('UPDATE questions SET root_question_id = $1 WHERE id = $1', [createdRow.rows[0].id]);
+      imported += 1;
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Import failed', err);
+    return res.status(400).json({ error: 'Failed to import the file', detail: err.message });
+  } finally {
+    client.release();
+  }
+
+  const duplicatesFound = duplicatesInFile + duplicatesInBank;
+
+  // Reconciliation guarantee: every sanitized row ended up in exactly one
+  // bucket. If this ever fails it is a bug in the loop above, not a data
+  // problem, so surface it rather than shipping numbers that don't add up.
+  const accountedFor = imported + duplicatesFound + errors.length;
+  const balanced = accountedFor === dataRows;
+  if (!balanced) {
+    console.error('Import reconciliation mismatch', { dataRows, imported, duplicatesFound, errors: errors.length });
+  }
+
+  res.json({
+    // Sanitized-dataset reporting. `total_imported` is what actually landed
+    // in the bank; every other number explains the rest of the file.
+    total_imported: imported,
+    duplicates_found: duplicatesFound,
+    errors,
+
+    total_rows_in_file: totalRows,
+    blank_rows_removed: blankRowsRemoved,
+    data_rows: dataRows,
+    duplicates_in_file: duplicatesInFile,
+    duplicates_in_bank: duplicatesInBank,
+    duplicate_rows: duplicates,
+    error_count: errors.length,
+    reconciled: balanced,
+
+    // Back-compat aliases for any caller still reading the old field names.
+    inserted: imported,
+    duplicatesSkipped: duplicatesFound,
+    totalRows,
+  });
 });
 
 router.get('/bulk/export', authenticate, authorize('admin'), async (req, res) => {
@@ -449,9 +528,38 @@ router.get('/bulk/export', authenticate, authorize('admin'), async (req, res) =>
 
 // Discrepancy reporting (student -> admin review queue)
 // Question-specific report (from an exam review screen)
+// Reasons a student can flag a question with. The two exam-appearance
+// options let students tell us a question showed up in a real exam, and
+// whether it was word-for-word or a close variant — which is the signal the
+// Mark FAQ / appearance queue is built on.
+const REPORT_REASONS = [
+  'typing_error',
+  'wrong_answer',
+  'doubtful',
+  'appeared_in_exam_exact',
+  'appeared_in_exam_similar',
+  'general',
+];
+
+router.get('/report-reasons', (req, res) => {
+  res.json({
+    reasons: [
+      { key: 'appeared_in_exam_exact', label: 'Appeared in exam (Exact match)' },
+      { key: 'appeared_in_exam_similar', label: 'Appeared in exam (Similar)' },
+      { key: 'typing_error', label: 'Typing error' },
+      { key: 'wrong_answer', label: 'Wrong answer' },
+      { key: 'doubtful', label: 'Doubtful / unclear' },
+      { key: 'general', label: 'Other feedback' },
+    ],
+  });
+});
+
 router.post('/:id/report', authenticate, async (req, res) => {
   const { reason, note } = req.body;
   if (!reason) return res.status(400).json({ error: 'reason required' });
+  if (!REPORT_REASONS.includes(reason)) {
+    return res.status(400).json({ error: `reason must be one of: ${REPORT_REASONS.join(', ')}` });
+  }
   const result = await pool.query(
     'INSERT INTO discrepancy_reports (question_id, reported_by, reason, note) VALUES ($1,$2,$3,$4) RETURNING *',
     [req.params.id, req.user.id, reason, note || null]

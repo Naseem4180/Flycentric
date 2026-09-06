@@ -30,10 +30,24 @@ router.post('/quizzes', authenticate, authorize('admin', 'instructor'), async (r
   // (the post-submission answer key) is still admin-configurable, and only
   // meaningful for Exam — Practice already showed everything live.
   const forcedShowExplanations = type === 'practice';
+  // Mode-specific timer rules. Practice is untimed by definition — it stores
+  // NULL so the student gets a count-up stopwatch and is never auto-submitted.
+  // Exam must carry a positive time limit; a missing one is a 400 rather than
+  // a silent fallback to 30 minutes that nobody configured.
+  let durationMinutes;
+  if (type === 'practice') {
+    durationMinutes = null;
+  } else {
+    const parsedDuration = Number(duration_minutes);
+    if (!Number.isFinite(parsedDuration) || parsedDuration <= 0) {
+      return res.status(400).json({ error: 'duration_minutes is required for an exam-mode quiz' });
+    }
+    durationMinutes = Math.round(parsedDuration);
+  }
   const result = await pool.query(
     `INSERT INTO quizzes (bundle_id, chapter_id, subject_id, title, type, duration_minutes, pass_percent, attempt_limit, question_ids, created_by, status, show_explanations, allow_review_after_submit)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
-    [bundle_id || null, chapter_id || null, subject_id || null, title, type, duration_minutes || 30, pass_percent || 70,
+    [bundle_id || null, chapter_id || null, subject_id || null, title, type, durationMinutes, pass_percent || 70,
      attempt_limit || 0, question_ids, req.user.id, initialStatus,
      forcedShowExplanations,
      allow_review_after_submit != null ? !!allow_review_after_submit : true]
@@ -58,6 +72,11 @@ router.get('/quizzes', authenticate, async (req, res) => {
   // full list (drafts included) and can additionally filter by status.
   if (req.user.role === 'student') {
     clauses.push(`q.status = 'published'`);
+    // Personal Memory Bank quizzes are launched from the Memory Bank screen,
+    // not the general catalogue — and one student's must never be listed to
+    // another. They're excluded here unless explicitly asked for.
+    params.push(req.user.id);
+    clauses.push(`(q.source IS DISTINCT FROM 'memory_bank' OR q.created_by = $${params.length})`);
     params.push(req.user.id);
     clauses.push(`EXISTS (
       SELECT 1 FROM bundle_access ba
@@ -81,7 +100,7 @@ router.get('/quizzes', authenticate, async (req, res) => {
 });
 
 router.patch('/quizzes/:id', authenticate, authorize('admin', 'instructor'), async (req, res) => {
-  const { question_ids, title, type, duration_minutes, pass_percent, attempt_limit, status, allow_review_after_submit } = req.body;
+  const { question_ids, title, type, duration_minutes, pass_percent, attempt_limit, status, allow_review_after_submit, chapter_id } = req.body;
   if (type && !['practice', 'exam'].includes(type)) {
     return res.status(400).json({ error: "type must be 'practice' or 'exam'" });
   }
@@ -98,10 +117,12 @@ router.patch('/quizzes/:id', authenticate, authorize('admin', 'instructor'), asy
        attempt_limit = COALESCE($6, attempt_limit),
        status = COALESCE($7, status),
        show_explanations = COALESCE($8, show_explanations),
-       allow_review_after_submit = COALESCE($9, allow_review_after_submit)
-     WHERE id = $10 AND deleted_at IS NULL RETURNING *`,
+       allow_review_after_submit = COALESCE($9, allow_review_after_submit),
+       chapter_id = CASE WHEN $10::text IS NULL THEN chapter_id ELSE NULLIF($10::text, '')::integer END
+     WHERE id = $11 AND deleted_at IS NULL RETURNING *`,
     [question_ids || null, title || null, type || null, duration_minutes || null, pass_percent || null, attempt_limit ?? null,
-     status || null, forcedShowExplanations, allow_review_after_submit ?? null, req.params.id]
+     status || null, forcedShowExplanations, allow_review_after_submit ?? null,
+     chapter_id === undefined ? null : String(chapter_id), req.params.id]
   );
   if (!result.rows.length) return res.status(404).json({ error: 'Quiz not found' });
   res.json({ quiz: result.rows[0] });
@@ -132,14 +153,24 @@ router.post('/quizzes/:id/start', authenticate, authorize('student'), async (req
   if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
   if (quiz.status !== 'published') return res.status(403).json({ error: 'This quiz is not published yet' });
 
-  const entitlement = await pool.query(
-    `SELECT 1 FROM bundle_access ba
-     WHERE ba.user_id = $1
-       AND (ba.bundle_id = $2 OR $3 IN (SELECT subject_id FROM bundle_subjects WHERE bundle_id = ba.bundle_id))
-     LIMIT 1`,
-    [req.user.id, quiz.bundle_id, quiz.subject_id]
-  );
-  if (!entitlement.rows.length) return res.status(403).json({ error: 'Enroll in this course bundle before starting the test' });
+  // A Memory Bank practice quiz is generated from questions this student has
+  // already saved, and is owned by them — there is no bundle to be entitled
+  // to, so the catalogue entitlement check doesn't apply. It is still scoped
+  // to the owner, so one student can never start another's personal quiz.
+  const isOwnMemoryBankQuiz = quiz.source === 'memory_bank' && Number(quiz.created_by) === Number(req.user.id);
+  if (quiz.source === 'memory_bank' && !isOwnMemoryBankQuiz) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  if (!isOwnMemoryBankQuiz) {
+    const entitlement = await pool.query(
+      `SELECT 1 FROM bundle_access ba
+       WHERE ba.user_id = $1
+         AND (ba.bundle_id = $2 OR $3 IN (SELECT subject_id FROM bundle_subjects WHERE bundle_id = ba.bundle_id))
+       LIMIT 1`,
+      [req.user.id, quiz.bundle_id, quiz.subject_id]
+    );
+    if (!entitlement.rows.length) return res.status(403).json({ error: 'Enroll in this course bundle before starting the test' });
+  }
 
   if (quiz.attempt_limit > 0) {
     const countResult = await pool.query(
@@ -158,7 +189,10 @@ router.post('/quizzes/:id/start', authenticate, authorize('student'), async (req
     [req.user.id, quiz.id]
   );
 
-  const deadline = new Date(Date.now() + quiz.duration_minutes * 60000);
+  // Practice attempts have no deadline at all — the client shows a count-up
+  // stopwatch instead of a countdown, and nothing is ever auto-submitted.
+  const isTimed = quiz.type !== 'practice' && Number(quiz.duration_minutes) > 0;
+  const deadline = isTimed ? new Date(Date.now() + quiz.duration_minutes * 60000) : null;
 
   // Freeze every question exactly as it reads right now. This is what
   // /submit and /review score and display against — never the live
@@ -202,6 +236,7 @@ router.post('/attempts/:id/answer', authenticate, async (req, res) => {
   const attempt = attemptResult.rows[0];
   if (!attempt) return res.status(404).json({ error: 'Attempt not found' });
   if (attempt.status !== 'in_progress') return res.status(409).json({ error: 'Attempt already finalized' });
+  // A null deadline means an untimed practice attempt — never time it out.
   if (attempt.deadline_at && new Date(attempt.deadline_at) < new Date()) {
     return res.status(409).json({ error: 'Time is up for this attempt' });
   }
@@ -215,6 +250,7 @@ router.post('/attempts/:id/answer', authenticate, async (req, res) => {
     : 0;
   const updated = await pool.query(
     `UPDATE attempts SET
+       last_seen_at = now(),
        answers = jsonb_set(answers, $1, $2::jsonb, true),
        question_timings = jsonb_set(
          question_timings, $1,
@@ -286,8 +322,11 @@ router.post('/attempts/:id/submit', authenticate, quizSubmitLimiter, async (req,
   // never called /submit at all until long after the deadline).
   const GRACE_MS = 2 * 60 * 1000; // 2 minutes
   const elapsedMs = Date.now() - new Date(attempt.started_at).getTime();
-  const allowedMs = quiz.duration_minutes * 60000 + GRACE_MS;
-  if (elapsedMs > allowedMs) {
+  // An untimed practice attempt can never be "too late" — there is no limit
+  // to exceed, so the enforcement below is skipped entirely for it.
+  const isTimedQuiz = quiz.type !== 'practice' && Number(quiz.duration_minutes) > 0;
+  const allowedMs = isTimedQuiz ? quiz.duration_minutes * 60000 + GRACE_MS : Infinity;
+  if (isTimedQuiz && elapsedMs > allowedMs) {
     await pool.query("UPDATE attempts SET status = 'expired' WHERE id = $1 AND status = 'in_progress'", [req.params.id]);
     return res.status(403).json({ error: 'Submission rejected: time limit (plus grace period) has been exceeded.' });
   }
@@ -309,6 +348,10 @@ router.post('/attempts/:id/submit', authenticate, quizSubmitLimiter, async (req,
   // actual answer count, matching the "valid question responses" semantics
   // documented on that table.
   const statsUpdates = [];
+  // Time-Per-Question: the per-question seconds accumulated on the attempt
+  // (see the /answer route) are rolled into student_question_stats below so
+  // "average time taken on this question" survives beyond a single attempt.
+  const timings = attempt.question_timings || {};
   for (const questionId of quiz.question_ids) {
     const frozen = attempt.question_snapshot && attempt.question_snapshot[questionId];
     const live = liveById[questionId];
@@ -335,7 +378,7 @@ router.post('/attempts/:id/submit', authenticate, quizSubmitLimiter, async (req,
       isCorrect = given === q.correct_option;
     }
     if (isCorrect) correct += 1;
-    statsUpdates.push({ questionId, isCorrect });
+    statsUpdates.push({ questionId, isCorrect, seconds: Math.max(0, Math.round(Number(timings[questionId] ?? timings[String(questionId)] ?? 0))) });
   }
   const total = quiz.question_ids.length;
   const score = gradable ? Math.round((correct / gradable) * 10000) / 100 : 0;
@@ -349,16 +392,24 @@ router.post('/attempts/:id/submit', authenticate, quizSubmitLimiter, async (req,
   // Update rolling per-question mastery stats. Best-effort: a failure here
   // must not fail the submission the student is waiting on.
   try {
-    for (const { questionId, isCorrect } of statsUpdates) {
+    for (const { questionId, isCorrect, seconds } of statsUpdates) {
+      // total_time_seconds accumulates; avg_time_seconds is derived from it
+      // and attempt_count so the average stays correct across re-attempts
+      // without needing to re-read every historical attempt.
       await pool.query(
-        `INSERT INTO student_question_stats (student_id, question_id, attempt_count, correct_count, wrong_count, last_attempt)
-         VALUES ($1, $2, 1, $3, $4, now())
+        `INSERT INTO student_question_stats
+           (student_id, question_id, attempt_count, correct_count, wrong_count, total_time_seconds, avg_time_seconds, last_attempt)
+         VALUES ($1, $2, 1, $3, $4, $5::int, $5::numeric, now())
          ON CONFLICT (student_id, question_id) DO UPDATE SET
            attempt_count = student_question_stats.attempt_count + 1,
            correct_count = student_question_stats.correct_count + $3,
            wrong_count = student_question_stats.wrong_count + $4,
+           total_time_seconds = student_question_stats.total_time_seconds + $5::int,
+           avg_time_seconds = ROUND(
+             (student_question_stats.total_time_seconds + $5::int)::numeric
+             / GREATEST(student_question_stats.attempt_count + 1, 1), 2),
            last_attempt = now()`,
-        [req.user.id, questionId, isCorrect ? 1 : 0, isCorrect ? 0 : 1]
+        [req.user.id, questionId, isCorrect ? 1 : 0, isCorrect ? 0 : 1, seconds]
       );
     }
   } catch (err) {
@@ -440,6 +491,25 @@ router.get('/attempts/mine', authenticate, async (req, res) => {
   res.json({ attempts: result.rows });
 });
 
+// Liveness ping from an open exam screen. Cheap by design (one indexed
+// UPDATE, no payload) so it can run every ~20s per candidate. This is the
+// ONLY real signal that a student is still connected — attempt status alone
+// cannot distinguish "working through question 12" from "closed the laptop".
+router.post('/attempts/:id/heartbeat', authenticate, async (req, res) => {
+  const result = await pool.query(
+    `UPDATE attempts SET last_seen_at = now()
+     WHERE id = $1 AND user_id = $2 AND status = 'in_progress'
+     RETURNING id, status, deadline_at`,
+    [req.params.id, req.user.id]
+  );
+  if (!result.rows.length) {
+    // Already submitted/expired, or not this user's attempt. Not an error —
+    // the client just stops pinging.
+    return res.json({ ok: false, live: false });
+  }
+  res.json({ ok: true, live: true, server_time: new Date().toISOString() });
+});
+
 // ---- Live exam monitor (admin control room) ---------------------------------
 // In-progress + recently finished attempts across all students, for the admin
 // live monitor screen. Polled every few seconds from the client.
@@ -449,10 +519,10 @@ router.get('/monitor', authenticate, authorize('admin', 'instructor'), async (re
   const params = [];
   if (quiz_id) { params.push(quiz_id); clauses.push(`a.quiz_id = $${params.length}`); }
   const result = await pool.query(
-    `SELECT a.id AS attempt_id, a.status, a.started_at, a.submitted_at, a.deadline_at,
+    `SELECT a.id AS attempt_id, a.status, a.started_at, a.submitted_at, a.deadline_at, a.last_seen_at,
             a.total_questions, (SELECT count(*) FROM jsonb_object_keys(a.answers))::int AS answered_count,
             u.id AS student_id, u.name AS student_name, u.email AS student_email,
-            q.id AS quiz_id, q.title AS quiz_title, q.duration_minutes
+            q.id AS quiz_id, q.title AS quiz_title, q.duration_minutes, q.type AS quiz_type
      FROM attempts a
      JOIN users u ON u.id = a.user_id
      JOIN quizzes q ON q.id = a.quiz_id
@@ -460,20 +530,57 @@ router.get('/monitor', authenticate, authorize('admin', 'instructor'), async (re
      ORDER BY a.started_at DESC LIMIT 300`,
     params
   );
+  // Presence thresholds. The client pings every 20s, so 60s allows two missed
+  // beats before we downgrade someone to Idle — avoids flapping on a brief
+  // network blip while still catching a genuine disconnect quickly.
+  const ONLINE_SECONDS = 60;
+  const IDLE_SECONDS = 180;
+
   const now = Date.now();
   const rows = result.rows.map((r) => {
     const deadline = r.deadline_at ? new Date(r.deadline_at).getTime() : null;
     const secondsRemaining = deadline ? Math.max(0, Math.round((deadline - now) / 1000)) : null;
-    let connectionStatus = 'Active';
+    const lastSeen = r.last_seen_at ? new Date(r.last_seen_at).getTime() : null;
+    const lastSeenSecondsAgo = lastSeen == null ? null : Math.max(0, Math.round((now - lastSeen) / 1000));
+    const isPractice = !r.deadline_at;
+
+    // Ordered most-final first. The old version only special-cased
+    // 'submitted', so an 'expired' (abandoned or superseded) attempt fell
+    // through to "Active" and was reported as a student currently sitting the
+    // exam — which is why the monitor listed people who had long since left.
+    let connectionStatus;
     if (r.status === 'submitted') connectionStatus = 'Submitted';
+    else if (r.status === 'expired') connectionStatus = 'Abandoned';
     else if (secondsRemaining === 0) connectionStatus = 'Time up';
-    return { ...r, seconds_remaining: secondsRemaining, connection_status: connectionStatus };
+    else if (lastSeenSecondsAgo == null) connectionStatus = 'Disconnected';
+    else if (lastSeenSecondsAgo <= ONLINE_SECONDS) connectionStatus = 'Online';
+    else if (lastSeenSecondsAgo <= IDLE_SECONDS) connectionStatus = 'Idle';
+    else connectionStatus = 'Disconnected';
+
+    return {
+      ...r,
+      seconds_remaining: secondsRemaining,
+      last_seen_seconds_ago: lastSeenSecondsAgo,
+      is_practice: isPractice,
+      connection_status: connectionStatus,
+    };
   });
+
+  // Summary is derived from the SAME connection_status the table renders, so
+  // the counters can never disagree with the rows underneath them (they did
+  // before: expired attempts were excluded from `active` but still displayed
+  // as "Active").
+  const countOf = (...statuses) => rows.filter((r) => statuses.includes(r.connection_status)).length;
   const summary = {
     total: rows.length,
-    active: rows.filter((r) => r.status === 'in_progress' && r.seconds_remaining !== 0).length,
-    submitted: rows.filter((r) => r.status === 'submitted').length,
-    timeUp: rows.filter((r) => r.status === 'in_progress' && r.seconds_remaining === 0).length,
+    online: countOf('Online'),
+    idle: countOf('Idle'),
+    disconnected: countOf('Disconnected'),
+    submitted: countOf('Submitted'),
+    abandoned: countOf('Abandoned'),
+    timeUp: countOf('Time up'),
+    // Retained for any older client still reading `active`.
+    active: countOf('Online', 'Idle'),
   };
   res.json({ attempts: rows, summary });
 });

@@ -5,6 +5,25 @@ const { logAudit } = require('../utils/audit');
 
 const router = express.Router();
 
+// True when the student holds access to a bundle that includes this subject.
+// The quiz join preserves access for legacy content where the quiz was linked
+// directly to a bundle before its subject was added to bundle_subjects.
+async function hasSubjectAccess(userId, subjectId) {
+  const result = await pool.query(
+    `SELECT 1 FROM bundle_access ba
+     LEFT JOIN bundle_subjects bs
+       ON bs.bundle_id = ba.bundle_id AND bs.subject_id = $2
+     LEFT JOIN quizzes q
+       ON q.bundle_id = ba.bundle_id AND q.subject_id = $2
+          AND q.deleted_at IS NULL AND q.status = 'published'
+     WHERE ba.user_id = $1 AND (bs.subject_id IS NOT NULL OR q.id IS NOT NULL)
+     LIMIT 1`,
+    [userId, subjectId]
+  );
+  return result.rows.length > 0;
+}
+
+
 function slugify(str) {
   return str.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + '-' + Date.now().toString(36);
 }
@@ -195,12 +214,46 @@ router.patch('/subjects/:id', authenticate, authorize('admin'), async (req, res)
 });
 
 router.delete('/subjects/:id', authenticate, authorize('admin'), async (req, res) => {
-  await pool.query('UPDATE subjects SET deleted_at = now() WHERE id = $1', [req.params.id]);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const subject = await client.query(
+      'SELECT id FROM subjects WHERE id = $1 AND deleted_at IS NULL FOR UPDATE',
+      [req.params.id]
+    );
+    if (!subject.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Subject not found' });
+    }
+    await client.query('UPDATE quizzes SET deleted_at = now() WHERE subject_id = $1 AND deleted_at IS NULL', [req.params.id]);
+    await client.query('DELETE FROM bundle_subjects WHERE subject_id = $1', [req.params.id]);
+    await client.query('UPDATE subjects SET deleted_at = now() WHERE id = $1', [req.params.id]);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
   await logAudit({ req, action: 'subject.delete', entityType: 'subject', entityId: req.params.id });
   res.json({ ok: true });
 });
 
 // ---- Chapters -----------------------------------------------------------------
+// Global chapter list for admin authoring surfaces. Keeping this separate from
+// the subject tree ensures imported/legacy question taxonomy is still visible
+// wherever an admin needs to filter or assign a question.
+router.get('/chapters', async (req, res) => {
+  const result = await pool.query(
+    `SELECT c.*, s.title AS subject_title
+     FROM chapters c
+     JOIN subjects s ON s.id = c.subject_id AND s.deleted_at IS NULL
+     WHERE c.deleted_at IS NULL
+     ORDER BY s.order_index, s.title, c.order_index, c.id`
+  );
+  res.json({ chapters: result.rows });
+});
+
 router.get('/subjects/:subjectId/chapters', async (req, res) => {
   const result = await pool.query(
     'SELECT * FROM chapters WHERE subject_id = $1 AND deleted_at IS NULL ORDER BY order_index',
@@ -209,13 +262,167 @@ router.get('/subjects/:subjectId/chapters', async (req, res) => {
   res.json({ chapters: result.rows });
 });
 
+// ---- Subject detail with per-chapter progress -------------------------------
+// Backs the redesigned Subject dashboard. Returns, in ONE round trip:
+//   - header totals: assignments completed/total, tests taken + average, overall %
+//   - a chapter list carrying each chapter's lock state, attempt count and
+//     best/last score, so the UI can render the status dot and "1 try · 6.0%"
+//     badge without an N+1 request per chapter.
+//
+// "Assignment" here means a practice quiz attached to the chapter; "Test"
+// means an exam-mode quiz. A chapter is unlocked when the student has bundle
+// access, or the chapter is flagged as a free preview.
+router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
+  const subjectId = req.params.subjectId;
+
+  const subjectResult = await pool.query(
+    'SELECT * FROM subjects WHERE id = $1 AND deleted_at IS NULL',
+    [subjectId]
+  );
+  if (!subjectResult.rows.length) return res.status(404).json({ error: 'Subject not found' });
+  const subject = subjectResult.rows[0];
+
+  const chaptersResult = await pool.query(
+    'SELECT id, title, order_index, is_free FROM chapters WHERE subject_id = $1 AND deleted_at IS NULL ORDER BY order_index, id',
+    [subjectId]
+  );
+
+  // Quizzes belonging to this subject, split by mode.
+  const quizResult = await pool.query(
+    `SELECT id, title, type, chapter_id, duration_minutes
+     FROM quizzes
+     WHERE subject_id = $1 AND deleted_at IS NULL AND status = 'published'
+       AND source IS DISTINCT FROM 'memory_bank'`,
+    [subjectId]
+  );
+
+  // Every submitted attempt this student has on those quizzes.
+  const quizIds = quizResult.rows.map((q) => q.id);
+  const attemptsResult = quizIds.length
+    ? await pool.query(
+        `SELECT quiz_id, score, submitted_at
+         FROM attempts
+         WHERE user_id = $1 AND quiz_id = ANY($2) AND status = 'submitted'
+         ORDER BY submitted_at ASC`,
+        [req.user.id, quizIds]
+      )
+    : { rows: [] };
+
+  const attemptsByQuiz = new Map();
+  for (const a of attemptsResult.rows) {
+    if (!attemptsByQuiz.has(a.quiz_id)) attemptsByQuiz.set(a.quiz_id, []);
+    attemptsByQuiz.get(a.quiz_id).push(a);
+  }
+
+  const fullAccess = req.user.role !== 'student' || await hasSubjectAccess(req.user.id, subjectId);
+
+  const chapters = chaptersResult.rows.map((c) => {
+    const chapterQuizzes = quizResult.rows.filter((q) => String(q.chapter_id) === String(c.id));
+    const assignment = chapterQuizzes.find((q) => q.type === 'practice') || null;
+    const test = chapterQuizzes.find((q) => q.type === 'exam') || null;
+
+    const chapterAttempts = chapterQuizzes.flatMap((q) => attemptsByQuiz.get(q.id) || []);
+    const attemptCount = chapterAttempts.length;
+    const lastScore = attemptCount ? Number(chapterAttempts[chapterAttempts.length - 1].score || 0) : null;
+    const bestScore = attemptCount
+      ? Math.max(...chapterAttempts.map((a) => Number(a.score || 0)))
+      : null;
+
+    const unlocked = fullAccess || c.is_free;
+    // status drives the left-hand indicator: locked -> padlock,
+    // not_started -> grey square, attempted -> coloured circle.
+    const status = !unlocked ? 'locked' : (attemptCount > 0 ? 'attempted' : 'not_started');
+
+    return {
+      id: c.id,
+      title: c.title,
+      is_free: c.is_free,
+      unlocked,
+      status,
+      attempt_count: attemptCount,
+      last_score: lastScore,
+      best_score: bestScore,
+      assignment_quiz_id: assignment ? assignment.id : null,
+      test_quiz_id: test ? test.id : null,
+      has_study_material: true,
+    };
+  });
+
+  const assignmentQuizzes = quizResult.rows.filter((q) => q.type === 'practice');
+  const testQuizzes = quizResult.rows.filter((q) => q.type === 'exam');
+  const completedAssignments = assignmentQuizzes.filter((q) => (attemptsByQuiz.get(q.id) || []).length).length;
+  const takenTests = testQuizzes.filter((q) => (attemptsByQuiz.get(q.id) || []).length);
+  const testScores = takenTests.flatMap((q) => (attemptsByQuiz.get(q.id) || []).map((a) => Number(a.score || 0)));
+  const avgTestScore = testScores.length
+    ? Math.round((testScores.reduce((x, y) => x + y, 0) / testScores.length) * 10) / 10
+    : null;
+
+  const allScores = attemptsResult.rows.map((a) => Number(a.score || 0));
+  const overallScore = allScores.length
+    ? Math.round((allScores.reduce((x, y) => x + y, 0) / allScores.length) * 10) / 10
+    : 0;
+
+  const attemptedChapters = chapters.filter((c) => c.attempt_count > 0).length;
+
+  res.json({
+    subject,
+    chapters,
+    summary: {
+      assignments_completed: completedAssignments,
+      assignments_total: assignmentQuizzes.length,
+      assignments_percent: assignmentQuizzes.length
+        ? Math.round((completedAssignments / assignmentQuizzes.length) * 100)
+        : 0,
+      tests_taken: takenTests.length,
+      tests_total: testQuizzes.length,
+      tests_avg_score: avgTestScore,
+      overall_score: overallScore,
+      chapters_total: chapters.length,
+      chapters_attempted: attemptedChapters,
+      chapters_percent: chapters.length
+        ? Math.round((attemptedChapters / chapters.length) * 100)
+        : 0,
+      last_activity: attemptsResult.rows.length
+        ? attemptsResult.rows[attemptsResult.rows.length - 1].submitted_at
+        : null,
+    },
+  });
+});
+
 router.post('/subjects/:subjectId/chapters', authenticate, authorize('admin'), async (req, res) => {
   const { title, order_index, is_free } = req.body;
-  const result = await pool.query(
-    'INSERT INTO chapters (subject_id, title, order_index, is_free) VALUES ($1,$2,$3,$4) RETURNING *',
-    [req.params.subjectId, title, order_index || 0, !!is_free]
+  const cleanTitle = String(title || '').trim();
+  if (!cleanTitle) return res.status(400).json({ error: 'title required' });
+  const existing = await pool.query(
+    `SELECT c.id, c.subject_id, s.title AS subject_title
+     FROM chapters c
+     JOIN subjects s ON s.id = c.subject_id
+     WHERE lower(trim(c.title)) = lower($1) AND c.deleted_at IS NULL AND s.deleted_at IS NULL
+     LIMIT 1`,
+    [cleanTitle]
   );
-  res.status(201).json({ chapter: result.rows[0] });
+  if (existing.rows.length) {
+    const chapter = existing.rows[0];
+    return res.status(409).json({
+      error: `This chapter already belongs to the subject “${chapter.subject_title}”. Select that subject instead of creating a duplicate.`,
+      chapter_id: chapter.id,
+      subject_id: chapter.subject_id,
+    });
+  }
+  try {
+    const result = await pool.query(
+      'INSERT INTO chapters (subject_id, title, order_index, is_free) VALUES ($1,$2,$3,$4) RETURNING *',
+      [req.params.subjectId, cleanTitle, order_index || 0, !!is_free]
+    );
+    res.status(201).json({ chapter: result.rows[0] });
+  } catch (err) {
+    if (err.code === '23505' && err.constraint === 'chapters_unique_active_title') {
+      return res.status(409).json({
+        error: 'This chapter already exists. Select the subject that already contains it instead of creating a duplicate.',
+      });
+    }
+    throw err;
+  }
 });
 
 router.patch('/chapters/:id', authenticate, authorize('admin'), async (req, res) => {
@@ -230,7 +437,26 @@ router.patch('/chapters/:id', authenticate, authorize('admin'), async (req, res)
 });
 
 router.delete('/chapters/:id', authenticate, authorize('admin'), async (req, res) => {
-  await pool.query('UPDATE chapters SET deleted_at = now() WHERE id = $1', [req.params.id]);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('UPDATE questions SET chapter_id = NULL WHERE chapter_id = $1', [req.params.id]);
+    await client.query('UPDATE quizzes SET chapter_id = NULL WHERE chapter_id = $1', [req.params.id]);
+    const result = await client.query(
+      'UPDATE chapters SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL RETURNING id, title',
+      [req.params.id]
+    );
+    if (!result.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Chapter not found' });
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
   await logAudit({ req, action: 'chapter.delete', entityType: 'chapter', entityId: req.params.id });
   res.json({ ok: true });
 });

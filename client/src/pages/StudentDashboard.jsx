@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import useAuth from '../context/useAuth';
 import ReadinessGauge from '../components/ReadinessGauge';
@@ -26,8 +26,7 @@ export default function StudentDashboard() {
   const [readiness, setReadiness] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const { user } = useAuth();
-  const location = useLocation();
+  const { user, authVersion } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -51,15 +50,10 @@ export default function StudentDashboard() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+    // authVersion re-runs this once auth has settled, so the dashboard can
+    // never render empty because its requests fired before the token existed.
+  }, [authVersion]);
 
-  useEffect(() => {
-    if (location.hash !== '#bundle-explorer' || loading) return undefined;
-    const frame = window.requestAnimationFrame(() => {
-      document.getElementById('bundle-explorer')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [location.hash, loading]);
 
   if (loading) return <div className="page"><div className="container dashboard-skeleton"><i /><i /><i /></div></div>;
 
@@ -129,7 +123,7 @@ export default function StudentDashboard() {
             <div className="eyebrow">Flight deck / study plan</div>
             <h1>Good to see you, {user?.name?.split(' ')[0] || 'Pilot'}.</h1>
             <p>Your next focused session is ready. Build confident decisions, one question at a time.</p>
-            {nextQuiz ? <Link to={`/take-exam/${nextQuiz.id}`} className="btn btn-accent">Start an exam <span>→</span></Link> : <a href="#bundle-explorer" className="btn btn-accent">Explore bundles <span>→</span></a>}
+            {nextQuiz ? <Link to={`/take-exam/${nextQuiz.id}`} className="btn btn-accent">Start an exam <span>→</span></Link> : <Link to="/explore" className="btn btn-accent">Explore bundles <span>→</span></Link>}
           </div>
           <div className="hero-gauge-wrap">
             <ReadinessGauge score={readiness?.score} band={readiness?.band} size={168} sub="readiness" />
@@ -249,20 +243,19 @@ export default function StudentDashboard() {
           {!enrolledBundles.length && <div className="empty-inline"><strong>Your learning plan is waiting.</strong><span>Explore the catalogue below to find your next subject.</span></div>}
         </div>
 
-        <section className="bundle-explorer" id="bundle-explorer">
-          <div className="section-heading dashboard-section-heading"><div><div className="eyebrow">Course catalogue</div><h2>Explore bundles</h2><p className="muted">Choose a free learning path or add a paid bundle to your cart.</p></div><a href="#bundle-explorer" className="btn btn-outline btn-sm">View catalogue</a></div>
-          <div className="grid grid-3">
-            {exploreBundles.map((b) => {
-              const free = b.is_free || !Number(b.price_inr);
-              return <article className="explore-bundle-card" key={b.id}>
-                <div className="explore-bundle-top"><span className={`bundle-access-pill ${free ? 'free' : 'paid'}`}>{free ? 'Free' : 'Paid'}</span><span className="bundle-type">{b.exam_type}</span></div>
-                <h3>{b.title}</h3><p>{b.description || 'Structured preparation with subject-wise practice.'}</p>
-                <div className="explore-bundle-meta"><strong>{free ? '₹0' : `₹${Number(b.price_inr).toLocaleString('en-IN')}`}</strong><span>{b.subjects?.length || 0} subjects</span></div>
-                <div className="explore-bundle-actions"><Link to={`/bundles/${b.id}`} className="btn btn-outline btn-sm">Explore</Link>{free ? <button className="btn btn-primary btn-sm" onClick={() => enrollFree(b)}>Add to learning</button> : <button className="btn btn-primary btn-sm" onClick={() => addPaidBundle(b)}>Add to cart</button>}</div>
-              </article>;
-            })}
+        {/* The bundle catalogue used to be embedded here, which is why
+            "Explore Bundles" in the sidebar just scrolled the dashboard. It
+            is now its own page at /explore; the dashboard links to it. */}
+        {!!exploreBundles.length && (
+          <div className="dashboard-explore-cta">
+            <div>
+              <div className="eyebrow">Course catalogue</div>
+              <h2>{exploreBundles.length} more bundle{exploreBundles.length === 1 ? '' : 's'} to explore</h2>
+              <p className="muted">Browse the full catalogue, filter by free or paid, and enrol.</p>
+            </div>
+            <Link to="/explore" className="btn btn-primary">Explore bundles →</Link>
           </div>
-        </section>
+        )}
 
         <div className="section-heading"><div><div className="eyebrow">Simulator</div><h2>Mock exams & practice</h2></div><span>{quizzes.length} available</span></div>
         <div className="grid grid-3">

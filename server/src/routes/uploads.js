@@ -90,4 +90,51 @@ router.get('/', authenticate, authorize('admin'), async (req, res) => {
   res.json({ uploads: result.rows });
 });
 
+// ---- Direct upload with local-disk fallback ---------------------------------
+// The signed-URL flow above requires S3 credentials. Without them the whole
+// image-question feature was unusable (a hard 501), so this endpoint accepts
+// the bytes directly and writes them to local disk when no bucket is
+// configured. Same MIME allowlist, same size cap. On a real deployment set
+// S3_BUCKET and the signed-URL path takes over.
+const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
+
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');
+const memUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 },
+});
+
+router.post('/direct', authenticate, authorize('admin', 'instructor'), memUpload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'file is required' });
+  if (!ALLOWED_MIME.has(req.file.mimetype)) {
+    return res.status(400).json({ error: `Unsupported file type. Allowed: ${[...ALLOWED_MIME].join(', ')}` });
+  }
+
+  const ext = EXT_BY_MIME[req.file.mimetype] || 'bin';
+  const key = `${crypto.randomBytes(16).toString('hex')}.${ext}`;
+
+  if (BUCKET && S3Client && PutObjectCommand) {
+    try {
+      await s3Client().send(new PutObjectCommand({
+        Bucket: BUCKET, Key: `uploads/${key}`, Body: req.file.buffer, ContentType: req.file.mimetype,
+      }));
+      return res.status(201).json({ url: `https://${BUCKET}.s3.${REGION}.amazonaws.com/uploads/${key}`, storage: 's3' });
+    } catch (err) {
+      console.error('S3 upload failed, falling back to local disk', err);
+    }
+  }
+
+  try {
+    await fs.promises.mkdir(UPLOAD_DIR, { recursive: true });
+    await fs.promises.writeFile(path.join(UPLOAD_DIR, key), req.file.buffer);
+  } catch (err) {
+    console.error('Local upload failed', err);
+    return res.status(500).json({ error: 'Could not store the file' });
+  }
+  // Served by the static mount in server.js.
+  res.status(201).json({ url: `/uploads/${key}`, storage: 'local' });
+});
+
 module.exports = router;

@@ -2,6 +2,16 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { X, MessageCircleQuestion, ChevronDown, Flag as FlagIcon } from 'lucide-react';
 import { api } from '../api';
+
+// Mirrors REPORT_REASONS in server/src/routes/questions.js.
+const REPORT_REASONS = [
+  { key: 'appeared_in_exam_exact', label: 'Appeared in exam (Exact match)' },
+  { key: 'appeared_in_exam_similar', label: 'Appeared in exam (Similar)' },
+  { key: 'typing_error', label: 'Typing error' },
+  { key: 'wrong_answer', label: 'Wrong answer' },
+  { key: 'doubtful', label: 'Doubtful / unclear' },
+  { key: 'general', label: 'Other feedback' },
+];
 import Gauge from '../components/Gauge';
 
 // Time-Per-Question thresholds — a question answered in under this many
@@ -33,6 +43,12 @@ export default function ExamReview() {
   const [doubtText, setDoubtText] = useState('');
   const [doubtSent, setDoubtSent] = useState(false);
   const [reportSentFor, setReportSentFor] = useState({});
+  const [reportFor, setReportFor] = useState(null);
+  const [reportReason, setReportReason] = useState('appeared_in_exam_exact');
+  const [reportNote, setReportNote] = useState('');
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportError, setReportError] = useState('');
+
 
   useEffect(() => {
     api.get(`/exams/attempts/${attemptId}/review`).then(setData).catch((e) => setError(e.message));
@@ -52,12 +68,30 @@ export default function ExamReview() {
     }
   }
 
-  async function reportIssue(questionId) {
-    const reason = window.prompt('Reason (typing_error / wrong_answer / doubtful):', 'doubtful');
-    if (!reason) return;
-    const note = window.prompt('Add details for the support team (optional):', '');
-    await api.post(`/questions/${questionId}/report`, { reason, note });
-    setReportSentFor((prev) => ({ ...prev, [questionId]: true }));
+  // Opens the report picker. This used to be two chained window.prompt()
+  // calls taking free text, which is both poor UX and now invalid — the
+  // server validates the reason against a fixed list.
+  function reportIssue(questionId) {
+    setReportFor(questionId);
+    setReportReason('appeared_in_exam_exact');
+    setReportNote('');
+  }
+
+  async function submitReport() {
+    if (reportFor == null) return;
+    setReportBusy(true);
+    try {
+      await api.post(`/questions/${reportFor}/report`, {
+        reason: reportReason,
+        note: reportNote || undefined,
+      });
+      setReportSentFor((prev) => ({ ...prev, [reportFor]: true }));
+      setReportFor(null);
+    } catch (err) {
+      setReportError(err.message);
+    } finally {
+      setReportBusy(false);
+    }
   }
 
   // Contextual Instructor Doubt Submission: a slide-over that keeps the
@@ -232,6 +266,39 @@ export default function ExamReview() {
           </aside>
         </>
       )}
+
+      {reportFor != null && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" onMouseDown={(e) => { if (e.target === e.currentTarget) setReportFor(null); }}>
+          <div className="modal modal-sm">
+            <div className="modal-head">
+              <div style={{ minWidth: 0 }}>
+                <h3>Report this question</h3>
+                <p>Tell us what&rsquo;s wrong so an admin can review it.</p>
+              </div>
+              <button type="button" className="modal-close" onClick={() => setReportFor(null)} aria-label="Close">×</button>
+            </div>
+            <div className="modal-body">
+              {reportError && <div className="error-banner">{reportError}</div>}
+              <div className="field">
+                <label htmlFor="er-reason">Reason</label>
+                <select id="er-reason" value={reportReason} onChange={(e) => setReportReason(e.target.value)}>
+                  {REPORT_REASONS.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="er-note">Additional details (optional)</label>
+                <textarea id="er-note" rows={3} value={reportNote} onChange={(e) => setReportNote(e.target.value)} placeholder="Which exam, which centre, anything else useful…" />
+              </div>
+            </div>
+            <div className="modal-foot">
+              <button className="btn btn-outline" onClick={() => setReportFor(null)} disabled={reportBusy}>Cancel</button>
+              <button className="btn btn-primary" onClick={submitReport} disabled={reportBusy}>
+                {reportBusy ? 'Sending…' : 'Send report'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -273,6 +340,7 @@ function TpqHeatmap({ review, questionTimings }) {
           );
         })}
       </div>
+
     </div>
   );
 }

@@ -8,11 +8,11 @@
 
 :root {
   /* --- Brand ------------------------------------------------------------ */
-  --primary: #5b4bee;
-  --primary-600: #4a3ad9;
-  --primary-700: #3f2bbf;
-  --primary-light: #eeebff;
-  --primary-soft: #f5f3ff;
+  --primary: #2563eb;
+  --primary-600: #1d4ed8;
+  --primary-700: #1e40af;
+  --primary-light: #e8f0ff;
+  --primary-soft: #f1f6ff;
 
   /* --- Semantic --------------------------------------------------------- */
   --info: #3b82f6;
@@ -164,13 +164,13 @@ html, body { max-width: 100%; overflow-x: hidden; }
      making the brand name and icons nearly invisible). Purple pops as an
      accent (active nav pill, badges, CTA) against this deep base rather
      than dominating the whole panel. */
-  background: linear-gradient(165deg, #241d52 0%, #2f2470 45%, #3c2c8f 100%);
+  background: linear-gradient(165deg, #173d78 0%, #1f5bb8 48%, #2563eb 100%);
   border-right: 1px solid rgba(255, 255, 255, .06);
-  box-shadow: 2px 0 24px rgba(36, 20, 90, .12);
+  box-shadow: 2px 0 24px rgba(29, 78, 216, .16);
   transition: width var(--t-base);
   z-index: 60;
 }
-.student-sidebar { background: linear-gradient(165deg, #1f2a5c 0%, #29307d 45%, #38299a 100%); }
+.student-sidebar { background: linear-gradient(165deg, #173d78 0%, #1f5bb8 48%, #2563eb 100%); }
 [data-theme='dark'] .admin-sidebar {
   background: linear-gradient(165deg, #14102e 0%, #1c1745 45%, #241c5c 100%);
 }
@@ -220,11 +220,15 @@ html, body { max-width: 100%; overflow-x: hidden; }
 /* Active: a bright, saturated purple pill so it reads at a glance even
    while scanning quickly — the one place pure accent purple is used at
    full strength in the sidebar. */
-.admin-nav-link.active { background: linear-gradient(90deg, #6b5bf5, #8a6ff2); color: #fff; box-shadow: 0 4px 14px rgba(107, 91, 245, .35); }
+.admin-nav-link.active {
+  background: #2876e8;
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(37, 118, 232, .34);
+}
 .admin-nav-link.active svg { color: #fff; }
 .admin-nav-link.active::before {
   content: ''; position: absolute; left: -12px; top: 8px; bottom: 8px;
-  width: 3px; border-radius: 0 3px 3px 0; background: #b3a8ff;
+  width: 3px; border-radius: 0 3px 3px 0; background: #a9d0ff;
 }
 .admin-shell.sidebar-collapsed .admin-nav-link { justify-content: center; padding: 11px 0; }
 .admin-shell.sidebar-collapsed .admin-nav-link.active::before { display: none; }
@@ -323,12 +327,19 @@ html, body { max-width: 100%; overflow-x: hidden; }
   position: relative; display: flex; align-items: center; flex: 1 1 360px;
   width: min(100%, 440px); max-width: 440px; min-width: 220px;
 }
+/* The magnifier previously had no vertical anchor, so its position depended
+   on the flex static position and it drifted onto the placeholder text.
+   Explicitly centred and given a fixed box so it can never overlap the input
+   text at any font size or zoom level. */
 .fc-topbar-search-icon {
-  position: absolute; left: 14px; z-index: 1; width: 16px; height: 16px;
+  position: absolute; left: 13px; top: 50%; transform: translateY(-50%);
+  z-index: 2; width: 16px; height: 16px; flex: none;
   color: var(--muted-2); pointer-events: none;
+  stroke-width: 2.2;
 }
+.fc-topbar-search:focus-within .fc-topbar-search-icon { color: var(--primary); }
 .fc-topbar-search input {
-  display: block; width: 100%; height: 42px; min-width: 0; padding: 0 70px 0 44px;
+  display: block; width: 100%; height: 42px; min-width: 0; padding: 0 70px 0 46px !important;
   border: 1px solid var(--border-strong); border-radius: var(--r-sm);
   background: var(--surface-alt); color: var(--text); font-size: .84rem; font-family: inherit;
   transition: border-color var(--t-fast), box-shadow var(--t-fast), background var(--t-fast);
@@ -610,6 +621,18 @@ html, body { max-width: 100%; overflow-x: hidden; }
 }
 .badge-dot::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .badge-purple { background: var(--primary-light); color: var(--primary-700); }
+
+.chapter-chip { position: relative; display: inline-flex; align-items: center; gap: 3px; }
+.chapter-remove-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; padding: 0; margin-left: -7px;
+  border: 1px solid var(--surface); border-radius: 50%;
+  background: var(--danger); color: #fff; cursor: pointer;
+  opacity: 0; transform: scale(.8); transition: opacity .15s ease, transform .15s ease;
+}
+.chapter-chip:hover .chapter-remove-btn,
+.chapter-chip:focus-within .chapter-remove-btn { opacity: 1; transform: scale(1); }
+.chapter-remove-btn:hover { background: var(--danger-700, #b4233c); }
 .badge-blue   { background: var(--info-light);    color: #1d4ed8; }
 .badge-green, .badge-live, .badge-success { background: var(--success-light); color: #047857; }
 .badge-orange, .badge-warning, .badge-draft { background: var(--warning-light); color: #b45309; }
@@ -652,6 +675,14 @@ html, body { max-width: 100%; overflow-x: hidden; }
 }
 .inline-add-btn:hover:not(:disabled) { background: var(--primary-light); }
 .inline-add-btn:disabled { color: var(--muted-2); cursor: not-allowed; opacity: .6; }
+
+.picker-select-all {
+  display: flex; align-items: center; gap: 7px; padding: 8px 10px;
+  margin-bottom: 6px; border: 1px solid var(--border); border-radius: 7px;
+  background: var(--surface-alt); color: var(--ink); font-size: .78rem; font-weight: 700;
+}
+.picker-select-all input { margin: 0; accent-color: var(--primary); }
+.picker-select-all .muted { margin-left: auto; font-weight: 500; }
 
 /* Quiz Explanations & Review panel (Practice vs Mock switches). */
 .quiz-mode-panel {
@@ -1032,11 +1063,29 @@ td .row, td .btn-group { flex-wrap: nowrap; }
 .modal-foot-spread { justify-content: space-between; }
 
 .drawer-backdrop { justify-content: flex-end; padding: 0; }
+/* Authoring drawers were far too narrow for real work — a question with four
+   options, an explanation and metadata had every field squeezed into ~560px.
+   The default is now a comfortable authoring width that still leaves the page
+   visible behind it, and scales down cleanly on smaller screens. */
 .drawer {
-  width: min(560px, 100%); max-width: 100%; height: 100vh; max-height: 100vh;
+  width: min(920px, 100vw); max-width: 100%; height: 100vh; max-height: 100vh;
   border-radius: 0; animation: fc-drawer-in 240ms cubic-bezier(.2, .9, .3, 1) both;
 }
-.drawer-lg { width: min(760px, 100%); }
+.drawer-sm { width: min(560px, 100vw); }
+.drawer-lg { width: min(1100px, 100vw); }
+.drawer-xl { width: min(85vw, 1400px); }
+@media (max-width: 980px) {
+  .drawer, .drawer-lg, .drawer-xl { width: 100vw; }
+}
+/* Two-column form layout inside wide drawers — the extra width is only
+   useful if the fields actually use it. */
+.drawer .form-grid-2 {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px;
+}
+.drawer .form-grid-2 .field-full { grid-column: 1 / -1; }
+@media (max-width: 720px) {
+  .drawer .form-grid-2 { grid-template-columns: 1fr; }
+}
 @keyframes fc-drawer-in { from { transform: translateX(28px); opacity: .4; } to { transform: none; opacity: 1; } }
 
 .confirm-icon {
@@ -1443,3 +1492,322 @@ td .row, td .btn-group { flex-wrap: nowrap; }
 .switch-input input:checked + .switch-track { background: var(--primary); }
 .switch-input input:checked + .switch-track::after { transform: translateX(18px); }
 .switch-input input:focus-visible + .switch-track { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+
+/* ==========================================================================
+   Multi-line text rendering
+   Admins enter questions, options and explanations with real line breaks
+   (formulae, tabulated METAR data, multi-part stems). Those newlines were
+   being collapsed by normal HTML whitespace handling, so everything ran
+   together on the student side. pre-wrap preserves the breaks the admin
+   typed while still wrapping long lines normally.
+   ========================================================================== */
+.cbt-question-text,
+.cbt-option-text,
+.cbt-feedback-banner p,
+.question-text-block,
+.option-text-block,
+.explanation-block,
+.review-question-text,
+.review-option-text,
+.qb-preview-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* ==========================================================================
+   Table alignment — long question text and appearance pills were breaking
+   row alignment and scattering the grid.
+   ========================================================================== */
+.td-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  /* pre-wrap is deliberately NOT used here: inside a dense table we want the
+     clamped preview to stay compact. Full formatting is preserved in the
+     preview drawer and on the student side. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-width: 520px;
+  line-height: 1.45;
+}
+.cell-appearances {
+  display: flex; flex-wrap: wrap; gap: 5px;
+  max-width: 220px; align-items: flex-start;
+}
+.cell-appearances .pill {
+  flex: none; white-space: nowrap;
+}
+table td { vertical-align: top; }
+table td.td-nowrap { white-space: nowrap; vertical-align: middle; }
+
+/* ==========================================================================
+   Subject detail dashboard (analytics header + chapter list)
+   ========================================================================== */
+.subject-crumb {
+  display: flex; align-items: center; gap: 8px;
+  font-size: .82rem; color: var(--muted); margin-bottom: 16px;
+}
+.subject-crumb a {
+  display: inline-flex; align-items: center; gap: 3px;
+  color: var(--muted); text-decoration: none; font-weight: 600;
+}
+.subject-crumb a:hover { color: var(--primary); }
+.subject-crumb strong { color: var(--text); font-weight: 700; }
+
+.subject-stats-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-lg); padding: 22px 26px; margin-bottom: 22px;
+  box-shadow: var(--shadow-sm);
+}
+.subject-stats-row {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 8px; text-align: center;
+}
+.subject-stat { padding: 4px 14px; position: relative; }
+.subject-stat + .subject-stat::before {
+  content: ''; position: absolute; left: 0; top: 12%; height: 76%;
+  width: 1px; background: var(--border);
+}
+.subject-stat-label {
+  display: block; font-size: .66rem; font-weight: 800;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--muted-2);
+  margin-bottom: 8px;
+}
+.subject-stat-value {
+  display: block; font-size: 2.1rem; font-weight: 800; line-height: 1;
+  color: var(--text); letter-spacing: -.02em;
+}
+.subject-stat-value em {
+  font-style: normal; font-size: 1.05rem; font-weight: 600;
+  color: var(--muted-2); margin-left: 3px;
+}
+.subject-stat small {
+  display: block; margin-top: 8px; font-size: .74rem; color: var(--muted);
+}
+.tone-text-success { color: var(--success) !important; }
+.tone-text-warning { color: var(--warning) !important; }
+.tone-text-danger  { color: var(--danger) !important; }
+.tone-text-neutral { color: var(--muted-2) !important; }
+
+.subject-progress { margin-top: 22px; }
+.subject-progress-track {
+  height: 8px; border-radius: 99px; background: var(--surface-alt);
+  overflow: hidden; border: 1px solid var(--border);
+}
+.subject-progress-fill {
+  height: 100%; border-radius: 99px;
+  background: linear-gradient(90deg, var(--primary), #8b5cf6);
+  transition: width 400ms cubic-bezier(.2,.9,.3,1);
+}
+.subject-progress-meta {
+  display: flex; justify-content: space-between; margin-top: 7px;
+  font-size: .73rem; color: var(--muted);
+}
+
+.subject-chapter-head {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 14px 18px; margin-bottom: 12px;
+  background: var(--primary-light); border-left: 4px solid var(--primary);
+  border-radius: var(--r-md);
+}
+.subject-chapter-head h2 { margin: 0; font-size: 1rem; font-weight: 800; }
+.subject-chapter-head-meta {
+  margin-left: auto; font-size: .78rem; color: var(--muted);
+}
+
+.chapter-list { display: flex; flex-direction: column; gap: 9px; }
+.chapter-row {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 18px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  transition: box-shadow var(--t-fast), border-color var(--t-fast), transform var(--t-fast);
+}
+.chapter-row:hover { box-shadow: var(--shadow-sm); border-color: var(--border-strong); }
+.chapter-row.locked { background: var(--surface-alt); }
+
+/* Left status indicator — three distinct shapes so state is readable without
+   relying on colour alone: padlock (locked), grey square (not started),
+   coloured circle (attempted). */
+.chapter-indicator {
+  width: 20px; height: 20px; flex: none;
+  display: grid; place-items: center;
+}
+.chapter-indicator-locked { color: #d99b00; }
+.chapter-indicator-not_started {
+  background: #d7dbe4; border-radius: 4px; border: 1px solid #c3c9d6;
+}
+.chapter-indicator-attempted { border-radius: 50%; }
+.chapter-indicator-attempted.tone-success { background: var(--success); }
+.chapter-indicator-attempted.tone-warning { background: #f5b400; }
+.chapter-indicator-attempted.tone-danger  { background: #f5b400; }
+.chapter-indicator-attempted.tone-neutral { background: var(--muted-2); }
+
+.chapter-title {
+  font-weight: 700; font-size: .88rem; color: var(--text);
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.chapter-badge {
+  flex: none; font-size: .72rem; font-weight: 700;
+  padding: 5px 12px; border-radius: 99px; white-space: nowrap;
+}
+.chapter-badge-idle { background: var(--surface-alt); color: var(--muted); border: 1px solid var(--border); }
+.chapter-badge-success { background: rgba(0,178,105,.12); color: #067a4b; }
+.chapter-badge-warning { background: rgba(245,180,0,.16); color: #8a6100; }
+.chapter-badge-danger  { background: rgba(230,55,87,.10); color: #c32b47; }
+.chapter-badge-neutral { background: var(--surface-alt); color: var(--muted); }
+
+.chapter-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.chapter-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 7px 12px; border-radius: 7px; text-decoration: none;
+  font-size: .7rem; font-weight: 800; letter-spacing: .03em;
+  text-transform: uppercase; white-space: nowrap;
+  border: 1px solid transparent; transition: filter var(--t-fast);
+}
+.chapter-btn-study { background: #fffbe6; color: #8a6100; border-color: #f2d675; }
+.chapter-btn-assign { background: #e9fbf3; color: #067a4b; border-color: #9fe3c4; }
+.chapter-btn:hover:not(.is-disabled) { filter: brightness(.97); }
+.chapter-btn.is-disabled {
+  background: var(--surface-alt); color: var(--muted-2);
+  border-color: var(--border); cursor: not-allowed; pointer-events: none;
+}
+
+@media (max-width: 860px) {
+  .subject-stats-row { grid-template-columns: 1fr; gap: 18px; }
+  .subject-stat + .subject-stat::before { display: none; }
+  .subject-stat + .subject-stat { border-top: 1px solid var(--border); padding-top: 16px; }
+  .chapter-row { flex-wrap: wrap; }
+  .chapter-title { flex-basis: 100%; white-space: normal; }
+  .chapter-actions { margin-left: auto; }
+}
+
+/* Subject cards now navigate to the subject dashboard rather than expanding. */
+.subject-card-link {
+  display: flex; align-items: center; gap: 14px;
+  text-decoration: none; color: inherit;
+  transition: box-shadow var(--t-fast), border-color var(--t-fast), transform var(--t-fast);
+}
+.subject-card-link:hover {
+  border-color: var(--primary); box-shadow: var(--shadow-sm); transform: translateY(-1px);
+}
+.subject-card-body { flex: 1; min-width: 0; }
+.subject-card-body h3 { margin: 0 0 3px; font-size: .95rem; font-weight: 700; }
+.subject-card-body p { margin: 0; font-size: .78rem; }
+
+/* Explore Bundles toolbar */
+.explore-toolbar {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 20px;
+}
+.explore-search { position: relative; flex: 1 1 320px; min-width: 220px; display: flex; align-items: center; }
+.explore-search-icon {
+  position: absolute; left: 13px; top: 50%; transform: translateY(-50%);
+  color: var(--muted-2); pointer-events: none; width: 15px; height: 15px;
+}
+.explore-search input {
+  width: 100%; height: 40px; padding: 0 14px 0 38px;
+  border: 1px solid var(--border-strong); border-radius: var(--r-sm);
+  background: var(--surface); font-family: inherit; font-size: .84rem; color: var(--text);
+}
+.explore-search input:focus {
+  outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-light);
+}
+.explore-tabs { display: inline-flex; gap: 4px; padding: 4px; background: var(--surface-alt); border-radius: var(--r-sm); border: 1px solid var(--border); }
+.explore-tab {
+  border: 0; background: none; padding: 7px 14px; border-radius: 6px; cursor: pointer;
+  font-family: inherit; font-size: .78rem; font-weight: 700; color: var(--muted);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.explore-tab:hover { color: var(--text); }
+.explore-tab.active { background: var(--surface); color: var(--primary); box-shadow: var(--shadow-sm); }
+.btn.is-static { pointer-events: none; }
+
+.dashboard-explore-cta {
+  display: flex; align-items: center; justify-content: space-between; gap: 20px;
+  flex-wrap: wrap; padding: 22px 26px; margin: 26px 0;
+  background: var(--primary-light); border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+.dashboard-explore-cta h2 { margin: 2px 0 4px; font-size: 1.05rem; }
+.dashboard-explore-cta p { margin: 0; font-size: .82rem; }
+
+/* Cross-page bulk selection banner (Question Bank -> Add to Quiz) */
+.bulk-select-banner {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  flex-wrap: wrap; padding: 10px 16px; margin-bottom: 10px;
+  background: var(--primary-light); border: 1px solid var(--primary);
+  border-radius: var(--r-sm); font-size: .82rem; color: var(--text);
+}
+.bulk-select-banner button {
+  border: 0; background: none; padding: 0; cursor: pointer;
+  font-family: inherit; font-size: .82rem; font-weight: 800;
+  color: var(--primary); text-decoration: underline;
+}
+.bulk-select-banner button:hover { filter: brightness(.85); }
+
+/* The appearance pills use the shared flex-wrap container. */
+.cell-appearances .appearance-bubble { flex: none; white-space: nowrap; }
+
+/* ==========================================================================
+   Live exam monitor — presence states
+   ========================================================================== */
+.monitor-tiles {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px; margin-bottom: 18px;
+}
+.monitor-tile {
+  background: var(--surface); border: 1px solid var(--border);
+  border-left: 4px solid var(--border-strong);
+  border-radius: var(--r-md); padding: 14px 16px;
+}
+.monitor-tile strong { display: block; font-size: 1.8rem; font-weight: 800; line-height: 1; }
+.monitor-tile span {
+  display: flex; align-items: center; gap: 5px; margin-top: 6px;
+  font-size: .78rem; font-weight: 700; color: var(--text);
+}
+.monitor-tile small { display: block; margin-top: 3px; font-size: .69rem; color: var(--muted-2); }
+.monitor-tile.tone-live      { border-left-color: var(--success); }
+.monitor-tile.tone-live strong { color: var(--success); }
+.monitor-tile.tone-idle      { border-left-color: #f5b400; }
+.monitor-tile.tone-idle strong { color: #b98700; }
+.monitor-tile.tone-offline   { border-left-color: var(--danger); }
+.monitor-tile.tone-offline strong { color: var(--danger); }
+.monitor-tile.tone-done      { border-left-color: var(--blue); }
+.monitor-tile.tone-abandoned { border-left-color: var(--muted-2); }
+
+.presence-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 11px; border-radius: 99px;
+  font-size: .72rem; font-weight: 700; white-space: nowrap;
+}
+.presence-pill i { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.presence-live      { background: rgba(0,178,105,.13); color: #067a4b; }
+.presence-live i    { background: var(--success); animation: presence-pulse 1.6s ease-in-out infinite; }
+.presence-idle      { background: rgba(245,180,0,.16); color: #8a6100; }
+.presence-idle i    { background: #f5b400; }
+.presence-offline   { background: rgba(230,55,87,.10); color: #c32b47; }
+.presence-offline i { background: var(--danger); }
+.presence-done      { background: rgba(59,113,255,.10); color: #2a51c4; }
+.presence-done i    { background: var(--blue); }
+.presence-abandoned { background: var(--surface-alt); color: var(--muted); }
+.presence-abandoned i { background: var(--muted-2); }
+.presence-timeup    { background: rgba(230,55,87,.14); color: #c32b47; }
+.presence-timeup i  { background: var(--danger); }
+@keyframes presence-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+.monitor-progress { display: flex; align-items: center; gap: 8px; }
+.monitor-progress-track {
+  width: 74px; height: 6px; border-radius: 99px;
+  background: var(--surface-alt); border: 1px solid var(--border); overflow: hidden;
+}
+.monitor-progress-fill { height: 100%; background: var(--primary); border-radius: 99px; }
+.monitor-progress span { font-size: .76rem; color: var(--muted); white-space: nowrap; }
+
+.monitor-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: .78rem; font-weight: 600; color: var(--muted); cursor: pointer;
+}

@@ -4,24 +4,41 @@ import { X, Brain, Flag, ChevronDown } from 'lucide-react';
 import { api } from '../api';
 import useAuth from '../context/useAuth';
 
+// Kept in sync with REPORT_REASONS in server/src/routes/questions.js, which
+// validates the submitted value. The two exam-appearance options let a
+// student tell us a question showed up in a real exam and whether it was
+// word-for-word or a close variant.
 const REPORT_REASONS = [
+  { key: 'appeared_in_exam_exact', label: 'Appeared in exam (Exact match)' },
+  { key: 'appeared_in_exam_similar', label: 'Appeared in exam (Similar)' },
   { key: 'typing_error', label: 'Typing error' },
   { key: 'wrong_answer', label: 'Wrong answer' },
   { key: 'doubtful', label: 'Doubtful / unclear' },
   { key: 'general', label: 'Other feedback' },
 ];
 
-// Palette status priority: flagged (any marked question, answered or not) >
-// answered > visited-but-unanswered > never-visited. Maps to exactly the
-// 3-color scheme requested: Gray = Unanswered (whether visited or not),
-// Blue = Answered, Orange = Flagged for Review.
+// Palette status priority: flagged > answered > visited-but-unanswered >
+// never-visited. Four visually distinct states (see index.css):
+//   answered            -> Green
+//   visited-unanswered  -> Red   (opened but skipped)
+//   unanswered          -> Light grey (never opened)
+//   flagged             -> Purple (marked for review)
+// An answer of '' (cleared response) counts as NOT answered, which is why
+// this tests the trimmed string rather than plain truthiness.
 function paletteStatus(qId, visited, answers, marked) {
-  const isAnswered = !!answers[qId];
-  const isMarked = marked.has(qId);
-  if (isMarked) return 'flagged';
+  const raw = answers[qId];
+  const isAnswered = raw != null && String(raw).trim() !== '';
+  if (marked.has(qId)) return 'flagged';
   if (isAnswered) return 'answered';
   if (visited.has(qId)) return 'visited-unanswered';
   return 'unanswered';
+}
+
+function formatClock(totalSeconds) {
+  const s = Math.max(0, Math.floor(totalSeconds || 0));
+  return [Math.floor(s / 3600), Math.floor((s % 3600) / 60), s % 60]
+    .map((n) => String(n).padStart(2, '0'))
+    .join(':');
 }
 
 // Gradient exam timer: interpolates from green (plenty of time) through
@@ -56,6 +73,9 @@ export default function TakeExam() {
   const [visited, setVisited] = useState(() => new Set());
   const [marked, setMarked] = useState(() => new Set());
   const [remaining, setRemaining] = useState(null);
+  // Practice mode counts UP from 00:00:00 instead of down; nothing is ever
+  // auto-submitted, the student just sees how long they've spent.
+  const [elapsed, setElapsed] = useState(0);
   const [totalDurationSeconds, setTotalDurationSeconds] = useState(null);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -177,11 +197,50 @@ export default function TakeExam() {
     return () => window.removeEventListener('popstate', onPopState);
   }, [confirmed]);
 
+  // Liveness heartbeat. Without this the admin Live Monitor had no way to
+  // tell an actively-working candidate from one who closed their laptop —
+  // every unsubmitted attempt simply read as "Active" until it was submitted.
+  // Pings every 20s while the attempt is open, plus once immediately, and
+  // once more whenever the tab regains focus so a returning student flips
+  // back to Online without waiting for the next interval.
+  useEffect(() => {
+    if (!attempt?.id || submittedRef.current) return undefined;
+
+    let stopped = false;
+    const ping = () => {
+      if (stopped || submittedRef.current) return;
+      api.post(`/exams/attempts/${attempt.id}/heartbeat`).catch(() => {});
+    };
+
+    ping();
+    const interval = setInterval(ping, 20000);
+    const onVisible = () => { if (!document.hidden) ping(); };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      stopped = true;
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [attempt?.id]);
+
   // Always leave fullscreen when navigating away from the exam page.
   useEffect(() => () => exitFullscreenIfActive(), []);
 
+  // Mode-specific timer. An exam attempt has a server-issued deadline_at and
+  // counts down to a forced auto-submit. A practice attempt has deadline_at
+  // = null, so it counts up from started_at and never auto-submits.
   useEffect(() => {
-    if (!attempt?.deadline_at) return;
+    if (!attempt) return undefined;
+
+    if (!attempt.deadline_at) {
+      const startedAt = new Date(attempt.started_at || Date.now()).getTime();
+      const tickUp = () => setElapsed(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+      tickUp();
+      const up = setInterval(tickUp, 1000);
+      return () => clearInterval(up);
+    }
+
     const tick = () => {
       const secs = Math.max(0, Math.floor((new Date(attempt.deadline_at) - new Date()) / 1000));
       setRemaining(secs);
@@ -353,17 +412,34 @@ export default function TakeExam() {
   }
 
   const counts = useMemo(() => {
-    const answered = questions.filter((qq) => answers[qq.id]).length;
+    const isAnswered = (qq) => {
+      const raw = answers[qq.id];
+      return raw != null && String(raw).trim() !== '';
+    };
+    const answered = questions.filter(isAnswered).length;
+    const skipped = questions.filter((qq) => !isAnswered(qq) && visited.has(qq.id)).length;
     const markedCount = questions.filter((qq) => marked.has(qq.id)).length;
-    return { total: questions.length, answered, notAnswered: questions.length - answered, marked: markedCount };
-  }, [questions, answers, marked]);
+    return {
+      total: questions.length,
+      answered,
+      skipped,
+      untouched: questions.length - answered - skipped,
+      notAnswered: questions.length - answered,
+      marked: markedCount,
+    };
+  }, [questions, answers, marked, visited]);
 
   if (error) return <div className="page"><div className="container"><div className="error-banner">{error}</div></div></div>;
 
-  const mins = remaining != null ? String(Math.floor(remaining / 60)).padStart(2, '0') : '--';
-  const hrs = remaining != null ? String(Math.floor(remaining / 3600)).padStart(2, '0') : '--';
-  const secs = remaining != null ? String(remaining % 60).padStart(2, '0') : '--';
-  const timeLow = remaining != null && remaining <= 60;
+  // isPractice is derived from the attempt the SERVER handed back (no
+  // deadline == untimed), not from a client-side guess, so the two can never
+  // disagree about whether this paper is timed.
+  const isPractice = !!attempt && !attempt.deadline_at;
+  const clockLabel = isPractice ? 'Time Elapsed' : 'Time Left';
+  const clockValue = isPractice
+    ? formatClock(elapsed)
+    : (remaining != null ? formatClock(remaining) : '--:--:--');
+  const timeLow = !isPractice && remaining != null && remaining <= 60;
   const q = questions[current];
   const initial = (user?.name || 'C').trim().charAt(0).toUpperCase();
 
@@ -404,18 +480,29 @@ export default function TakeExam() {
             <div className="cbt-topbar-left">
               <strong>FlyCentric Examination Portal</strong>
               <span>{quiz.title}</span>
-              {quiz.show_explanations ? (
-                <span className="cbt-mode-chip cbt-mode-practice" title="Answers and explanations are shown as you go">Practice mode</span>
+              {isPractice ? (
+                <span className="cbt-mode-chip cbt-mode-practice" title="Untimed — answers and explanations shown as you go">Practice · untimed</span>
               ) : (
-                <span className="cbt-mode-chip cbt-mode-protected" title="Answers stay hidden until you submit">Exam mode</span>
+                <span className="cbt-mode-chip cbt-mode-protected" title="Timed — auto-submits when the clock runs out">Exam · timed</span>
               )}
             </div>
             <div className="cbt-topbar-center">{quiz.title}</div>
             <div className="cbt-topbar-right">
-              <div className={`cbt-timer ${timeLow ? 'low' : ''}`}>
-                <span>Time Left</span>
-                <strong>{hrs}:{mins}:{secs}</strong>
+              <div className={`cbt-timer ${timeLow ? 'low' : ''} ${isPractice ? 'stopwatch' : ''}`}>
+                <span>{clockLabel}</span>
+                <strong>{clockValue}</strong>
               </div>
+              {/* Sticky top submit — the same guarded flow as the bottom bar
+                  (flush timings, commit any draft, then confirm), so a student
+                  never has to scroll to the end of a long paper to finish. */}
+              <button
+                type="button"
+                className="cbt-topbar-submit"
+                onClick={() => { flushTiming(); commitDraft(); setShowSummary(true); }}
+                disabled={submitting}
+              >
+                {submitting ? 'Submitting…' : 'Submit Exam'}
+              </button>
               <button className="cbt-exit-btn" title="Submit and exit" onClick={handleExit} disabled={submitting}><X size={16} /></button>
             </div>
           </div>
@@ -424,7 +511,7 @@ export default function TakeExam() {
               from full-width to empty as time runs out, shifting color from
               green through amber to red (see timerGradientColor above) so
               remaining time is visible at a glance without reading digits. */}
-          {totalDurationSeconds > 0 && (
+          {!isPractice && totalDurationSeconds > 0 && (
             <div className="cbt-timer-track" role="progressbar" aria-label="Time remaining" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(((remaining ?? totalDurationSeconds) / totalDurationSeconds) * 100)}>
               <div
                 className="cbt-timer-fill"
@@ -617,9 +704,6 @@ export default function TakeExam() {
                   ) : (
                     <button className="cbt-btn cbt-btn-save" onClick={() => { flushTiming(); commitDraft(); setShowSummary(true); }}>Save &amp; Review</button>
                   )}
-                  <button className="cbt-btn cbt-btn-submit" onClick={() => { flushTiming(); commitDraft(); setShowSummary(true); }} disabled={submitting}>
-                    {submitting ? 'Submitting…' : 'Submit Exam'}
-                  </button>
                 </div>
               </div>
             </div>
@@ -637,9 +721,10 @@ export default function TakeExam() {
               </div>
 
               <div className="cbt-summary-strip">
-                <div><strong style={{ color: 'var(--blue)' }}>{counts.answered}</strong><span>Answered</span></div>
-                <div><strong style={{ color: '#8a94a6' }}>{counts.notAnswered}</strong><span>Unanswered</span></div>
-                <div><strong style={{ color: 'var(--warning)' }}>{counts.marked}</strong><span>Flagged</span></div>
+                <div><strong style={{ color: 'var(--success)' }}>{counts.answered}</strong><span>Answered</span></div>
+                <div><strong style={{ color: 'var(--danger)' }}>{counts.skipped}</strong><span>Skipped</span></div>
+                <div><strong style={{ color: '#8a94a6' }}>{counts.untouched}</strong><span>Not seen</span></div>
+                <div><strong style={{ color: '#6b5eae' }}>{counts.marked}</strong><span>Flagged</span></div>
               </div>
 
               <div className="cbt-palette-head">Question Palette</div>
@@ -656,8 +741,9 @@ export default function TakeExam() {
               </div>
 
               <div className="cbt-legend">
-                <div className="cbt-legend-item"><span className="cbt-legend-swatch unanswered" /> Unanswered</div>
                 <div className="cbt-legend-item"><span className="cbt-legend-swatch answered" /> Answered</div>
+                <div className="cbt-legend-item"><span className="cbt-legend-swatch visited-unanswered" /> Skipped (seen, no answer)</div>
+                <div className="cbt-legend-item"><span className="cbt-legend-swatch unanswered" /> Not visited yet</div>
                 <div className="cbt-legend-item"><span className="cbt-legend-swatch flagged" /> Flagged for review</div>
               </div>
             </aside>

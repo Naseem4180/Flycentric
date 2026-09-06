@@ -52,6 +52,17 @@ export function downloadCsv(filename, csv) {
   URL.revokeObjectURL(url);
 }
 
+function csvCell(value) {
+  return `"${String(value ?? '').replace(/"/g, '""')}"`;
+}
+
+function recordsToCsv(headers, records) {
+  return [
+    headers.map(csvCell).join(','),
+    ...records.map((record) => headers.map((header) => csvCell(record[header])).join(',')),
+  ].join('\n');
+}
+
 /**
  * Three-step CSV import: upload → validate → import.
  *
@@ -104,6 +115,7 @@ export default function ImportCsvModal({
       let valid = 0;
       let duplicates = 0;
 
+      const importableRecords = [];
       records.forEach((rec) => {
         if (missing.length) return;
         const problem = validateRow ? validateRow(rec) : null;
@@ -121,9 +133,10 @@ export default function ImportCsvModal({
           if (k) seen.add(k);
         }
         valid += 1;
+        importableRecords.push(rec);
       });
 
-      setAnalysis({ headers, records, missing, errors, valid, duplicates, total: records.length });
+      setAnalysis({ headers, records, importableRecords, missing, errors, valid, duplicates, total: records.length });
       setStep(2);
     } catch {
       toast.error('Could not read file', 'The CSV could not be parsed. Check the file and try again.');
@@ -132,8 +145,17 @@ export default function ImportCsvModal({
   }
 
   function downloadErrorReport() {
-    const esc = (s) => `"${String(s ?? '').replace(/"/g, '""')}"`;
-    const csv = ['row,field,problem,value', ...analysis.errors.map((e) => [e.row, esc(e.field), esc(e.problem), esc(e.value)].join(','))].join('\n');
+    // Include the complete original row as well as the validation result. A
+    // report that only says "row 5" makes the admin hunt through a large
+    // spreadsheet to find the actual question to fix.
+    const reportHeaders = ['row', ...analysis.headers, 'error_field', 'error'];
+    const rowsByNumber = new Map(analysis.records.map((record) => [record.__row, record]));
+    const csv = recordsToCsv(reportHeaders, analysis.errors.map((issue) => ({
+      row: issue.row,
+      ...(rowsByNumber.get(issue.row) || {}),
+      error_field: issue.field,
+      error: issue.problem,
+    })));
     downloadCsv('import_error_report.csv', csv);
     toast.info('Error report downloaded');
   }
@@ -145,7 +167,16 @@ export default function ImportCsvModal({
     setProgress(8);
     const tick = setInterval(() => setProgress((p) => (p < 88 ? p + Math.random() * 12 : p)), 220);
     try {
-      const result = await onImport(file);
+      // Validation used to be presentation-only: the button said "Import 3
+      // questions" but the original six-row file was uploaded, so the API
+      // inserted the rejected rows too. Upload a new CSV containing only the
+      // records that passed this exact validation pass.
+      const cleanFile = new File(
+        [recordsToCsv(analysis.headers, analysis.importableRecords)],
+        file.name,
+        { type: 'text/csv' },
+      );
+      const result = await onImport(cleanFile);
       clearInterval(tick);
       setProgress(100);
       const created = result?.inserted ?? result?.created ?? 0;
@@ -266,11 +297,12 @@ export default function ImportCsvModal({
                   </div>
                   <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--r-md)', overflow: 'hidden', maxHeight: 260, overflowY: 'auto' }}>
                     <table>
-                      <thead><tr><th>Row</th><th>Field</th><th>Problem</th><th>Value</th></tr></thead>
+                      <thead><tr><th>Row</th><th>Question</th><th>Field</th><th>Problem</th><th>Value</th></tr></thead>
                       <tbody>
                         {analysis.errors.slice(0, 100).map((e, i) => (
                           <tr key={i}>
                             <td className="td-nowrap">{e.row}</td>
+                            <td className="td-clip">{analysis.records.find((record) => record.__row === e.row)?.question_text || '—'}</td>
                             <td className="td-muted">{e.field}</td>
                             <td>{e.problem}</td>
                             <td className="td-muted td-clip">{e.value || '—'}</td>

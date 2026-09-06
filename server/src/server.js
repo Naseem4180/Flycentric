@@ -7,6 +7,7 @@ require('dotenv').config();
 // like from the browser — requests stuck at "(pending)" in devtools).
 require('express-async-errors');
 const express = require('express');
+const nodePath = require('path');
 const cors = require('cors');
 const pool = require('./db/pool');
 
@@ -93,6 +94,14 @@ const healthCheck = async (req, res) => {
 };
 
 app.get(['/health', '/api/health'], healthCheck);
+
+// Locally-stored uploads (question images) are served from disk. Mounted
+// BEFORE the API routes and the 404 handler so /uploads/* resolves. On a
+// deployment with S3_BUCKET set, files go to S3 and this mount is unused.
+app.use('/uploads', express.static(nodePath.join(process.cwd(), 'uploads'), {
+  maxAge: '7d',
+  setHeaders: (res) => { res.setHeader('X-Content-Type-Options', 'nosniff'); },
+}));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/content', contentRoutes);

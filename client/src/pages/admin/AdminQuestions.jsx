@@ -10,19 +10,29 @@ import {
   EmptyState, ErrorState, SkeletonTable, Pagination, RowMenu, DifficultyBadge, Badge, FilterChips,
 } from '../../ui';
 
+// Authoring is deliberately limited to these two. Older content may still
+// carry legacy types, so LEGACY_TYPE_LABELS keeps those rows readable in the
+// table and filters without offering them as choices for new questions.
 const QUESTION_TYPES = [
-  { value: 'mcq', label: 'Multiple Choice (single answer)' },
-  { value: 'multi_select', label: 'Multiple Select (2+ correct)' },
-  { value: 'true_false', label: 'True / False' },
-  { value: 'numerical', label: 'Numerical Answer' },
-  { value: 'short_answer', label: 'Short Answer (manually graded)' },
-  { value: 'descriptive', label: 'Descriptive Answer (manually graded)' },
+  { value: 'mcq', label: 'MCQ' },
+  { value: 'image', label: 'Image' },
 ];
-const TYPE_LABELS = Object.fromEntries(QUESTION_TYPES.map((t) => [t.value, t.label]));
+const LEGACY_TYPE_LABELS = {
+  multi_select: 'Multiple Select (legacy)',
+  true_false: 'True / False (legacy)',
+  numerical: 'Numerical (legacy)',
+  short_answer: 'Short Answer (legacy)',
+  descriptive: 'Descriptive (legacy)',
+};
+const TYPE_LABELS = {
+  ...Object.fromEntries(QUESTION_TYPES.map((t) => [t.value, t.label])),
+  ...LEGACY_TYPE_LABELS,
+};
+const OPTION_TYPES = ['mcq', 'image', 'multi_select', 'true_false'];
 
 function blankOptions(type) {
   if (type === 'true_false') return [{ key: 'A', text: 'True' }, { key: 'B', text: 'False' }];
-  if (type === 'mcq' || type === 'multi_select') return ['A', 'B', 'C', 'D'].map((key) => ({ key, text: '' }));
+  if (type === 'mcq' || type === 'image' || type === 'multi_select') return ['A', 'B', 'C', 'D'].map((key) => ({ key, text: '' }));
   return [];
 }
 
@@ -98,6 +108,7 @@ export default function AdminQuestions() {
   const [sort, setSort] = useState({ key: 'id', dir: 'desc' });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [loadingQuestions, setLoadingQuestions] = useState(true);
 
   // Selection + dialogs
   const [selected, setSelected] = useState(() => new Set());
@@ -124,12 +135,25 @@ export default function AdminQuestions() {
   /* ------------------------------------------------------------------ */
   /* Data loading                                                        */
   /* ------------------------------------------------------------------ */
+  // Filters are applied SERVER-SIDE. Previously this fetched a flat
+  // `?limit=500` and filtered in the browser, so as soon as the bank grew past
+  // 500 questions any filter silently missed everything outside the newest
+  // 500 rows — which is why filtering "didn't work". The backend already
+  // supported these query params; they just were never sent.
   const loadQuestions = useCallback(() => {
     setError('');
-    api.get('/questions?limit=500')
+    setLoadingQuestions(true);
+    const params = new URLSearchParams();
+    if (filterSubject) params.set('subject_id', filterSubject);
+    if (filterChapter) params.set('chapter_id', filterChapter);
+    if (filterDifficulty) params.set('difficulty', filterDifficulty);
+    if (search.trim()) params.set('keywords', search.trim());
+    params.set('limit', '2000');
+    api.get(`/questions?${params.toString()}`)
       .then((d) => setQuestions(d.questions))
-      .catch((e) => { setError(e.message); setQuestions([]); });
-  }, []);
+      .catch((e) => { setError(e.message); setQuestions([]); })
+      .finally(() => setLoadingQuestions(false));
+  }, [filterSubject, filterChapter, filterDifficulty, search]);
 
   // Subjects come from the GLOBAL subject list, not from a course's subjects.
   // Previously the editor only offered subjects that happened to be attached
@@ -139,10 +163,19 @@ export default function AdminQuestions() {
     try {
       const { subjects: list } = await api.get('/content/subjects');
       setSubjects(list);
-      const chapterLists = await Promise.all(
-        list.map((s) => api.get(`/content/subjects/${s.id}/chapters`).catch(() => ({ chapters: [] })))
-      );
-      setChapters(chapterLists.flatMap((res, i) => res.chapters.map((c) => ({ ...c, subject_id: list[i].id, subject_title: list[i].title }))));
+      try {
+        const { chapters: allChapters } = await api.get('/content/chapters');
+        setChapters(allChapters);
+      } catch {
+        const chapterLists = await Promise.all(
+          list.map((subject) => api.get(`/content/subjects/${subject.id}/chapters`).then((r) => r.chapters).catch(() => []))
+        );
+        setChapters(chapterLists.flatMap((chapterList, i) => chapterList.map((chapter) => ({
+          ...chapter,
+          subject_id: list[i].id,
+          subject_title: list[i].title,
+        }))));
+      }
     } catch {
       setSubjects([]); setChapters([]);
     }
@@ -170,7 +203,13 @@ export default function AdminQuestions() {
     api.get('/exams/quizzes').then((d) => setQuizzes(d.quizzes)).catch(() => setQuizzes([]));
   }, []);
 
-  useEffect(() => { loadQuestions(); loadTaxonomy(); loadQuizzes(); }, [loadQuestions, loadTaxonomy, loadQuizzes]);
+  useEffect(() => { loadTaxonomy(); loadQuizzes(); }, [loadTaxonomy, loadQuizzes]);
+
+  // Debounced so typing in the search box doesn't fire a request per keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => loadQuestions(), 250);
+    return () => clearTimeout(t);
+  }, [loadQuestions]);
 
   // Deep links from the dashboard quick actions.
   useEffect(() => {
@@ -200,10 +239,9 @@ export default function AdminQuestions() {
     const term = search.trim().toLowerCase();
     const rows = (questions || []).filter((q) => {
       if (term && !(q.question_text || '').toLowerCase().includes(term) && !String(q.id).includes(term)) return false;
-      if (filterSubject && String(q.subject_id || '') !== filterSubject) return false;
-      if (filterChapter && String(q.chapter_id || '') !== filterChapter) return false;
+      // subject / chapter / difficulty are applied server-side (see
+      // loadQuestions); only the purely client-side refinements run here.
       if (filterSubtopic && !(q.tags || []).includes(filterSubtopic)) return false;
-      if (filterDifficulty && q.difficulty !== filterDifficulty) return false;
       if (filterType && (q.question_type || 'mcq') !== filterType) return false;
       if (filterUsage === 'used' && !usedQuestionIds.has(String(q.id))) return false;
       if (filterUsage === 'unused' && usedQuestionIds.has(String(q.id))) return false;
@@ -309,7 +347,7 @@ export default function AdminQuestions() {
   function validate() {
     const errs = {};
     if (!form.question_text.trim()) errs.question_text = 'Question is required.';
-    const needsOptions = ['mcq', 'multi_select', 'true_false'].includes(form.question_type);
+    const needsOptions = OPTION_TYPES.includes(form.question_type);
     if (needsOptions) {
       form.options.forEach((o, i) => { if (!o.text.trim()) errs[`opt${i}`] = `Option ${o.key} is required.`; });
       if (!String(form.correct_option || '').trim()) errs.correct_option = 'Please select a correct option.';
@@ -439,6 +477,7 @@ export default function AdminQuestions() {
   }
 
   const allOnPageSelected = paged.length > 0 && paged.every((q) => selected.has(q.id));
+  const allFilteredSelected = filtered.length > 0 && filtered.every((q) => selected.has(q.id));
   function toggleAll() {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -446,6 +485,12 @@ export default function AdminQuestions() {
       else paged.forEach((q) => next.add(q.id));
       return next;
     });
+  }
+  // Bulk-attach the WHOLE filtered result set, not just the visible page —
+  // building a chapter quiz shouldn't mean paging through and ticking 25 at
+  // a time.
+  function selectAllFiltered() {
+    setSelected(new Set(filtered.map((q) => q.id)));
   }
   function toggleOne(id) {
     setSelected((prev) => {
@@ -455,8 +500,9 @@ export default function AdminQuestions() {
     });
   }
 
-  const showOptions = ['mcq', 'multi_select', 'true_false'].includes(form.question_type);
-  const showCorrectPicker = ['mcq', 'true_false'].includes(form.question_type);
+  const showOptions = OPTION_TYPES.includes(form.question_type);
+  const showCorrectPicker = ['mcq', 'image', 'true_false'].includes(form.question_type);
+  const showImageUpload = form.question_type === 'image';
   const showMultiCorrect = form.question_type === 'multi_select';
   const showRefAnswer = ['numerical', 'short_answer'].includes(form.question_type);
   const formChapterOptions = chapters.filter((c) => String(c.subject_id) === String(form.subject_id));
@@ -556,6 +602,24 @@ export default function AdminQuestions() {
         ) : (
           <>
             <div className="table-wrap">
+              {/* Cross-page bulk selection for building quizzes from a filtered set. */}
+              {allOnPageSelected && filtered.length > paged.length && (
+                <div className="bulk-select-banner">
+                  {allFilteredSelected ? (
+                    <>
+                      <span>All <strong>{filtered.length}</strong> questions matching the current filters are selected.</span>
+                      <button type="button" onClick={() => setSelected(new Set())}>Clear selection</button>
+                    </>
+                  ) : (
+                    <>
+                      <span>All <strong>{paged.length}</strong> on this page are selected.</span>
+                      <button type="button" onClick={selectAllFiltered}>
+                        Select all {filtered.length} matching filters
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
               <table className="table-stack">
                 <thead>
                   <tr>
@@ -583,9 +647,9 @@ export default function AdminQuestions() {
                       <td data-label="Chapter">{chapterById[String(q.chapter_id)]?.title || <span className="td-muted">—</span>}</td>
                       <td data-label="Subtopic">{(q.tags || [])[0] ? <Badge tone="cyan">{q.tags[0]}</Badge> : <span className="td-muted">—</span>}</td>
                       <td data-label="Difficulty"><DifficultyBadge difficulty={q.difficulty} /></td>
-                      <td data-label="Question" className="td-clip question-cell">{q.question_text}</td>
+                      <td data-label="Question" className="question-cell"><span className="td-clamp-2" title={q.question_text}>{q.question_text}</span></td>
                       <td data-label="Appearances">
-                        <div className="appearance-bubbles">
+                        <div className="appearance-bubbles cell-appearances">
                           {(q.appearances || []).length ? q.appearances.map((year) => <span className="appearance-bubble" key={year}>{year}</span>) : <span className="td-muted">—</span>}
                         </div>
                       </td>

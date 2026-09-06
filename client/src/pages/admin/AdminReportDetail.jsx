@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../../api';
+import { PageSkeleton } from '../../ui';
 
 const REASON_LABELS = {
   typing_error: 'Typing error',
@@ -34,7 +35,7 @@ export default function AdminReportDetail() {
   }
 
   if (error) return <div className="error-banner">{error}</div>;
-  if (!report) return <p className="muted">Loading report…</p>;
+  if (!report) return <PageSkeleton label="Loading report" />;
 
   return (
     <div>

@@ -138,7 +138,7 @@ export default function AdminDashboard() {
   if (!data) {
     return (
       <div className="accent-purple">
-        <PageHeader title="Dashboard" subtitle="Loading your platform overview…" />
+        <PageHeader title="Dashboard" subtitle="Here's what's happening across FlyCentric today." />
         <SkeletonCards count={5} />
         <div className="grid grid-2-1">
           <Skeleton className="skeleton-chart" />

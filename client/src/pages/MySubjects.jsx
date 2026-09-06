@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { BookOpen, ChevronRight, Lock } from 'lucide-react';
 import { api } from '../api';
 import useAuth from '../context/useAuth';
-import { Badge } from '../ui';
+import { Badge, PageSkeleton } from '../ui';
 
 export default function MySubjects() {
   const { user } = useAuth();
@@ -29,7 +29,7 @@ export default function MySubjects() {
     <div className="admin-main-inner">
       <div className="page-header"><div className="eyebrow">Learning library</div><h1>My Subjects</h1><p className="muted">Open a subject to see its chapters, assignments and progress.</p></div>
       {loading ? (
-        <p className="muted">Loading…</p>
+        <PageSkeleton label="Loading subjects" />
       ) : subjects.length ? (
         <div className="stack">
           {subjects.map((s) => (

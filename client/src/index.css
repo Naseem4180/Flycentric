@@ -715,6 +715,7 @@ tbody tr:hover { background: var(--page-bg); }
 .explore-bundle-actions { display: flex; gap: 8px; }
 .explore-bundle-actions .btn { flex: 1; justify-content: center; }
 .dashboard-skeleton { display:grid; gap:16px; }
+.page-skeleton { width: 100%; }
 .dashboard-skeleton i { height:140px; display:block; border-radius: var(--radius); background:linear-gradient(90deg,var(--card-bg),var(--line),var(--card-bg)); background-size:200%; animation:sheen 1.2s infinite; }
 @keyframes sheen { to { background-position:-200%; } }
 

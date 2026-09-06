@@ -198,7 +198,7 @@ export default function AppTopbar({ onToggleSidebar, quickLinks = [], onNotifica
 
   function handleLogout() { logout(); navigate('/login'); }
 
-  const settingsPath = isAdmin ? '/admin/settings' : '/support';
+  const settingsPath = isAdmin ? '/admin/settings' : '/account';
   const initials = (user?.name || 'U').split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase();
   let runningIndex = -1;
 

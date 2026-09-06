@@ -50,6 +50,7 @@ import Landing from './pages/Landing';
 import Pricing from './pages/Pricing';
 import Checkout from './pages/Checkout';
 import Support from './pages/Support';
+import Account from './pages/Account';
 
 function AppLoadingScreen() {
   return (
@@ -129,6 +130,7 @@ function AppRoutes() {
         <Route path="/analytics" element={<Protected roles={['student']}><StudentShell><StudentAnalytics /></StudentShell></Protected>} />
         <Route path="/jobs" element={<Protected><StudentAware><Jobs /></StudentAware></Protected>} />
         <Route path="/support" element={<Protected roles={['student']}><StudentShell><Support /></StudentShell></Protected>} />
+        <Route path="/account" element={<Protected><StudentAware><Account /></StudentAware></Protected>} />
         <Route path="/admin" element={<Protected roles={['admin']}><AdminLayout /></Protected>}>
           <Route index element={<AdminDashboard />} />
           <Route path="users" element={<AdminUsers />} />

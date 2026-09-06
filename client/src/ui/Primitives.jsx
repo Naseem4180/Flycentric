@@ -160,6 +160,14 @@ export function SkeletonCards({ count = 5 }) {
   );
 }
 
+export function PageSkeleton({ label = 'Loading', count = 3 }) {
+  return (
+    <div className="dashboard-skeleton page-skeleton" aria-busy="true" aria-label={label} role="status">
+      {Array.from({ length: count }).map((_, index) => <i key={index} />)}
+    </div>
+  );
+}
+
 /* -------------------------------------------------------------------------- */
 /* Pagination                                                                 */
 /* -------------------------------------------------------------------------- */

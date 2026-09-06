@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { MessageCircle } from 'lucide-react';
 import { api } from '../api';
+import { PageSkeleton } from '../ui';
 
 const STATUS_BADGE = { open: 'badge-draft', answered: 'badge-live', closed: 'badge-role' };
 
@@ -18,7 +19,7 @@ export default function MyDoubts() {
         <p className="muted">Track the status of doubts you've raised for questions in the question bank.</p>
       </div>
       {doubts === null ? (
-        <p className="muted">Loading…</p>
+        <PageSkeleton label="Loading doubts" />
       ) : doubts.length ? (
         <div className="card">
           <table>

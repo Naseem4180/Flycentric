@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Brain, Check, RotateCcw, Sparkles, Play } from 'lucide-react';
 import { api } from '../api';
+import { PageSkeleton } from '../ui';
 
 // Spaced Repetition "Memory Bank" — a Tinder-style swipe deck. Swipe right
 // (or tap "Got it") marks a card known: confidence climbs and it's scheduled
@@ -67,7 +68,7 @@ export default function MemoryBank() {
   }
 
   if (allItems === null || dueItems === null) {
-    return <div className="admin-main-inner"><div className="page-header"><h1>Memory Bank</h1></div><p className="muted">Loading…</p></div>;
+    return <div className="admin-main-inner"><div className="page-header"><h1>Memory Bank</h1></div><PageSkeleton label="Loading memory bank" /></div>;
   }
 
   if (!allItems.length) {

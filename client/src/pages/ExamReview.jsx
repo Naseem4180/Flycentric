@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { X, MessageCircleQuestion, ChevronDown, Flag as FlagIcon } from 'lucide-react';
 import { api } from '../api';
+import { PageSkeleton } from '../ui';
 
 // Mirrors REPORT_REASONS in server/src/routes/questions.js.
 const REPORT_REASONS = [
@@ -111,7 +112,7 @@ export default function ExamReview() {
   }
 
   if (error) return <div className="page"><div className="container"><div className="error-banner">{error}</div></div></div>;
-  if (!data) return <div className="page"><div className="container">Loading review…</div></div>;
+  if (!data) return <div className="page"><div className="container"><PageSkeleton label="Loading review" /></div></div>;
 
   const { attempt, quiz, review, reviewLocked, questionTimings = {} } = data;
 

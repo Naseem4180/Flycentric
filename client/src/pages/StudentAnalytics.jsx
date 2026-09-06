@@ -4,6 +4,7 @@ import {
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend,
 } from 'recharts';
 import { api } from '../api';
+import { PageSkeleton } from '../ui';
 import Gauge from '../components/Gauge';
 
 const RANGES = [
@@ -74,7 +75,7 @@ export default function StudentAnalytics() {
   const totalInRange = activity.reduce((sum, d) => sum + d.count, 0);
   const activeDaysInRange = activity.filter((d) => d.count > 0).length;
 
-  if (loading) return <div className="page"><div className="container">Loading analytics…</div></div>;
+  if (loading) return <div className="page"><div className="container"><PageSkeleton label="Loading analytics" /></div></div>;
   if (!data || !attempts) return <div className="page"><div className="container"><div className="error-banner">Unable to load analytics: {error || 'Please try again.'}</div></div></div>;
   const { overall, weakTopics, masteryBySubtopic = [], masteryBySubject = [], batchAverageBySubject = [] } = data;
 

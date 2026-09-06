@@ -4,6 +4,7 @@ import { api } from '../api';
 import useAuth from '../context/useAuth';
 import ReadinessGauge from '../components/ReadinessGauge';
 import { addToCart } from '../utils/cart';
+import { Badge, StatusBadge } from '../ui';
 
 // Same bands, applied to a plain score/readiness number: low / average / good
 // / strong, each mapped to a theme color so performance reads at a glance
@@ -14,6 +15,14 @@ function scoreBand(pct) {
   if (pct < 60) return { color: 'var(--warning)', text: 'Average' };
   if (pct < 80) return { color: 'var(--blue)', text: 'Good' };
   return { color: 'var(--success)', text: 'Strong' };
+}
+
+function scoreTone(pct) {
+  if (pct == null) return 'slate';
+  if (pct < 40) return 'red';
+  if (pct < 60) return 'orange';
+  if (pct < 80) return 'blue';
+  return 'green';
 }
 
 export default function StudentDashboard() {
@@ -281,9 +290,9 @@ export default function StudentDashboard() {
                 {visibleAttempts.map((a) => (
                   <tr key={a.id}>
                     <td>{a.quiz_title}</td>
-                    <td>{a.quiz_type}</td>
-                    <td>{a.status}</td>
-                    <td>{a.score != null ? `${a.score}%` : '—'}</td>
+                    <td><Badge tone={a.quiz_type === 'exam' ? 'blue' : 'purple'}>{a.quiz_type || 'practice'}</Badge></td>
+                    <td><StatusBadge status={a.status} /></td>
+                    <td><Badge tone={scoreTone(a.score)}>{a.score != null ? `${a.score}%` : '—'}</Badge></td>
                     <td>
                       <Link to={`/review/${a.id}`} className="btn btn-outline btn-sm">Review</Link>
                     </td>

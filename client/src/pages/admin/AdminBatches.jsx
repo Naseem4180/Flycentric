@@ -7,7 +7,7 @@ import {
 import { api } from '../../api';
 import {
   PageHeader, Card, Button, Modal, ConfirmModal, useToast,
-  KpiCard, EmptyState, ErrorState, SkeletonTable, Badge, RowMenu,
+  KpiCard, EmptyState, ErrorState, SkeletonTable, Badge, RowMenu, PageSkeleton,
 } from '../../ui';
 
 const BLANK = { name: '', instructor_id: '', schedule: '', studentIds: [] };
@@ -280,7 +280,7 @@ export default function AdminBatches() {
         <strong style={{ fontSize: '.84rem', display: 'block', marginBottom: 10 }}>
           <UsersIcon size={14} style={{ verticalAlign: -2, marginRight: 6 }} />Enrolled students
         </strong>
-        {viewStudents === null ? <p className="muted">Loading…</p> : viewStudents.length ? (
+        {viewStudents === null ? <PageSkeleton label="Loading students" /> : viewStudents.length ? (
           <div className="table-wrap" style={{ border: '1px solid var(--border)', borderRadius: 'var(--r-md)' }}>
             <table>
               <thead><tr><th>Name</th><th>Email</th><th className="td-actions">Action</th></tr></thead>

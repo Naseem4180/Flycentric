@@ -5,6 +5,7 @@ import {
 } from 'recharts';
 import { Users, Activity, CheckCircle2, GraduationCap, Percent, Clock, IndianRupee, BookOpen, HelpCircle, TrendingUp } from 'lucide-react';
 import { api } from '../../api';
+import { PageSkeleton } from '../../ui';
 
 const DONUT_COLORS = ['#2c7be5', '#6b5eae', '#f5803e', '#00a86b', '#e63757'];
 
@@ -17,7 +18,7 @@ export default function AdminAnalytics() {
   }, []);
 
   if (error && !stats) return <div className="error-banner">{error}</div>;
-  if (!stats) return <p className="muted">Loading…</p>;
+  if (!stats) return <PageSkeleton label="Loading analytics" />;
 
   const kpis = [
     { icon: Activity, tone: 'c-blue', num: stats.activeUsers30d, label: 'Active users (30d)' },

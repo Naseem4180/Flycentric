@@ -5,6 +5,6 @@ export { default as ImportCsvModal, downloadCsv, parseCsv } from './ImportCsvMod
 export {
   PageHeader, Card, CardHead, KpiCard,
   Badge, StatusBadge, RoleBadge, DifficultyBadge,
-  EmptyState, ErrorState, Skeleton, SkeletonTable, SkeletonCards,
+  EmptyState, ErrorState, Skeleton, SkeletonTable, SkeletonCards, PageSkeleton,
   Pagination, RowMenu, BarStat, ProgressBar, Tabs, FilterChips,
 } from './Primitives';

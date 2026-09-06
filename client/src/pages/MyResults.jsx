@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { History, Trophy } from 'lucide-react';
 import { api } from '../api';
-import { Badge } from '../ui';
+import { Badge, PageSkeleton } from '../ui';
 
 export default function MyResults() {
   const [attempts, setAttempts] = useState(null);
@@ -17,7 +17,7 @@ export default function MyResults() {
     <div className="admin-main-inner">
       <div className="page-header"><div className="eyebrow">Performance log</div><h1>My Quiz Results</h1><p className="muted">Review your scores and track progress over time.</p></div>
       {attempts === null ? (
-        <p className="muted">Loading…</p>
+        <PageSkeleton label="Loading results" />
       ) : submitted.length ? (
         <div className="card">
           <table>

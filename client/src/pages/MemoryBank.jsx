@@ -197,16 +197,20 @@ export default function MemoryBank() {
       {allItems.length > 0 && (
         <>
           <h3 style={{ marginTop: 36 }}>All saved questions</h3>
-          <div className="grid grid-2">
-            {allItems.map((q) => (
-              <div className="card" key={q.id}>
-                <p style={{ fontWeight: 600, fontSize: '.9rem' }}>{q.question_text}</p>
-                <div className="flex-between" style={{ marginTop: 10 }}>
-                  <span className="muted" style={{ fontSize: '.74rem' }}>
+          {/* One question per row, stacked — the two-column card grid made
+              long question text wrap into uneven boxes and was unreadable on
+              a phone. */}
+          <div className="card mb-question-list">
+            {allItems.map((q, i) => (
+              <div className="mb-question-row" key={q.id}>
+                <span className="mb-question-index">{i + 1}</span>
+                <div className="mb-question-body">
+                  <p className="mb-question-text">{q.question_text}</p>
+                  <span className="muted mb-question-meta">
                     Confidence {q.confidence_level} · {q.review_count} review{q.review_count === 1 ? '' : 's'}
                   </span>
-                  <button className="btn btn-outline btn-sm" onClick={() => remove(q.id)}>Remove</button>
                 </div>
+                <button className="btn btn-outline btn-sm mb-question-remove" onClick={() => remove(q.id)}>Remove</button>
               </div>
             ))}
           </div>

@@ -653,16 +653,177 @@ tbody tr:hover { background: var(--page-bg); }
 .exam-tabswitch-banner { background: var(--danger-bg); color: #92253a; border-color: #f7c9d3; justify-content: flex-start; }
 
 /* ==========================================================================
-   Auth pages (Falcon-style centered card)
+   Auth pages (clean sign-in layout matching the supplied mock)
    ========================================================================== */
-.login-page { display:grid; place-items:center; min-height:calc(100vh - 61px); padding:34px 0; background: var(--page-bg); }
-.login-layout { max-width: 420px; width: 100%; }
-.login-story { display: none; }
-.login-card { padding: 34px 32px; border: 1px solid var(--line); box-shadow: var(--shadow-card); }
-.login-card .page-header { margin-bottom: 22px; text-align: center; }
-.login-card .page-header h1 { font-size: 1.4rem; }
-.login-metrics { display: none; }
-.auth-logo-row { display: flex; justify-content: center; margin-bottom: 18px; }
+.login-page {
+  display: grid;
+  place-items: center;
+  min-height: calc(100vh - 61px);
+  padding: 56px 20px 64px;
+  background: #f5f5fb;
+}
+
+.login-layout {
+  width: min(100%, 640px);
+}
+
+.login-card {
+  width: 100%;
+  margin: 0 auto;
+  padding: 28px 30px 24px;
+  border: 1px solid rgba(95, 102, 145, 0.18);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 16px 36px rgba(62, 52, 118, 0.08);
+}
+
+.auth-logo-row {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 18px;
+}
+
+.auth-header {
+  text-align: center;
+  margin-bottom: 18px;
+}
+
+.auth-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  line-height: 1;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--blue);
+  font-weight: 800;
+  margin-bottom: 14px;
+}
+
+.auth-header h1 {
+  margin: 0;
+  font-size: clamp(2rem, 3vw, 2.8rem);
+  letter-spacing: -0.05em;
+  color: var(--ink);
+}
+
+.auth-header p {
+  margin: 8px 0 0;
+  color: var(--ink-soft);
+  font-size: 1rem;
+}
+
+.auth-form {
+  width: 100%;
+  margin: 0 auto;
+}
+
+.auth-form .field {
+  margin-bottom: 18px;
+}
+
+.auth-form label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #2a2a39;
+}
+
+.auth-form .input {
+  height: 48px;
+  border-radius: 10px;
+  border: 1px solid rgba(105, 113, 150, 0.25);
+  background: #fff;
+  color: var(--ink);
+  font-size: 0.97rem;
+  padding: 0 14px;
+}
+
+.auth-form .input:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(91, 75, 238, 0.12);
+}
+
+.auth-actions-row {
+  display: flex;
+  justify-content: flex-end;
+  margin: -6px 0 18px;
+}
+
+.auth-link {
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.auth-link:hover {
+  color: var(--blue);
+}
+
+.auth-submit {
+  width: 100%;
+  height: 48px;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 700;
+  background: linear-gradient(90deg, #6930d1 0%, #7d43d3 100%);
+  box-shadow: 0 8px 18px rgba(106, 69, 210, 0.2);
+}
+
+.auth-submit:hover {
+  background: linear-gradient(90deg, #5a29c9 0%, #6f38c9 100%);
+}
+
+.auth-signup-text,
+.auth-demo-text {
+  margin: 18px 0 0;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.auth-demo-text {
+  margin-top: 14px;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: #706d8a;
+}
+
+.error-banner {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--danger-bg);
+  border: 1px solid rgba(230, 55, 87, 0.2);
+  color: var(--danger);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+@media (max-width: 700px) {
+  .login-page {
+    padding-top: 32px;
+  }
+
+  .login-card {
+    padding: 24px 18px 20px;
+    border-radius: 14px;
+  }
+
+  .auth-header p,
+  .auth-signup-text,
+  .auth-demo-text {
+    font-size: 0.82rem;
+  }
+
+  .auth-form {
+    width: 100%;
+  }
+
+  .auth-actions-row {
+    margin-top: 0;
+  }
+}
 
 /* ==========================================================================
    404 / error page

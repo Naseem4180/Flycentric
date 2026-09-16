@@ -800,6 +800,16 @@ export default function TakeExam() {
                   <div><strong style={{ color: '#e63757' }}>{counts.notAnswered}</strong><span>Not answered</span></div>
                   <div><strong style={{ color: '#6b5eae' }}>{counts.marked}</strong><span>Marked for review</span></div>
                 </div>
+                {/* Unanswered questions stay locked in the review — the answer
+                    key is only revealed for questions actually attempted — so
+                    the student is told that BEFORE they submit, while going
+                    back and answering is still possible. */}
+                {counts.notAnswered > 0 && (
+                  <p className="cbt-modal-warning">
+                    {counts.notAnswered} question{counts.notAnswered === 1 ? '' : 's'} left unanswered.
+                    Skipped questions score zero, and their answers and explanations stay hidden in your review.
+                  </p>
+                )}
                 <div className="cbt-modal-actions">
                   <button className="btn btn-outline" onClick={() => setShowSummary(false)}>Go back to exam</button>
                   <button className="btn btn-primary" onClick={handleSubmit} disabled={submitting}>

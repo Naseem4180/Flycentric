@@ -1,30 +1,32 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Plus, BookOpen, ListChecks, Pencil, Trash2, Copy, Eye, Search, Layers, X,
-  FileQuestion, GaugeCircle, RotateCcw, Lightbulb, ShieldCheck, Globe, EyeOff,
+  Plus, BookOpen, Pencil, Trash2, Copy, Search, ChevronDown,
+  FileQuestion, Globe, EyeOff, Layers, ListChecks, GripVertical,
 } from 'lucide-react';
 import { api } from '../../api';
 import {
-  PageHeader, Card, Button, Modal, ConfirmModal, useToast,
-  EmptyState, Skeleton, Badge, DifficultyBadge, StatusBadge, RowMenu,
+  Button, Modal, ConfirmModal, useToast, EmptyState, Badge, StatusBadge, RowMenu,
 } from '../../ui';
 
-const QUIZ_TYPES = [
-  { value: 'practice', label: 'Practice' },
-  { value: 'exam', label: 'Exam' },
-];
+// Subjects & Quizzes — course builder.
+//
+// Reworked into the familiar course-authoring shape: a subject list on the
+// left, and on the right the selected subject's curriculum as an expandable
+// Chapter → Quizzes tree with inline "add quiz" on every chapter. The old
+// screen showed subjects and a flat quiz table side by side, so there was no
+// visible relationship between a chapter and the assignments that belonged to
+// it, and adding one meant hunting through a long modal.
+//
+// The quiz dialog also fixes the duplicated chapter input. It previously had
+// BOTH a "chapter" select (where to file the quiz) and a second chapter
+// dropdown that filtered the question picker — two controls for one concept
+// that could contradict each other. There is now ONE chapter control: a
+// multi-select. Whatever you tick both files the quiz and defines the pool of
+// questions offered, so an assignment can legitimately span several chapters.
 
-// Mode strictly determines answer-visibility-while-answering — Practice
-// always shows correct answer + explanation the instant a student answers
-// each question; Exam never does (protected until submission). This used to
-// be a separately-editable switch that could drift out of sync with the
-// type (e.g. an "Exam" quiz with explanations accidentally left on) — that
-// mismatch was the root cause of "the toggle isn't working correctly".
-// Locking it to type here (and enforced again server-side — see
-// routes/exams.js) makes that whole class of bug impossible.
 const BLANK_QUIZ = {
   title: '', type: 'practice', duration_minutes: 30, pass_percent: 70, question_ids: [],
-  status: 'draft', allow_review_after_submit: true, chapter_id: '',
+  status: 'draft', allow_review_after_submit: true, chapter_ids: [],
 };
 
 export default function AdminSubjectsQuizzes() {
@@ -38,6 +40,8 @@ export default function AdminSubjectsQuizzes() {
   const [quizzes, setQuizzes] = useState(null);
   const [allQuestions, setAllQuestions] = useState([]);
   const [error, setError] = useState('');
+  const [railSearch, setRailSearch] = useState('');
+  const [openChapters, setOpenChapters] = useState({});
 
   // Subject dialog
   const [subjectOpen, setSubjectOpen] = useState(false);
@@ -48,7 +52,7 @@ export default function AdminSubjectsQuizzes() {
   // Chapter dialog
   const [chapterOpen, setChapterOpen] = useState(false);
   const [chapterTitle, setChapterTitle] = useState('');
-  const [chapterSelection, setChapterSelection] = useState('__new__');
+  const [chapterEditing, setChapterEditing] = useState(null);
   const [savingChapter, setSavingChapter] = useState(false);
 
   // Quiz dialog
@@ -58,11 +62,9 @@ export default function AdminSubjectsQuizzes() {
   const [quizErrors, setQuizErrors] = useState({});
   const [savingQuiz, setSavingQuiz] = useState(false);
   const [pickerSearch, setPickerSearch] = useState('');
-  const [pickerChapterId, setPickerChapterId] = useState('');
-  const [viewQuiz, setViewQuiz] = useState(null);
   const [confirm, setConfirm] = useState(null);
 
-  /* ------------------------------------------------------------------ */
+  /* ---------------------------- data loading ---------------------------- */
   const loadTree = useCallback(async () => {
     setError('');
     try {
@@ -82,8 +84,8 @@ export default function AdminSubjectsQuizzes() {
       setSubjectBundleIds(memberships);
       setSubjects(allSubjects.map((s) => ({ ...s, unlinked: !linkedIds.has(String(s.id)) })));
 
-      // Keep the page usable while an older API process is still running or
-      // a deployment does not yet expose the global chapter endpoint.
+      // Keep the page usable while an older API process is still running or a
+      // deployment does not yet expose the global chapter endpoint.
       try {
         const { chapters: allChapters } = await api.get('/content/chapters');
         setChapters(allChapters);
@@ -103,14 +105,10 @@ export default function AdminSubjectsQuizzes() {
     }
   }, []);
 
-  // The quiz question picker always has the FULL bank available. Previously it
-  // only fetched questions already tagged with the selected subject, so a
-  // freshly-added question (which often has no subject yet) simply never
-  // appeared and could not be put into a quiz.
+  // The picker always has the FULL bank available: a freshly-imported question
+  // often has no subject yet, and fetching only one page silently hid every
+  // question past the first 500 from the quiz builder.
   const loadQuestions = useCallback(async () => {
-    // The old fixed `limit=500` silently hid every question after #500 from
-    // the quiz builder. Fetch every page so the bank count and picker are
-    // truthful even when an academy has thousands of questions.
     const pageSize = 500;
     const collected = [];
     try {
@@ -134,64 +132,86 @@ export default function AdminSubjectsQuizzes() {
     api.get(`/exams/quizzes?subject_id=${subject.id}`).then((d) => setQuizzes(d.quizzes)).catch(() => setQuizzes([]));
   }, []);
 
-  const subjectById = useMemo(() => Object.fromEntries((subjects || []).map((s) => [String(s.id), s])), [subjects]);
-  const activeChapters = useMemo(() => chapters.filter((c) => String(c.subject_id) === String(active?.id)), [chapters, active]);
-  const activeChapterIds = useMemo(() => new Set(activeChapters.map((chapter) => String(chapter.id))), [activeChapters]);
-  const subjectQuestions = useMemo(
-    () => allQuestions.filter((q) => (
-      String(q.subject_id || '') === String(active?.id || '')
-      || activeChapterIds.has(String(q.chapter_id || ''))
-    )),
-    [allQuestions, active, activeChapterIds]
+  // Land on the first subject so the builder is never an empty right-hand pane.
+  useEffect(() => {
+    if (!active && subjects && subjects.length) selectSubject(subjects[0]);
+  }, [subjects, active, selectSubject]);
+
+  /* ------------------------------ derived ------------------------------- */
+  const activeChapters = useMemo(
+    () => chapters.filter((c) => String(c.subject_id) === String(active?.id)),
+    [chapters, active]
   );
-  // Show the complete subject curriculum, while also retaining any chapter
-  // discovered on imported Question Bank rows. A chapter with no questions
-  // must still be selectable; it simply produces an empty result until
-  // questions are assigned to it.
-  const pickerChapters = useMemo(() => {
-    const byId = new Map(activeChapters.map((chapter) => [String(chapter.id), chapter]));
-    subjectQuestions.forEach((question) => {
-      if (!question.chapter_id) return;
-      const id = String(question.chapter_id);
-      if (!byId.has(id)) {
-        byId.set(id, chapters.find((chapter) => String(chapter.id) === id) || { id, title: `Chapter #${id}` });
-      }
-    });
-    return [...byId.entries()].map(([id, chapter]) => {
-      return { id, title: chapter?.title || `Chapter #${id}` };
-    });
-  }, [activeChapters, subjectQuestions, chapters]);
 
+  const railSubjects = useMemo(() => {
+    const term = railSearch.trim().toLowerCase();
+    const list = subjects || [];
+    if (!term) return list;
+    return list.filter((s) => s.title.toLowerCase().includes(term));
+  }, [subjects, railSearch]);
+
+  const questionCountByChapter = useMemo(() => {
+    const counts = {};
+    allQuestions.forEach((q) => {
+      if (q.chapter_id == null) return;
+      const key = String(q.chapter_id);
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    return counts;
+  }, [allQuestions]);
+
+  // Quizzes grouped by chapter. A quiz can list several chapters, so it shows
+  // under each one it draws from rather than being lost under a single id.
+  const quizzesByChapter = useMemo(() => {
+    const map = {};
+    const unassigned = [];
+    (quizzes || []).forEach((q) => {
+      const ids = (q.chapter_ids && q.chapter_ids.length)
+        ? q.chapter_ids
+        : (q.chapter_id ? [q.chapter_id] : []);
+      if (!ids.length) { unassigned.push(q); return; }
+      ids.forEach((id) => {
+        const key = String(id);
+        (map[key] = map[key] || []).push(q);
+      });
+    });
+    return { map, unassigned };
+  }, [quizzes]);
+
+  // The question pool follows the chapters ticked in the dialog. With none
+  // ticked it falls back to everything belonging to this subject, so a quiz
+  // that deliberately spans the whole subject is still easy to build.
   const pickerQuestions = useMemo(() => {
-    const inChapter = pickerChapterId
-      ? subjectQuestions.filter((q) => String(q.chapter_id || '') === pickerChapterId)
-      : subjectQuestions;
+    const selected = new Set(quizForm.chapter_ids.map(String));
+    const activeChapterIds = new Set(activeChapters.map((c) => String(c.id)));
+    let pool;
+    if (selected.size) {
+      pool = allQuestions.filter((q) => selected.has(String(q.chapter_id || '')));
+    } else {
+      pool = allQuestions.filter((q) => (
+        String(q.subject_id || '') === String(active?.id || '')
+        || activeChapterIds.has(String(q.chapter_id || ''))
+      ));
+    }
     const term = pickerSearch.trim().toLowerCase();
-    if (!term) return inChapter;
-    return inChapter.filter((q) => (q.question_text || '').toLowerCase().includes(term) || String(q.id).includes(term));
-  }, [subjectQuestions, pickerChapterId, pickerSearch]);
+    if (!term) return pool;
+    return pool.filter((q) => (q.question_text || '').toLowerCase().includes(term) || String(q.id).includes(term));
+  }, [allQuestions, quizForm.chapter_ids, activeChapters, active, pickerSearch]);
 
-  const uniqueChapterOptions = useMemo(() => {
-    const seen = new Set();
-    return chapters.filter((chapter) => {
-      const key = chapter.title.trim().toLowerCase();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }, [chapters]);
+  const chapterTitleById = useMemo(
+    () => Object.fromEntries(chapters.map((c) => [String(c.id), c.title])),
+    [chapters]
+  );
 
-  function openChapterDialog() {
-    setChapterSelection('__new__');
-    setChapterTitle('');
-    setChapterOpen(true);
-  }
-
-  /* -------------------------- Subject CRUD --------------------------- */
+  /* --------------------------- Subject CRUD ----------------------------- */
   function openSubject(subject) {
     if (subject) {
       setSubjectEditing(subject);
-      setSubjectForm({ title: subject.title, description: subject.description || '', bundleId: subjectBundleIds[subject.id]?.[0] || '' });
+      setSubjectForm({
+        title: subject.title,
+        description: subject.description || '',
+        bundleId: subjectBundleIds[subject.id]?.[0] || '',
+      });
     } else {
       setSubjectEditing(null);
       setSubjectForm({ title: '', description: '', bundleId: '' });
@@ -204,17 +224,16 @@ export default function AdminSubjectsQuizzes() {
     if (!subjectForm.title.trim()) { toast.warning('Subject name is required'); return; }
     setSavingSubject(true);
     try {
+      const payload = {
+        title: subjectForm.title,
+        description: subjectForm.description,
+        bundle_ids: subjectForm.bundleId ? [subjectForm.bundleId] : [],
+      };
       if (subjectEditing) {
-        await api.patch(`/content/subjects/${subjectEditing.id}`, {
-          title: subjectForm.title, description: subjectForm.description,
-          bundle_ids: subjectForm.bundleId ? [subjectForm.bundleId] : [],
-        });
+        await api.patch(`/content/subjects/${subjectEditing.id}`, payload);
         toast.success('Subject updated successfully');
       } else {
-        await api.post('/content/subjects', {
-          title: subjectForm.title, description: subjectForm.description,
-          bundle_ids: subjectForm.bundleId ? [subjectForm.bundleId] : [],
-        });
+        await api.post('/content/subjects', payload);
         toast.success(subjectForm.bundleId ? 'Subject created and added to the curriculum' : 'Subject created successfully');
       }
       setSubjectOpen(false);
@@ -229,7 +248,7 @@ export default function AdminSubjectsQuizzes() {
   function askDeleteSubject(subject) {
     setConfirm({
       title: 'Delete subject?',
-      message: `“${subject.title}” and its quizzes will be moved to the Trash Bin. Questions will be preserved in the Question Bank but removed from this subject.`,
+      message: `“${subject.title}” and its quizzes will be moved to the Trash Bin. Questions stay in the Question Bank but are removed from this subject.`,
       confirmLabel: 'Delete Subject',
       onConfirm: async () => {
         try {
@@ -248,44 +267,45 @@ export default function AdminSubjectsQuizzes() {
     try {
       await api.patch(`/content/subjects/${subject.id}`, { status: next });
       toast.success(next === 'live' ? 'Subject published' : 'Subject unpublished', subject.title);
-      const updated = { ...subject, status: next };
-      setActive(updated);
+      setActive({ ...subject, status: next });
       await loadTree();
     } catch (err) { toast.error('Could not update the subject', err.message); }
   }
 
+  /* --------------------------- Chapter CRUD ----------------------------- */
+  function openChapterDialog(chapter) {
+    setChapterEditing(chapter || null);
+    setChapterTitle(chapter ? chapter.title : '');
+    setChapterOpen(true);
+  }
+
   async function saveChapter(e) {
     e?.preventDefault();
-    const selectedChapter = chapterSelection !== '__new__'
-      ? chapters.find((chapter) => String(chapter.id) === String(chapterSelection))
-      : null;
-    if (selectedChapter) {
-      if (String(selectedChapter.subject_id) === String(active.id)) {
-        toast.info('Chapter already added', selectedChapter.title);
-        setChapterOpen(false);
-      } else {
-        toast.warning('Chapter belongs to another subject', `${selectedChapter.title} is under ${selectedChapter.subject_title || 'another subject'}.`);
-      }
-      return;
-    }
-    if (!chapterTitle.trim()) { toast.warning('Chapter name is required'); return; }
+    const title = chapterTitle.trim();
+    if (!title) { toast.warning('Chapter name is required'); return; }
     setSavingChapter(true);
     try {
-      await api.post(`/content/subjects/${active.id}/chapters`, { title: chapterTitle.trim() });
-      toast.success('Chapter added', chapterTitle.trim());
+      if (chapterEditing) {
+        await api.patch(`/content/chapters/${chapterEditing.id}`, { title });
+        toast.success('Chapter renamed', title);
+      } else {
+        await api.post(`/content/subjects/${active.id}/chapters`, { title });
+        toast.success('Chapter added', title);
+      }
       setChapterTitle('');
-      setChapterSelection('__new__');
+      setChapterEditing(null);
       setChapterOpen(false);
       await loadTree();
     } catch (err) {
-      const duplicate = err.message.toLowerCase().includes('duplicate')
-        || err.message.toLowerCase().includes('already exists');
+      // The API rejects a chapter title that already exists under another
+      // subject — surface that reason rather than a generic failure.
+      const duplicate = /duplicate|already/i.test(err.message);
       toast.error(
-        duplicate ? 'Chapter already exists' : 'Could not add the chapter',
+        duplicate ? 'Chapter already exists' : 'Could not save the chapter',
         duplicate && err.message.includes('belongs')
           ? err.message
           : duplicate
-            ? 'This chapter belongs to another subject. Select that subject from the curriculum before adding questions.'
+            ? 'This chapter belongs to another subject. Open that subject instead of creating a duplicate.'
             : err.message
       );
     } finally {
@@ -296,14 +316,14 @@ export default function AdminSubjectsQuizzes() {
   function askDeleteChapter(chapter) {
     setConfirm({
       title: 'Remove chapter?',
-      message: `“${chapter.title}” will be removed from ${active.title}. Questions and quizzes will remain, but they will no longer be assigned to this chapter.`,
+      message: `“${chapter.title}” will be removed from ${active.title}. Questions and quizzes remain, but are no longer assigned to this chapter.`,
       confirmLabel: 'Remove Chapter',
       onConfirm: async () => {
         try {
           await api.del(`/content/chapters/${chapter.id}`);
           toast.success('Chapter removed', chapter.title);
-          setPickerChapterId('');
           await loadTree();
+          if (active) selectSubject(active);
         } catch (err) {
           toast.error('Could not remove the chapter', err.message);
         }
@@ -312,26 +332,35 @@ export default function AdminSubjectsQuizzes() {
     });
   }
 
-  /* ---------------------------- Quiz CRUD ---------------------------- */
-  function openQuiz(quiz) {
+  /* ----------------------------- Quiz CRUD ------------------------------ */
+  function quizToForm(quiz, overrides = {}) {
+    const ids = (quiz.chapter_ids && quiz.chapter_ids.length)
+      ? quiz.chapter_ids.map(String)
+      : (quiz.chapter_id ? [String(quiz.chapter_id)] : []);
+    return {
+      title: quiz.title,
+      type: quiz.type,
+      duration_minutes: quiz.duration_minutes || 30,
+      pass_percent: quiz.pass_percent,
+      chapter_ids: ids,
+      question_ids: (quiz.question_ids || []).map(Number),
+      status: quiz.status || 'draft',
+      allow_review_after_submit: quiz.allow_review_after_submit ?? true,
+      ...overrides,
+    };
+  }
+
+  function openQuiz(quiz, presetChapterId) {
     setQuizErrors({});
     setPickerSearch('');
-    setPickerChapterId('');
     if (quiz) {
       setQuizEditing(quiz);
-      setQuizForm({
-        title: quiz.title,
-        type: quiz.type,
-        duration_minutes: quiz.duration_minutes,
-        pass_percent: quiz.pass_percent,
-        chapter_id: quiz.chapter_id ? String(quiz.chapter_id) : '',
-        question_ids: (quiz.question_ids || []).map(Number),
-        status: quiz.status || 'draft',
-        allow_review_after_submit: quiz.allow_review_after_submit ?? true,
-      });
+      setQuizForm(quizToForm(quiz));
     } else {
       setQuizEditing(null);
-      setQuizForm(BLANK_QUIZ);
+      // Adding from inside a chapter row pre-ticks that chapter, so the common
+      // case ("one assignment for this chapter") needs no extra clicks.
+      setQuizForm({ ...BLANK_QUIZ, chapter_ids: presetChapterId ? [String(presetChapterId)] : [] });
     }
     setQuizOpen(true);
   }
@@ -339,30 +368,21 @@ export default function AdminSubjectsQuizzes() {
   function duplicateQuiz(quiz) {
     setQuizEditing(null);
     setQuizErrors({});
-    setQuizForm({
-      title: `${quiz.title} (copy)`,
-      type: quiz.type,
-      duration_minutes: quiz.duration_minutes,
-      pass_percent: quiz.pass_percent,
-      chapter_id: quiz.chapter_id ? String(quiz.chapter_id) : '',
-      question_ids: (quiz.question_ids || []).map(Number),
-      status: 'draft',
-      allow_review_after_submit: quiz.allow_review_after_submit ?? true,
-    });
+    setQuizForm(quizToForm(quiz, { title: `${quiz.title} (copy)`, status: 'draft' }));
     setQuizOpen(true);
     toast.info('Duplicated', 'Review the copy and save it as a new quiz.');
-  }
-
-  function handleTypeChange(nextType) {
-    setQuizForm((f) => ({ ...f, type: nextType }));
   }
 
   async function toggleQuizStatus(quiz) {
     const next = quiz.status === 'published' ? 'draft' : 'published';
     try {
       await api.patch(`/exams/quizzes/${quiz.id}/status`, { status: next });
-      toast.success(next === 'published' ? 'Quiz published' : 'Quiz unpublished',
-        next === 'published' ? `${quiz.title} is now visible to students.` : `${quiz.title} is hidden from students.`);
+      toast.success(
+        next === 'published' ? 'Quiz published' : 'Quiz unpublished',
+        next === 'published'
+          ? `${quiz.title} is now visible to students under Quizzes.`
+          : `${quiz.title} is hidden from students.`
+      );
       selectSubject(active);
     } catch (err) { toast.error('Could not update quiz status', err.message); }
   }
@@ -372,18 +392,32 @@ export default function AdminSubjectsQuizzes() {
     const errs = {};
     if (!quizForm.title.trim()) errs.title = 'Quiz title is required.';
     if (!quizForm.question_ids.length) errs.questions = 'Select at least one question.';
-    if (!(quizForm.duration_minutes > 0)) errs.duration = 'Duration must be greater than 0.';
+    // Practice quizzes are untimed by design, so a duration is only required
+    // (and only sent) for exam mode.
+    if (quizForm.type === 'exam' && !(quizForm.duration_minutes > 0)) {
+      errs.duration = 'An exam needs a time limit greater than 0.';
+    }
     if (quizForm.pass_percent < 0 || quizForm.pass_percent > 100) errs.pass = 'Pass % must be between 0 and 100.';
     setQuizErrors(errs);
     if (Object.keys(errs).length) { toast.warning('Check the form', 'Some required fields need attention.'); return; }
 
     setSavingQuiz(true);
     try {
+      const payload = {
+        title: quizForm.title,
+        type: quizForm.type,
+        pass_percent: Number(quizForm.pass_percent),
+        question_ids: quizForm.question_ids,
+        status: quizForm.status,
+        allow_review_after_submit: quizForm.allow_review_after_submit,
+        chapter_ids: quizForm.chapter_ids.map(Number),
+        duration_minutes: quizForm.type === 'exam' ? Number(quizForm.duration_minutes) : null,
+      };
       if (quizEditing) {
-        await api.patch(`/exams/quizzes/${quizEditing.id}`, quizForm);
+        await api.patch(`/exams/quizzes/${quizEditing.id}`, payload);
         toast.success('Quiz updated successfully', quizForm.title);
       } else {
-        await api.post('/exams/quizzes', { ...quizForm, subject_id: active.id });
+        await api.post('/exams/quizzes', { ...payload, subject_id: active.id });
         toast.success('Quiz created successfully', quizForm.title);
       }
       setQuizOpen(false);
@@ -420,506 +454,529 @@ export default function AdminSubjectsQuizzes() {
     }));
   }
 
-  const allPickerQuestionsSelected = pickerQuestions.length > 0
-    && pickerQuestions.every((question) => quizForm.question_ids.some((id) => String(id) === String(question.id)));
-
-  function toggleAllPickerQuestions() {
+  function toggleChapterSelection(id) {
     setQuizForm((f) => {
-      const visibleIds = pickerQuestions.map((question) => Number(question.id));
-      const visibleIdSet = new Set(visibleIds.map(String));
-      if (allPickerQuestionsSelected) {
-        return { ...f, question_ids: f.question_ids.filter((id) => !visibleIdSet.has(String(id))) };
-      }
-      return {
-        ...f,
-        question_ids: [...new Set([...f.question_ids, ...visibleIds])],
-      };
+      const key = String(id);
+      const next = f.chapter_ids.includes(key)
+        ? f.chapter_ids.filter((x) => x !== key)
+        : [...f.chapter_ids, key];
+      return { ...f, chapter_ids: next };
     });
   }
 
+  const allPickerSelected = pickerQuestions.length > 0
+    && pickerQuestions.every((q) => quizForm.question_ids.some((id) => String(id) === String(q.id)));
+
+  function toggleAllPickerQuestions() {
+    setQuizForm((f) => {
+      const visibleIds = pickerQuestions.map((q) => Number(q.id));
+      const visibleSet = new Set(visibleIds.map(String));
+      if (allPickerSelected) {
+        return { ...f, question_ids: f.question_ids.filter((id) => !visibleSet.has(String(id))) };
+      }
+      return { ...f, question_ids: [...new Set([...f.question_ids, ...visibleIds])] };
+    });
+  }
+
+  /* ------------------------------ render -------------------------------- */
+  const publishedCount = (quizzes || []).filter((q) => q.status === 'published').length;
   const totalQuestionsInQuizzes = (quizzes || []).reduce((s, q) => s + (q.question_count || 0), 0);
-  const standalone = (subjects || []).filter((s) => s.unlinked);
 
-  return (
-    <div className="accent-purple">
-      <PageHeader
-        eyebrow="Academics"
-        title="Subjects & Quizzes"
-        subtitle="Build the curriculum, organise chapters and publish quizzes."
-        actions={<Button variant="primary" icon={Plus} onClick={() => openSubject(null)}>Add Subject</Button>}
-      />
-
-      {error && <div className="error-banner"><span>{error}</span><Button size="xs" icon={RotateCcw} onClick={loadTree}>Retry</Button></div>}
-
-      <div className="curriculum-tree">
-        <div className="curriculum-tree-side">
-          <div className="flex-between" style={{ padding: '0 4px 12px' }}>
-            <strong style={{ fontSize: '.84rem' }}>Curriculum</strong>
-            <button className="sidebar-icon-btn tooltip-host" data-tip="Add subject" onClick={() => openSubject(null)} aria-label="Add subject">
-              <Plus size={15} />
-            </button>
-          </div>
-
-          {subjects === null ? (
-            <>{[1, 2, 3].map((i) => <Skeleton key={i} style={{ height: 30, marginBottom: 8 }} />)}</>
-          ) : (
-            <>
-              {courses.map((course) => (
-                <div key={course.id} className="curriculum-node">
-                  <div className="curriculum-node-head">
-                    <Layers size={14} />
-                    <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{course.title}</span>
-                  </div>
-                  {course.subjects.map((s) => (
-                    <div
-                      key={s.id}
-                      role="button"
-                      tabIndex={0}
-                      className={`curriculum-node-child ${active?.id === s.id ? 'active' : ''}`}
-                      onClick={() => selectSubject(subjectById[String(s.id)] || s)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') selectSubject(subjectById[String(s.id)] || s); }}
-                    >
-                      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.title}</span>
-                      {s.status === 'live' && <span className="badge badge-green" style={{ padding: '1px 6px', fontSize: '.62rem' }}>live</span>}
-                    </div>
-                  ))}
-                  {!course.subjects.length && <p className="muted" style={{ padding: '4px 10px 0 24px', fontSize: '.76rem' }}>No subjects yet.</p>}
-                </div>
-              ))}
-
-              {!!standalone.length && (
-                <div className="curriculum-node">
-                  <div className="curriculum-node-head"><BookOpen size={14} /><span style={{ flex: 1 }}>Unassigned subjects</span></div>
-                  {standalone.map((s) => (
-                    <div
-                      key={s.id}
-                      role="button"
-                      tabIndex={0}
-                      className={`curriculum-node-child ${active?.id === s.id ? 'active' : ''}`}
-                      onClick={() => selectSubject(s)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') selectSubject(s); }}
-                    >
-                      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.title}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {!subjects.length && !courses.length && (
-                <p className="muted" style={{ padding: '8px 6px', fontSize: '.8rem' }}>No courses or subjects yet.</p>
-              )}
-            </>
-          )}
+  function renderQuizRow(quiz) {
+    const chapterNames = ((quiz.chapter_ids && quiz.chapter_ids.length)
+      ? quiz.chapter_ids
+      : (quiz.chapter_id ? [quiz.chapter_id] : []))
+      .map((id) => chapterTitleById[String(id)])
+      .filter(Boolean);
+    return (
+      <div className="cb-quiz-row" key={quiz.id}>
+        <ListChecks size={15} className="muted" />
+        <div className="cb-quiz-row-main">
+          <span className="cb-quiz-row-title">{quiz.title}</span>
+          <span className="cb-quiz-row-meta">
+            {quiz.type === 'practice' ? 'Assignment' : 'Mock exam'} · {quiz.question_count || 0} questions ·
+            {' '}{quiz.type === 'practice' ? 'untimed' : `${quiz.duration_minutes} min`} · pass {quiz.pass_percent}%
+            {chapterNames.length > 1 && ` · spans ${chapterNames.length} chapters`}
+          </span>
         </div>
-
-        <div className="curriculum-tree-main">
-          {!active ? (
-            <Card>
-              <EmptyState
-                icon={BookOpen} title="Select a subject"
-                description="Choose a subject on the left — or create a new one — to manage its chapters and quizzes."
-                action={<Button variant="primary" icon={Plus} onClick={() => openSubject(null)}>Add Subject</Button>}
-              />
-            </Card>
-          ) : (
-            <>
-              <Card>
-                <div className="flex-between" style={{ alignItems: 'flex-start' }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div className="row" style={{ gap: 8 }}>
-                      <h3 style={{ margin: 0 }}>{active.title}</h3>
-                      <StatusBadge status={active.status || 'draft'} />
-                    </div>
-                    <p className="muted" style={{ marginTop: 5 }}>{active.description || 'No description yet.'}</p>
-                  </div>
-                  <div className="btn-group">
-                    <Button icon={Pencil} onClick={() => openSubject(active)}>Edit Subject</Button>
-                    <Button
-                      variant={active.status === 'live' ? 'warning-soft' : 'success-soft'}
-                      onClick={() => togglePublish(active)}
-                    >
-                      {active.status === 'live' ? 'Unpublish' : 'Publish'}
-                    </Button>
-                    <RowMenu items={[
-                      { label: 'Add chapter', icon: Plus, onClick: openChapterDialog },
-                      { separator: true },
-                      { label: 'Delete subject', icon: Trash2, danger: true, onClick: () => askDeleteSubject(active) },
-                    ]} />
-                  </div>
-                </div>
-
-                <div className="metric-row" style={{ marginTop: 18 }}>
-                  <div className="metric-item"><div className="kpi-num">{quizzes?.length ?? '—'}</div><div className="kpi-label">Quizzes</div></div>
-                  <div className="metric-item"><div className="kpi-num">{subjectQuestions.length}</div><div className="kpi-label">Questions</div></div>
-                  <div className="metric-item"><div className="kpi-num">{activeChapters.length}</div><div className="kpi-label">Chapters</div></div>
-                  <div className="metric-item"><div className="kpi-num">{totalQuestionsInQuizzes}</div><div className="kpi-label">Questions in quizzes</div></div>
-                </div>
-
-                {!!activeChapters.length && (
-                  <div className="row" style={{ marginTop: 16, gap: 6 }}>
-                    <span className="muted" style={{ fontSize: '.78rem' }}>Chapters:</span>
-                    {activeChapters.map((c) => (
-                      <span key={c.id} className="chapter-chip">
-                        <Badge tone="purple">{c.title}</Badge>
-                        <button type="button" className="chapter-remove-btn" aria-label={`Remove ${c.title}`} title="Remove chapter" onClick={() => askDeleteChapter(c)}>
-                          <X size={12} />
-                        </button>
-                      </span>
-                    ))}
-                    <Button size="xs" variant="ghost" icon={Plus} onClick={openChapterDialog}>Add</Button>
-                  </div>
-                )}
-                {!activeChapters.length && (
-                  <div className="row" style={{ marginTop: 16 }}>
-                    <span className="muted" style={{ fontSize: '.78rem' }}>No chapters yet.</span>
-                    <Button size="xs" variant="ghost" icon={Plus} onClick={openChapterDialog}>Add Chapter</Button>
-                  </div>
-                )}
-              </Card>
-
-              <Card flush className="table-card">
-                <div className="flex-between" style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)' }}>
-                  <div className="card-head-title" style={{ margin: 0 }}>
-                    <div className="icon-box icon-box-sm tone-purple"><ListChecks size={15} /></div>
-                    <h3 style={{ margin: 0, fontSize: '.96rem' }}>Quizzes</h3>
-                  </div>
-                  <Button variant="primary" icon={Plus} onClick={() => openQuiz(null)}>Add Quiz</Button>
-                </div>
-
-                {quizzes === null ? (
-                  <div style={{ padding: 16 }}>{[1, 2].map((i) => <Skeleton key={i} className="skeleton-row" />)}</div>
-                ) : quizzes.length ? (
-                  <div className="table-wrap">
-                    <table className="table-stack">
-                      <thead>
-                        <tr><th>Quiz</th><th>Type</th><th>Mode</th><th>Questions</th><th>Duration</th><th>Pass %</th><th>Status</th><th className="td-actions">Actions</th></tr>
-                      </thead>
-                      <tbody>
-                        {quizzes.map((quiz) => (
-                          <tr key={quiz.id}>
-                            <td data-label="Quiz" className="td-strong">{quiz.title}</td>
-                            <td data-label="Type"><Badge tone="blue">{quiz.type}</Badge></td>
-                            <td data-label="Mode">
-                              <span className="tooltip-host" data-tip={quiz.show_explanations ? 'Explanations shown as the student answers' : 'Explanations protected until submit'}>
-                                <Badge tone={quiz.show_explanations ? 'green' : 'orange'}>
-                                  {quiz.show_explanations ? <Lightbulb size={11} /> : <ShieldCheck size={11} />}
-                                  {quiz.show_explanations ? 'Practice' : 'Protected'}
-                                </Badge>
-                              </span>
-                            </td>
-                            <td data-label="Questions">{quiz.question_count || 0}</td>
-                            <td data-label="Duration">{quiz.duration_minutes}m</td>
-                            <td data-label="Pass %">{quiz.pass_percent}%</td>
-                            <td data-label="Status">
-                              <button
-                                type="button"
-                                className={`status-pill-toggle ${quiz.status === 'published' ? 'is-live' : 'is-draft'}`}
-                                onClick={() => toggleQuizStatus(quiz)}
-                                title={quiz.status === 'published' ? 'Click to unpublish' : 'Click to publish'}
-                              >
-                                {quiz.status === 'published' ? <Globe size={12} /> : <EyeOff size={12} />}
-                                {quiz.status === 'published' ? 'Published' : 'Draft'}
-                              </button>
-                            </td>
-                            <td data-label="Actions" className="td-actions">
-                              <div className="btn-group">
-                                <Button size="xs" icon={Eye} onClick={() => setViewQuiz(quiz)}>View</Button>
-                                <Button size="xs" icon={Pencil} onClick={() => openQuiz(quiz)}>Edit</Button>
-                                <RowMenu items={[
-                                  { label: 'Duplicate', icon: Copy, onClick: () => duplicateQuiz(quiz) },
-                                  { label: quiz.status === 'published' ? 'Unpublish' : 'Publish', icon: quiz.status === 'published' ? EyeOff : Globe, onClick: () => toggleQuizStatus(quiz) },
-                                  { separator: true },
-                                  { label: 'Delete', icon: Trash2, danger: true, onClick: () => askDeleteQuiz(quiz) },
-                                ]} />
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <EmptyState
-                    icon={ListChecks} title="No quizzes yet"
-                    description={`Create the first quiz for ${active.title}.`}
-                    action={<Button variant="primary" icon={Plus} onClick={() => openQuiz(null)}>Add Quiz</Button>}
-                  />
-                )}
-              </Card>
-            </>
-          )}
+        <StatusBadge status={quiz.status} />
+        <div className="cb-quiz-row-actions">
+          <button
+            type="button"
+            className="btn btn-outline btn-xs"
+            onClick={() => toggleQuizStatus(quiz)}
+            title={quiz.status === 'published' ? 'Hide from students' : 'Make visible to students'}
+          >
+            {quiz.status === 'published' ? <><EyeOff size={12} /> Unpublish</> : <><Globe size={12} /> Publish</>}
+          </button>
+          <RowMenu
+            items={[
+              { label: 'Edit', icon: Pencil, onClick: () => openQuiz(quiz) },
+              { label: 'Duplicate', icon: Copy, onClick: () => duplicateQuiz(quiz) },
+              { label: 'Delete', icon: Trash2, danger: true, onClick: () => askDeleteQuiz(quiz) },
+            ]}
+          />
         </div>
       </div>
+    );
+  }
 
-      {/* ---------------- Subject drawer ---------------- */}
+  return (
+    <div className="cb-layout">
+      {/* ----------------------------- left rail ----------------------------- */}
+      <aside className="cb-rail">
+        <div className="cb-rail-head">
+          <h2>Subjects</h2>
+          <Button variant="primary" size="sm" onClick={() => openSubject(null)}><Plus size={13} /> New</Button>
+        </div>
+        <div className="input-with-icon cb-rail-search">
+          <Search size={14} />
+          <input
+            className="input"
+            placeholder="Find a subject…"
+            value={railSearch}
+            onChange={(e) => setRailSearch(e.target.value)}
+          />
+        </div>
+
+        {subjects === null ? (
+          <p className="muted cb-empty">Loading curriculum…</p>
+        ) : !railSubjects.length ? (
+          <p className="muted cb-empty">{railSearch ? 'No subject matches that search.' : 'No subjects yet — create your first one.'}</p>
+        ) : (
+          railSubjects.map((s) => {
+            const chapterCount = chapters.filter((c) => String(c.subject_id) === String(s.id)).length;
+            return (
+              <button
+                type="button"
+                key={s.id}
+                className={`cb-subject-item ${String(active?.id) === String(s.id) ? 'active' : ''}`}
+                onClick={() => selectSubject(s)}
+              >
+                <BookOpen size={15} className="muted" />
+                <span className="cb-subject-item-body">
+                  <span className="cb-subject-item-title">{s.title}</span>
+                  <span className="cb-subject-item-meta">
+                    {chapterCount} chapters · {s.quiz_count || 0} quizzes
+                    {s.unlinked && ' · not in a bundle'}
+                  </span>
+                </span>
+                {s.status === 'live' && <Badge tone="green" dot>Live</Badge>}
+              </button>
+            );
+          })
+        )}
+      </aside>
+
+      {/* ---------------------------- right panel ---------------------------- */}
+      <div className="cb-panel">
+        {error && <div className="error-banner">{error}</div>}
+
+        {!active ? (
+          <EmptyState
+            icon={Layers}
+            title="Pick a subject to start building"
+            description="Choose a subject on the left, or create a new one to lay out its chapters and assignments."
+            action={<Button variant="primary" onClick={() => openSubject(null)}><Plus size={14} /> New subject</Button>}
+          />
+        ) : (
+          <>
+            <header className="cb-panel-head">
+              <div style={{ minWidth: 0 }}>
+                <div className="eyebrow">Course builder</div>
+                <h1>{active.title}</h1>
+                <p className="muted">{active.description || 'No description yet.'}</p>
+                <div className="cb-panel-stats">
+                  <div className="cb-panel-stat"><strong>{activeChapters.length}</strong><span>Chapters</span></div>
+                  <div className="cb-panel-stat"><strong>{(quizzes || []).length}</strong><span>Quizzes</span></div>
+                  <div className="cb-panel-stat"><strong>{publishedCount}</strong><span>Published</span></div>
+                  <div className="cb-panel-stat"><strong>{totalQuestionsInQuizzes}</strong><span>Questions used</span></div>
+                </div>
+              </div>
+              <div className="cb-panel-actions">
+                <Button variant="outline" size="sm" onClick={() => togglePublish(active)}>
+                  {active.status === 'live' ? <><EyeOff size={13} /> Unpublish</> : <><Globe size={13} /> Publish</>}
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => openSubject(active)}><Pencil size={13} /> Edit</Button>
+                <Button variant="outline" size="sm" onClick={() => askDeleteSubject(active)}><Trash2 size={13} /> Delete</Button>
+              </div>
+            </header>
+
+            <section className="cb-section">
+              <div className="cb-section-head">
+                <Layers size={15} className="muted" />
+                <h3>Curriculum</h3>
+                <span className="muted" style={{ fontSize: '.76rem' }}>
+                  Chapters run in order; each can carry its own assignments.
+                </span>
+                <div className="cb-section-actions">
+                  <Button size="sm" variant="outline" onClick={() => openChapterDialog(null)}>
+                    <Plus size={13} /> Add chapter
+                  </Button>
+                  <Button variant="primary" size="sm" onClick={() => openQuiz(null)}>
+                    <Plus size={13} /> Add quiz
+                  </Button>
+                </div>
+              </div>
+
+              {!activeChapters.length ? (
+                <div className="cb-empty">
+                  No chapters yet. Add your first chapter to start laying out this subject.
+                </div>
+              ) : (
+                activeChapters.map((c) => {
+                  const key = String(c.id);
+                  const chapterQuizzes = quizzesByChapter.map[key] || [];
+                  const isOpen = openChapters[key] ?? true;
+                  return (
+                    <div className="cb-chapter" key={c.id}>
+                      <button
+                        type="button"
+                        className="cb-chapter-row"
+                        onClick={() => setOpenChapters((prev) => ({ ...prev, [key]: !isOpen }))}
+                        aria-expanded={isOpen}
+                      >
+                        <GripVertical size={14} className="muted" />
+                        <ChevronDown size={15} className={`cb-chapter-caret ${isOpen ? 'open' : ''}`} />
+                        <span className="cb-chapter-name">{c.title}</span>
+                        <span className="cb-chapter-count">
+                          {chapterQuizzes.length} {chapterQuizzes.length === 1 ? 'quiz' : 'quizzes'}
+                          {' · '}{questionCountByChapter[key] || 0} questions in bank
+                        </span>
+                      </button>
+
+                      {isOpen && (
+                        <div className="cb-chapter-body">
+                          {quizzes === null ? (
+                            <p className="muted" style={{ fontSize: '.8rem' }}>Loading quizzes…</p>
+                          ) : chapterQuizzes.length ? (
+                            chapterQuizzes.map(renderQuizRow)
+                          ) : (
+                            <p className="muted" style={{ fontSize: '.8rem', margin: 0 }}>
+                              No quiz on this chapter yet.
+                            </p>
+                          )}
+                          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                            <Button size="sm" variant="outline" onClick={() => openQuiz(null, c.id)}>
+                              <Plus size={12} /> Add quiz to this chapter
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => openChapterDialog(c)}>
+                              <Pencil size={12} /> Rename
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => askDeleteChapter(c)}>
+                              <Trash2 size={12} /> Remove
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </section>
+
+            {/* Subject-wide quizzes: not filed under any single chapter. They
+                used to be effectively invisible in the old flat table. */}
+            {!!quizzesByChapter.unassigned.length && (
+              <section className="cb-section">
+                <div className="cb-section-head">
+                  <ListChecks size={15} className="muted" />
+                  <h3>Subject-wide quizzes</h3>
+                  <span className="muted" style={{ fontSize: '.76rem' }}>Not tied to a single chapter.</span>
+                </div>
+                <div className="cb-chapter-body" style={{ paddingLeft: 16 }}>
+                  {quizzesByChapter.unassigned.map(renderQuizRow)}
+                </div>
+              </section>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* ------------------------------ dialogs ------------------------------ */}
       <Modal
         open={subjectOpen}
-        onClose={() => !savingSubject && setSubjectOpen(false)}
-        variant="drawer"
-        title={subjectEditing ? `Edit ${subjectEditing.title}` : 'Add Subject'}
+        onClose={() => setSubjectOpen(false)}
+        title={subjectEditing ? 'Edit subject' : 'New subject'}
+        description="Subjects are the top level of your curriculum. Bundles decide who can see them."
         footer={(
           <>
-            <Button variant="outline" onClick={() => setSubjectOpen(false)} disabled={savingSubject}>Cancel</Button>
-            <Button variant="primary" onClick={saveSubject} loading={savingSubject} loadingLabel="Saving…">{subjectEditing ? 'Save Changes' : 'Create Subject'}</Button>
+            <Button variant="outline" onClick={() => setSubjectOpen(false)}>Cancel</Button>
+            <Button variant="primary" onClick={saveSubject} loading={savingSubject}>
+              {subjectEditing ? 'Save changes' : 'Create subject'}
+            </Button>
           </>
         )}
       >
         <form onSubmit={saveSubject}>
           <div className="field">
-            <label htmlFor="s-title">Subject name <span className="field-req">*</span></label>
-            <input id="s-title" value={subjectForm.title} onChange={(e) => setSubjectForm({ ...subjectForm, title: e.target.value })} placeholder="e.g. Air Navigation" />
+            <label htmlFor="cb-subject-title">Subject name</label>
+            <input
+              id="cb-subject-title"
+              className="input"
+              value={subjectForm.title}
+              onChange={(e) => setSubjectForm((f) => ({ ...f, title: e.target.value }))}
+              placeholder="e.g. Air Regulation"
+              autoFocus
+            />
           </div>
           <div className="field">
-            <label htmlFor="s-desc">Description</label>
-            <textarea id="s-desc" rows={3} value={subjectForm.description} onChange={(e) => setSubjectForm({ ...subjectForm, description: e.target.value })} />
+            <label htmlFor="cb-subject-desc">Description</label>
+            <textarea
+              id="cb-subject-desc"
+              rows={3}
+              value={subjectForm.description}
+              onChange={(e) => setSubjectForm((f) => ({ ...f, description: e.target.value }))}
+              placeholder="What this subject covers…"
+            />
           </div>
           <div className="field">
-            <label htmlFor="s-course">Curriculum</label>
+            <label htmlFor="cb-subject-bundle">Include in bundle</label>
             <select
-              id="s-course"
+              id="cb-subject-bundle"
               value={subjectForm.bundleId}
-              onChange={(e) => setSubjectForm({ ...subjectForm, bundleId: e.target.value })}
+              onChange={(e) => setSubjectForm((f) => ({ ...f, bundleId: e.target.value }))}
             >
-              <option value="">— Unassigned subject —</option>
-              {courses.map((c) => <option key={c.id} value={String(c.id)}>{c.title}</option>)}
+              <option value="">Not in a bundle yet</option>
+              {courses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
             </select>
-            <p className="field-hint">Choose the curriculum that should contain this subject.</p>
+            <small className="muted">Students only see subjects that belong to a bundle they hold.</small>
           </div>
         </form>
       </Modal>
 
-      {/* ---------------- Chapter modal ---------------- */}
       <Modal
         open={chapterOpen}
-        onClose={() => !savingChapter && setChapterOpen(false)}
-        size="sm"
-        title="Add Chapter"
-        description={active ? `Chapters help you file questions inside ${active.title}.` : ''}
+        onClose={() => setChapterOpen(false)}
+        title={chapterEditing ? 'Rename chapter' : 'Add chapter'}
+        description={active ? `In ${active.title}` : ''}
         footer={(
           <>
-            <Button variant="outline" onClick={() => setChapterOpen(false)} disabled={savingChapter}>Cancel</Button>
-            <Button variant="primary" onClick={saveChapter} loading={savingChapter} loadingLabel="Adding…">Add Chapter</Button>
+            <Button variant="outline" onClick={() => setChapterOpen(false)}>Cancel</Button>
+            <Button variant="primary" onClick={saveChapter} loading={savingChapter}>
+              {chapterEditing ? 'Save' : 'Add chapter'}
+            </Button>
           </>
         )}
       >
         <form onSubmit={saveChapter}>
           <div className="field">
-            <label htmlFor="c-existing">Choose a chapter</label>
-            <select id="c-existing" value={chapterSelection} onChange={(e) => setChapterSelection(e.target.value)}>
-              <option value="__new__">Create a new chapter</option>
-              {uniqueChapterOptions.map((chapter) => (
-                <option key={chapter.id} value={String(chapter.id)}>
-                  {chapter.title}{chapter.subject_title ? ` · ${chapter.subject_title}` : ''}
-                </option>
-              ))}
-            </select>
-            {chapterSelection === '__new__' ? (
-              <>
-                <label htmlFor="c-title" style={{ marginTop: 12 }}>New chapter name <span className="field-req">*</span></label>
-                <input id="c-title" value={chapterTitle} onChange={(e) => setChapterTitle(e.target.value)} placeholder="e.g. Chapter 1 — Great Circles" />
-              </>
-            ) : (
-              <p className="field-hint">Existing chapters are unique. Choosing one already in this subject will use it in the quiz picker.</p>
-            )}
+            <label htmlFor="cb-chapter-title">Chapter name</label>
+            <input
+              id="cb-chapter-title"
+              className="input"
+              value={chapterTitle}
+              onChange={(e) => setChapterTitle(e.target.value)}
+              placeholder="e.g. Regs 01 - International Organisation"
+              autoFocus
+            />
+            <small className="muted">Chapter names are unique across the platform, so questions map to exactly one.</small>
           </div>
         </form>
       </Modal>
 
-      {/* ---------------- Quiz drawer ---------------- */}
       <Modal
         open={quizOpen}
-        onClose={() => !savingQuiz && setQuizOpen(false)}
-        variant="drawer"
+        onClose={() => setQuizOpen(false)}
         size="lg"
-        title={quizEditing ? `Edit ${quizEditing.title}` : 'Add Quiz'}
-        description={active ? `For ${active.title}` : ''}
+        title={quizEditing ? 'Edit quiz' : 'New quiz'}
+        description={active ? `In ${active.title}` : ''}
         footer={(
           <>
-            <span className="muted" style={{ fontSize: '.8rem', marginRight: 'auto' }}>
-              {quizForm.question_ids.length} question{quizForm.question_ids.length === 1 ? '' : 's'} selected
-            </span>
-            <Button variant="outline" onClick={() => setQuizOpen(false)} disabled={savingQuiz}>Cancel</Button>
-            <Button variant="primary" onClick={saveQuiz} loading={savingQuiz} loadingLabel="Saving…">{quizEditing ? 'Save Changes' : 'Create Quiz'}</Button>
+            <Button variant="outline" onClick={() => setQuizOpen(false)}>Cancel</Button>
+            <Button variant="primary" onClick={saveQuiz} loading={savingQuiz}>
+              {quizEditing ? 'Save changes' : 'Create quiz'}
+            </Button>
           </>
         )}
       >
         <form onSubmit={saveQuiz}>
+          <div className="field">
+            <label htmlFor="cb-quiz-title">Quiz title</label>
+            <input
+              id="cb-quiz-title"
+              className="input"
+              value={quizForm.title}
+              onChange={(e) => setQuizForm((f) => ({ ...f, title: e.target.value }))}
+              placeholder="e.g. Assignment 02"
+            />
+            {quizErrors.title && <small className="field-error">{quizErrors.title}</small>}
+          </div>
+
           <div className="form-grid">
-            <div className="field full">
-              <label htmlFor="q-title">Quiz title <span className="field-req">*</span></label>
-              <input id="q-title" value={quizForm.title} className={quizErrors.title ? 'has-error' : ''} onChange={(e) => setQuizForm({ ...quizForm, title: e.target.value })} />
-              {quizErrors.title && <p className="field-error">{quizErrors.title}</p>}
-            </div>
             <div className="field">
-              <label htmlFor="q-qtype">Type</label>
-              <select id="q-qtype" value={quizForm.type} onChange={(e) => handleTypeChange(e.target.value)}>
-                {QUIZ_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+              <label htmlFor="cb-quiz-type">Mode</label>
+              <select
+                id="cb-quiz-type"
+                value={quizForm.type}
+                onChange={(e) => setQuizForm((f) => ({ ...f, type: e.target.value }))}
+              >
+                <option value="practice">Practice / Assignment</option>
+                <option value="exam">Mock exam</option>
               </select>
+              <small className="muted">
+                {quizForm.type === 'practice'
+                  ? 'Untimed, answers and explanations shown as the student goes.'
+                  : 'Timed, answer key stays protected until submission.'}
+              </small>
             </div>
             <div className="field">
-              <label htmlFor="q-dur">Duration (minutes)</label>
-              <input id="q-dur" type="number" min="1" value={quizForm.duration_minutes} className={quizErrors.duration ? 'has-error' : ''} onChange={(e) => setQuizForm({ ...quizForm, duration_minutes: Number(e.target.value) })} />
-              {quizErrors.duration && <p className="field-error">{quizErrors.duration}</p>}
+              <label htmlFor="cb-quiz-pass">Pass mark (%)</label>
+              <input
+                id="cb-quiz-pass"
+                className="input"
+                type="number"
+                min={0}
+                max={100}
+                value={quizForm.pass_percent}
+                onChange={(e) => setQuizForm((f) => ({ ...f, pass_percent: e.target.value }))}
+              />
+              {quizErrors.pass && <small className="field-error">{quizErrors.pass}</small>}
             </div>
+            {/* Duration only exists for exams — practice is untimed by design,
+                so showing a disabled/ignored field would just be misleading. */}
+            {quizForm.type === 'exam' && (
+              <div className="field">
+                <label htmlFor="cb-quiz-duration">Time limit (minutes)</label>
+                <input
+                  id="cb-quiz-duration"
+                  className="input"
+                  type="number"
+                  min={1}
+                  value={quizForm.duration_minutes}
+                  onChange={(e) => setQuizForm((f) => ({ ...f, duration_minutes: e.target.value }))}
+                />
+                {quizErrors.duration && <small className="field-error">{quizErrors.duration}</small>}
+              </div>
+            )}
             <div className="field">
-              <label htmlFor="q-pass">Pass percentage</label>
-              <input id="q-pass" type="number" min="0" max="100" value={quizForm.pass_percent} className={quizErrors.pass ? 'has-error' : ''} onChange={(e) => setQuizForm({ ...quizForm, pass_percent: Number(e.target.value) })} />
-              {quizErrors.pass && <p className="field-error">{quizErrors.pass}</p>}
-            </div>
-            <div className="field full">
-              <label htmlFor="q-chapter">Assignment chapter</label>
-              <select id="q-chapter" value={quizForm.chapter_id} onChange={(e) => setQuizForm({ ...quizForm, chapter_id: e.target.value })}>
-                <option value="">— No chapter assignment —</option>
-                {activeChapters.map((chapter) => <option key={chapter.id} value={String(chapter.id)}>{chapter.title}</option>)}
+              <label htmlFor="cb-quiz-status">Visibility</label>
+              <select
+                id="cb-quiz-status"
+                value={quizForm.status}
+                onChange={(e) => setQuizForm((f) => ({ ...f, status: e.target.value }))}
+              >
+                <option value="draft">Draft — hidden from students</option>
+                <option value="published">Published — visible under Quizzes</option>
               </select>
-              <p className="field-hint">Students can open this quiz from this chapter only. Questions can still be selected from any chapter below.</p>
             </div>
           </div>
 
-          <div className="quiz-mode-panel">
-            <div className="quiz-mode-head">
-              <GaugeCircle size={15} />
-              <strong>Explanations &amp; Review</strong>
-              <span className="muted" style={{ fontSize: '.74rem' }}>
-                {quizForm.type === 'practice'
-                  ? 'Practice mode always reveals the correct answer + explanation the moment a student answers each question.'
-                  : 'Exam mode always protects the answer key while the attempt is in progress.'}
-              </span>
-            </div>
-            <div className="switch-row" style={{ opacity: .8 }}>
-              <div>
-                <strong>Show explanations while answering</strong>
-                <p>{quizForm.type === 'practice' ? 'On for every Practice quiz — this is what makes it a learning tool.' : 'Off for every Exam quiz — this is what protects assessment integrity.'}</p>
-              </div>
-              <button type="button" className="switch" role="switch" aria-checked={quizForm.type === 'practice'} disabled title="Determined by quiz type — see note above" />
-            </div>
-            {quizForm.type === 'exam' && (
-              <div className="switch-row">
-                <div>
-                  <strong>Allow answer key after submission</strong>
-                  <p>Once the whole quiz is submitted, let students see correct answers and explanations on the review screen. Turn off to keep the answer key permanently protected (e.g. a reusable question bank).</p>
-                </div>
-                <button
-                  type="button"
-                  className="switch"
-                  role="switch"
-                  aria-checked={quizForm.allow_review_after_submit}
-                  onClick={() => setQuizForm({ ...quizForm, allow_review_after_submit: !quizForm.allow_review_after_submit })}
+          {quizForm.type === 'exam' && (
+            <div className="field">
+              <label className="cb-chapter-option" style={{ padding: 0 }}>
+                <input
+                  type="checkbox"
+                  checked={quizForm.allow_review_after_submit}
+                  onChange={(e) => setQuizForm((f) => ({ ...f, allow_review_after_submit: e.target.checked }))}
                 />
-              </div>
-            )}
-            <div className="switch-row">
-              <div>
-                <strong>Publish to students</strong>
-                <p>Drafts are only visible here in the admin — students can't see or start a quiz until it's published.</p>
-              </div>
-              <button
-                type="button"
-                className="switch"
-                role="switch"
-                aria-checked={quizForm.status === 'published'}
-                onClick={() => setQuizForm({ ...quizForm, status: quizForm.status === 'published' ? 'draft' : 'published' })}
-              />
+                <span>Let students see the answer key after they submit</span>
+              </label>
+              <small className="muted">
+                Answers are only ever revealed for questions the student actually attempted.
+              </small>
             </div>
+          )}
+
+          {/* ONE chapter control. Ticking chapters both files the quiz and
+              defines which questions the picker below offers. */}
+          <div className="field">
+            <label>Chapters this quiz covers</label>
+            <small className="muted" style={{ display: 'block', marginBottom: 6 }}>
+              Tick one or more. The question list below is drawn from exactly these chapters —
+              leave all unticked to pick from the whole subject.
+            </small>
+            {activeChapters.length ? (
+              <div className="cb-chapter-picker">
+                {activeChapters.map((c) => (
+                  <label className="cb-chapter-option" key={c.id}>
+                    <input
+                      type="checkbox"
+                      checked={quizForm.chapter_ids.includes(String(c.id))}
+                      onChange={() => toggleChapterSelection(c.id)}
+                    />
+                    <span>{c.title}</span>
+                    <span className="cb-chapter-option-count">
+                      {questionCountByChapter[String(c.id)] || 0} questions
+                    </span>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <p className="muted" style={{ fontSize: '.82rem' }}>
+                This subject has no chapters yet — the quiz will cover the whole subject.
+              </p>
+            )}
           </div>
 
           <div className="field">
-            <label>Questions <span className="field-req">*</span></label>
-            <div className="row" style={{ marginBottom: 8 }}>
-              <select
-                aria-label="Filter questions by chapter"
-                value={pickerChapterId}
-                onChange={(e) => setPickerChapterId(e.target.value)}
-                disabled={!pickerChapters.length}
-                style={{ minWidth: 150 }}
+            <label>Questions</label>
+            <div className="cb-picker-summary">
+              <FileQuestion size={14} />
+              <span>
+                <strong>{quizForm.question_ids.length}</strong> selected · {pickerQuestions.length} available
+                {quizForm.chapter_ids.length > 0 && ` from ${quizForm.chapter_ids.length} chapter${quizForm.chapter_ids.length === 1 ? '' : 's'}`}
+              </span>
+              <button
+                type="button"
+                className="btn btn-outline btn-xs"
+                style={{ marginLeft: 'auto' }}
+                onClick={toggleAllPickerQuestions}
+                disabled={!pickerQuestions.length}
               >
-                <option value="">All chapters</option>
-                {pickerChapters.map((chapter) => <option key={chapter.id} value={String(chapter.id)}>{chapter.title}</option>)}
-              </select>
-              <label className="input-with-icon" style={{ flex: 1, minWidth: 180 }}>
-                <Search size={14} />
-                <input placeholder="Search questions…" value={pickerSearch} onChange={(e) => setPickerSearch(e.target.value)} aria-label="Search questions" />
-              </label>
-              <Button size="xs" variant="ghost" icon={RotateCcw} onClick={loadQuestions}>Refresh</Button>
+                {allPickerSelected ? 'Clear visible' : 'Select all visible'}
+              </button>
             </div>
-
-            {!!pickerQuestions.length && (
-              <label className="picker-select-all">
-                <input type="checkbox" checked={allPickerQuestionsSelected} onChange={toggleAllPickerQuestions} />
-                <span>Select all {pickerSearch.trim() || pickerChapterId ? 'shown' : 'chapter'} questions</span>
-                <span className="muted">({pickerQuestions.length})</span>
-              </label>
-            )}
-            <div className="check-list" style={{ maxHeight: 300 }}>
-              {pickerQuestions.length ? pickerQuestions.map((question) => {
-                const checked = quizForm.question_ids.some((x) => String(x) === String(question.id));
-                return (
-                  <label key={question.id} className="check-row">
-                    <input type="checkbox" checked={checked} onChange={() => toggleQuestion(question.id)} />
-                    <span style={{ flex: 1, minWidth: 0 }}>
-                      <span className="td-muted" style={{ marginRight: 6 }}>#{question.id}</span>
-                      {question.question_text}
+            <div className="input-with-icon" style={{ margin: '8px 0' }}>
+              <Search size={14} />
+              <input
+                className="input"
+                placeholder="Search questions by text or ID…"
+                value={pickerSearch}
+                onChange={(e) => setPickerSearch(e.target.value)}
+              />
+            </div>
+            <div className="cb-question-list">
+              {pickerQuestions.length ? pickerQuestions.slice(0, 400).map((q) => (
+                <label className="cb-question-option" key={q.id}>
+                  <input
+                    type="checkbox"
+                    checked={quizForm.question_ids.some((id) => String(id) === String(q.id))}
+                    onChange={() => toggleQuestion(q.id)}
+                  />
+                  <span className="cb-question-option-text">
+                    {q.question_text}
+                    <span className="cb-question-option-meta">
+                      #{q.id}
+                      {q.chapter_id ? ` · ${chapterTitleById[String(q.chapter_id)] || `Chapter #${q.chapter_id}`}` : ' · unassigned chapter'}
+                      {q.difficulty ? ` · ${q.difficulty}` : ''}
                     </span>
-                    {question.chapter_id && (
-                      <span className="td-muted" style={{ fontSize: '.72rem' }}>
-                        {chapters.find((chapter) => String(chapter.id) === String(question.chapter_id))?.title || 'Chapter'}
-                      </span>
-                    )}
-                    <DifficultyBadge difficulty={question.difficulty} />
-                  </label>
-                );
-              }) : (
-                <div className="empty-state" style={{ padding: '24px 12px' }}>
-                  <div className="empty-state-icon tone-purple"><FileQuestion size={20} /></div>
-                  <h3>No questions here</h3>
-                  <p>
-                    {'This subject has no questions in the selected chapter yet. Add or assign them in the Question Bank.'}
-                  </p>
-                  <Button variant="primary" to="/admin/questions?new=1" icon={Plus}>Add Question</Button>
-                </div>
+                  </span>
+                </label>
+              )) : (
+                <p className="muted" style={{ padding: 14, margin: 0, fontSize: '.82rem' }}>
+                  No questions match. Try a different chapter selection, or add questions in the Question Bank first.
+                </p>
               )}
             </div>
-            {quizErrors.questions && <p className="field-error" style={{ marginTop: 6 }}>{quizErrors.questions}</p>}
-            <p className="field-hint">Questions are automatically limited to this subject. Use Chapter to build a focused quiz.</p>
+            {pickerQuestions.length > 400 && (
+              <small className="muted">Showing the first 400 matches — narrow the search to see more.</small>
+            )}
+            {quizErrors.questions && <small className="field-error">{quizErrors.questions}</small>}
           </div>
         </form>
       </Modal>
 
-      {/* ---------------- Quiz view ---------------- */}
-      <Modal
-        open={!!viewQuiz}
-        onClose={() => setViewQuiz(null)}
-        size="lg"
-        title={viewQuiz?.title}
-        description={viewQuiz ? `${viewQuiz.type} · ${viewQuiz.duration_minutes} minutes · pass at ${viewQuiz.pass_percent}% · ${viewQuiz.status === 'published' ? 'Published' : 'Draft'} · ${viewQuiz.show_explanations ? 'Explanations live' : 'Explanations protected'}` : ''}
-        footer={<><Button variant="outline" onClick={() => setViewQuiz(null)}>Close</Button><Button variant="primary" icon={Pencil} onClick={() => { openQuiz(viewQuiz); setViewQuiz(null); }}>Edit Quiz</Button></>}
-      >
-        {viewQuiz && (
-          (viewQuiz.question_ids || []).length ? (
-            <div className="stack" style={{ gap: 8 }}>
-              {(viewQuiz.question_ids || []).map((id, i) => {
-                const question = allQuestions.find((x) => String(x.id) === String(id));
-                return (
-                  <div key={id} className="preview-option">
-                    <span className="preview-option-key">{i + 1}</span>
-                    <span style={{ flex: 1 }}>{question ? question.question_text : <span className="muted">Question #{id} (not in the current bank)</span>}</span>
-                    {question && <DifficultyBadge difficulty={question.difficulty} />}
-                  </div>
-                );
-              })}
-            </div>
-          ) : <EmptyState icon={FileQuestion} title="No questions" description="This quiz has no questions attached." />
-        )}
-      </Modal>
-
-      <ConfirmModal
-        open={!!confirm}
-        onClose={() => setConfirm(null)}
-        onConfirm={confirm?.onConfirm}
-        title={confirm?.title}
-        message={confirm?.message}
-        confirmLabel={confirm?.confirmLabel}
-      />
+      {confirm && (
+        <ConfirmModal
+          open
+          title={confirm.title}
+          message={confirm.message}
+          confirmLabel={confirm.confirmLabel}
+          onConfirm={confirm.onConfirm}
+          onClose={() => setConfirm(null)}
+        />
+      )}
     </div>
   );
 }

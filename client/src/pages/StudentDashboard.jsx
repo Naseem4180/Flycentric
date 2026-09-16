@@ -66,7 +66,17 @@ export default function StudentDashboard() {
 
   if (loading) return <div className="page"><div className="container dashboard-skeleton"><i /><i /><i /></div></div>;
 
-  const completed = attempts.filter((attempt) => attempt.status === 'submitted' && Object.keys(attempt.answers || {}).length > 0);
+  // "Completed" means submitted AND actually answered something — a student
+  // who opened a quiz and submitted it blank shouldn't drag their average
+  // down. The attempts endpoint now returns a precomputed `answered_count`
+  // rather than shipping the whole answers blob to the browser; the
+  // `answers` fallback keeps this working against an older API build.
+  const answeredCount = (attempt) => (
+    attempt.answered_count != null
+      ? Number(attempt.answered_count)
+      : Object.keys(attempt.answers || {}).length
+  );
+  const completed = attempts.filter((attempt) => attempt.status === 'submitted' && answeredCount(attempt) > 0);
   const visibleAttempts = completed;
   const average = completed.length ? Math.round(completed.reduce((sum, attempt) => sum + Number(attempt.score || 0), 0) / completed.length) : 0;
   const totalCorrect = completed.reduce((sum, attempt) => sum + Number(attempt.correct_count || 0), 0);

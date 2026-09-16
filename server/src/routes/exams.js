@@ -5,13 +5,35 @@ const { quizSubmitLimiter } = require('../middleware/rateLimit');
 
 const router = express.Router();
 
+// Accepts either the new chapter_ids[] or the legacy single chapter_id and
+// returns a clean, de-duplicated integer array. An explicitly-empty array is
+// respected (a quiz that deliberately spans no specific chapter); undefined
+// falls back to the legacy field.
+function normalizeChapterIds(chapterIds, legacyChapterId) {
+  const source = Array.isArray(chapterIds)
+    ? chapterIds
+    : (legacyChapterId === undefined || legacyChapterId === null || legacyChapterId === '' ? [] : [legacyChapterId]);
+  const seen = new Set();
+  const out = [];
+  for (const raw of source) {
+    const n = Number(raw);
+    if (Number.isInteger(n) && n > 0 && !seen.has(n)) { seen.add(n); out.push(n); }
+  }
+  return out;
+}
+
 // ---- Quiz / Test-paper management (admin) ----------------------------------
 // Covers "Test Paper / Mock Exam Upload": a full structured set uploaded as one unit.
 router.post('/quizzes', authenticate, authorize('admin', 'instructor'), async (req, res) => {
   const {
-    bundle_id, chapter_id, subject_id, title, type, duration_minutes, pass_percent, attempt_limit, question_ids,
+    bundle_id, chapter_id, chapter_ids, subject_id, title, type, duration_minutes, pass_percent, attempt_limit, question_ids,
     status, show_explanations, allow_review_after_submit,
   } = req.body;
+  // A quiz can now draw from SEVERAL chapters. chapter_ids[] is the source of
+  // truth; chapter_id is derived from its first entry purely so older
+  // queries/reports that group by a single chapter keep working.
+  const chapterIds = normalizeChapterIds(chapter_ids, chapter_id);
+  const primaryChapterId = chapterIds.length ? chapterIds[0] : null;
   if (!title || !type || !Array.isArray(question_ids) || !question_ids.length) {
     return res.status(400).json({ error: 'title, type, and non-empty question_ids[] required' });
   }
@@ -45,9 +67,9 @@ router.post('/quizzes', authenticate, authorize('admin', 'instructor'), async (r
     durationMinutes = Math.round(parsedDuration);
   }
   const result = await pool.query(
-    `INSERT INTO quizzes (bundle_id, chapter_id, subject_id, title, type, duration_minutes, pass_percent, attempt_limit, question_ids, created_by, status, show_explanations, allow_review_after_submit)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
-    [bundle_id || null, chapter_id || null, subject_id || null, title, type, durationMinutes, pass_percent || 70,
+    `INSERT INTO quizzes (bundle_id, chapter_id, chapter_ids, subject_id, title, type, duration_minutes, pass_percent, attempt_limit, question_ids, created_by, status, show_explanations, allow_review_after_submit)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+    [bundle_id || null, primaryChapterId, chapterIds, subject_id || null, title, type, durationMinutes, pass_percent || 70,
      attempt_limit || 0, question_ids, req.user.id, initialStatus,
      forcedShowExplanations,
      allow_review_after_submit != null ? !!allow_review_after_submit : true]
@@ -89,24 +111,50 @@ router.get('/quizzes', authenticate, async (req, res) => {
   } else if (status) {
     params.push(status); clauses.push(`q.status = $${params.length}`);
   }
+  // Subject / chapter titles are joined here so every consumer (admin
+  // builder, student Quizzes tab, results filters) labels a quiz the same
+  // way instead of each screen re-deriving them from separate requests.
+  params.push(req.user.id);
+  const meParam = `$${params.length}`;
   const result = await pool.query(
-        `SELECT q.id, q.bundle_id, q.chapter_id, q.subject_id, q.title, q.type, q.duration_minutes, q.pass_percent, q.attempt_limit,
-          q.status, q.show_explanations, q.allow_review_after_submit,
-          q.question_ids, array_length(q.question_ids,1) AS question_count, q.created_at
-     FROM quizzes q WHERE ${clauses.join(' AND ')} ORDER BY q.created_at DESC`,
+        `SELECT q.id, q.bundle_id, q.chapter_id, q.chapter_ids, q.subject_id, q.title, q.type, q.duration_minutes, q.pass_percent, q.attempt_limit,
+          q.status, q.show_explanations, q.allow_review_after_submit, q.source,
+          q.question_ids, COALESCE(array_length(q.question_ids,1), 0) AS question_count, q.created_at,
+          s.title AS subject_title, c.title AS chapter_title,
+          (SELECT COALESCE(json_agg(json_build_object('id', ch.id, 'title', ch.title) ORDER BY ch.order_index, ch.id), '[]'::json)
+             FROM chapters ch WHERE ch.id = ANY(q.chapter_ids) AND ch.deleted_at IS NULL) AS chapters,
+          (SELECT COUNT(*)::int FROM attempts a
+             WHERE a.quiz_id = q.id AND a.user_id = ${meParam} AND a.status = 'submitted') AS my_attempt_count,
+          (SELECT MAX(a.score) FROM attempts a
+             WHERE a.quiz_id = q.id AND a.user_id = ${meParam} AND a.status = 'submitted') AS my_best_score,
+          (SELECT a.score FROM attempts a
+             WHERE a.quiz_id = q.id AND a.user_id = ${meParam} AND a.status = 'submitted'
+             ORDER BY a.submitted_at DESC LIMIT 1) AS my_last_score,
+          (SELECT a.id FROM attempts a
+             WHERE a.quiz_id = q.id AND a.user_id = ${meParam} AND a.status = 'submitted'
+             ORDER BY a.submitted_at DESC LIMIT 1) AS my_last_attempt_id
+     FROM quizzes q
+     LEFT JOIN subjects s ON s.id = q.subject_id AND s.deleted_at IS NULL
+     LEFT JOIN chapters c ON c.id = q.chapter_id AND c.deleted_at IS NULL
+     WHERE ${clauses.join(' AND ')} ORDER BY q.created_at DESC`,
     params
   );
   res.json({ quizzes: result.rows });
 });
 
 router.patch('/quizzes/:id', authenticate, authorize('admin', 'instructor'), async (req, res) => {
-  const { question_ids, title, type, duration_minutes, pass_percent, attempt_limit, status, allow_review_after_submit, chapter_id } = req.body;
+  const { question_ids, title, type, duration_minutes, pass_percent, attempt_limit, status, allow_review_after_submit, chapter_id, chapter_ids } = req.body;
   if (type && !['practice', 'exam'].includes(type)) {
     return res.status(400).json({ error: "type must be 'practice' or 'exam'" });
   }
   // show_explanations is derived from the (possibly-updated) type, never
   // taken from the request body directly — see POST /quizzes above for why.
   const forcedShowExplanations = type ? (type === 'practice') : null;
+  // Only touch the chapter columns when the caller actually sent one of them,
+  // so a partial PATCH (e.g. just flipping status) can't wipe the links.
+  const chapterTouched = chapter_ids !== undefined || chapter_id !== undefined;
+  const nextChapterIds = chapterTouched ? normalizeChapterIds(chapter_ids, chapter_id) : null;
+  const nextPrimaryChapterId = chapterTouched ? (nextChapterIds.length ? nextChapterIds[0] : null) : null;
   const result = await pool.query(
     `UPDATE quizzes SET
        question_ids = COALESCE($1, question_ids),
@@ -118,11 +166,12 @@ router.patch('/quizzes/:id', authenticate, authorize('admin', 'instructor'), asy
        status = COALESCE($7, status),
        show_explanations = COALESCE($8, show_explanations),
        allow_review_after_submit = COALESCE($9, allow_review_after_submit),
-       chapter_id = CASE WHEN $10::text IS NULL THEN chapter_id ELSE NULLIF($10::text, '')::integer END
-     WHERE id = $11 AND deleted_at IS NULL RETURNING *`,
+       chapter_ids = CASE WHEN $10::boolean THEN $11::int[] ELSE chapter_ids END,
+       chapter_id   = CASE WHEN $10::boolean THEN $12::integer ELSE chapter_id END
+     WHERE id = $13 AND deleted_at IS NULL RETURNING *`,
     [question_ids || null, title || null, type || null, duration_minutes || null, pass_percent || null, attempt_limit ?? null,
      status || null, forcedShowExplanations, allow_review_after_submit ?? null,
-     chapter_id === undefined ? null : String(chapter_id), req.params.id]
+     chapterTouched, nextChapterIds, nextPrimaryChapterId, req.params.id]
   );
   if (!result.rows.length) return res.status(404).json({ error: 'Quiz not found' });
   res.json({ quiz: result.rows[0] });
@@ -467,25 +516,78 @@ router.get('/attempts/:id/review', authenticate, async (req, res) => {
     } else {
       isCorrect = given === q.correct_option;
     }
-    if (reviewLocked) {
-      // Strip the answer key entirely — only the student's own choice + the
-      // question itself are safe to show.
+    // Answers and explanations are revealed ONLY for questions this student
+    // actually attempted. Skipping 20 of 30 questions and still receiving the
+    // full answer key turns the review screen into a free answer dump for
+    // unseen questions, which also makes the next attempt meaningless. The
+    // question itself is still listed (so the student sees what they missed)
+    // — just without its key. Admins/instructors always see everything.
+    const isStudent = req.user.role === 'student';
+    const attempted = given !== null && given !== undefined && String(given).length > 0;
+    if (isStudent && (reviewLocked || !attempted)) {
       const { correct_option, explanation, ...safe } = q;
-      return { id: questionId, ...safe, your_answer: given, is_correct: null };
+      const options = (safe.options || []).map(({ rationale, ...opt }) => opt);
+      return {
+        id: questionId,
+        ...safe,
+        options,
+        your_answer: given,
+        is_correct: attempted ? isCorrect : null,
+        attempted,
+        revealed: false,
+        // Distinguishes the two reasons a key is hidden so the UI can explain
+        // itself instead of silently showing a bare question.
+        hidden_reason: reviewLocked ? 'exam_protected' : 'not_attempted',
+      };
     }
-    return { id: questionId, ...q, your_answer: given, is_correct: isCorrect };
+    return { id: questionId, ...q, your_answer: given, is_correct: isCorrect, attempted, revealed: true, hidden_reason: null };
   }).filter(Boolean);
-  res.json({ attempt, quiz, review, reviewLocked, questionTimings: attempt.question_timings || {} });
+
+  const attemptedCount = review.filter((r) => r.attempted).length;
+  res.json({
+    attempt,
+    quiz,
+    review,
+    reviewLocked,
+    // Headline counts for the review summary card.
+    summary: {
+      total: review.length,
+      attempted: attemptedCount,
+      skipped: review.length - attemptedCount,
+      correct: review.filter((r) => r.is_correct === true).length,
+      incorrect: review.filter((r) => r.attempted && r.is_correct === false).length,
+    },
+    questionTimings: attempt.question_timings || {},
+  });
 });
 
+// Every attempt this student has made, carrying the subject/chapter labels the
+// results table filters and groups by. Previously it returned only the quiz
+// title, so "My Results" had no way to show or filter by subject or chapter.
 router.get('/attempts/mine', authenticate, async (req, res) => {
-  const { subject_id } = req.query;
+  const { subject_id, chapter_id, type, status, include_practice_decks } = req.query;
   const params = [req.user.id];
-  const subjectClause = subject_id ? ' AND q.subject_id = $2' : '';
-  if (subject_id) params.push(subject_id);
+  const clauses = ['a.user_id = $1'];
+  if (subject_id) { params.push(subject_id); clauses.push(`q.subject_id = $${params.length}`); }
+  if (chapter_id) { params.push(chapter_id); clauses.push(`q.chapter_id = $${params.length}`); }
+  if (type) { params.push(type); clauses.push(`q.type = $${params.length}`); }
+  if (status) { params.push(status); clauses.push(`a.status = $${params.length}`); }
+  // Memory Bank decks are personal drills, not catalogue exams. They stay
+  // available (the deck screen links to them) but are opt-in here so they
+  // can't quietly skew a results list meant to show real assignments.
+  if (include_practice_decks !== 'true') clauses.push(`q.source IS DISTINCT FROM 'memory_bank'`);
   const result = await pool.query(
-    `SELECT a.*, q.title AS quiz_title, q.type AS quiz_type FROM attempts a
-     JOIN quizzes q ON q.id = a.quiz_id WHERE a.user_id = $1${subjectClause} ORDER BY a.started_at DESC`,
+    `SELECT a.id, a.quiz_id, a.user_id, a.status, a.score, a.correct_count, a.total_questions,
+            a.started_at, a.submitted_at, a.deadline_at,
+            (SELECT count(*) FROM jsonb_object_keys(a.answers))::int AS answered_count,
+            q.title AS quiz_title, q.type AS quiz_type, q.pass_percent, q.source AS quiz_source,
+            q.subject_id, s.title AS subject_title,
+            q.chapter_id, c.title AS chapter_title
+     FROM attempts a
+     JOIN quizzes q ON q.id = a.quiz_id
+     LEFT JOIN subjects s ON s.id = q.subject_id
+     LEFT JOIN chapters c ON c.id = q.chapter_id
+     WHERE ${clauses.join(' AND ')} ORDER BY a.started_at DESC`,
     params
   );
   res.json({ attempts: result.rows });

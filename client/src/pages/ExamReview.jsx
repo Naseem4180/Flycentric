@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { X, MessageCircleQuestion, ChevronDown, Flag as FlagIcon } from 'lucide-react';
+import { Link, useParams, useNavigate } from 'react-router-dom';
+import { X, MessageCircleQuestion, ChevronDown, Flag as FlagIcon, RotateCcw, EyeOff } from 'lucide-react';
 import { api } from '../api';
 import { PageSkeleton } from '../ui';
 
@@ -36,6 +36,7 @@ function formatSeconds(s) {
 
 export default function ExamReview() {
   const { attemptId } = useParams();
+  const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [bookmarked, setBookmarked] = useState({});
@@ -114,18 +115,42 @@ export default function ExamReview() {
   if (error) return <div className="page"><div className="container"><div className="error-banner">{error}</div></div></div>;
   if (!data) return <div className="page"><div className="container"><PageSkeleton label="Loading review" /></div></div>;
 
-  const { attempt, quiz, review, reviewLocked, questionTimings = {} } = data;
+  const { attempt, quiz, review, reviewLocked, summary, questionTimings = {} } = data;
+  const stats = summary || {
+    total: review.length,
+    attempted: review.filter((r) => r.attempted).length,
+    skipped: review.filter((r) => !r.attempted).length,
+    correct: review.filter((r) => r.is_correct === true).length,
+    incorrect: review.filter((r) => r.attempted && r.is_correct === false).length,
+  };
 
   return (
     <div className="page">
-      <div className="container" style={{ maxWidth: 780 }}>
-        <div className="card flex-between" style={{ marginBottom: 20 }}>
-          <div>
+      <div className="container container-narrow">
+        <div className="card review-summary-card">
+          <div className="review-summary-main">
             <div className="eyebrow">{quiz.title}</div>
-            <h2 style={{ margin: '4px 0' }}>
+            <h2 className="review-summary-title">
               {attempt.score >= quiz.pass_percent ? 'Passed' : 'Not passed yet'}
             </h2>
             <p className="muted">{attempt.correct_count} of {attempt.total_questions} correct · pass mark {quiz.pass_percent}%</p>
+            {/* Skipped questions are called out explicitly: a student who
+                answered 10 of 30 should see why their score looks low. */}
+            <div className="review-stat-row">
+              <span className="review-stat review-stat-correct">{stats.correct} correct</span>
+              <span className="review-stat review-stat-wrong">{stats.incorrect} wrong</span>
+              <span className="review-stat review-stat-skipped">{stats.skipped} skipped</span>
+            </div>
+            {/* Retake sits with the result, so the obvious next action after
+                seeing a score is one tap away instead of a hunt through
+                My Subjects for the quiz again. */}
+            <div className="review-summary-actions">
+              <button type="button" className="btn btn-primary btn-sm" onClick={() => navigate(`/take-exam/${quiz.id}`)}>
+                <RotateCcw size={14} /> Retake this quiz
+              </button>
+              <Link to="/my-results" className="btn btn-outline btn-sm">All results</Link>
+              <Link to="/quizzes" className="btn btn-outline btn-sm">More quizzes</Link>
+            </div>
           </div>
           <Gauge value={parseFloat(attempt.score)} passThreshold={quiz.pass_percent} />
         </div>
@@ -146,18 +171,28 @@ export default function ExamReview() {
           {review.map((r, idx) => {
             const timeSpent = questionTimings[r.id] ?? null;
             const band = tpqBand(timeSpent);
+            // The server only sends the answer key for questions this student
+            // actually answered; `revealed` tells us which case we're in.
+            const revealed = r.revealed !== false && !reviewLocked;
+            const skipped = r.attempted === false;
             return (
-              <div className="card" key={r.id}>
-                <div className="flex-between" style={{ alignItems: 'flex-start', gap: 10 }}>
-                  <p style={{ fontWeight: 600, margin: 0 }}>{idx + 1}. {r.question_text}</p>
+              <div className={`card review-question-card ${skipped ? 'is-skipped' : ''}`} key={r.id}>
+                <div className="review-question-head">
+                  <p className="review-question-text">{idx + 1}. {r.question_text}</p>
                   <span className={`tpq-chip ${band.cls}`} title={`${formatSeconds(timeSpent)} spent on this question`}>
                     {formatSeconds(timeSpent)}
                   </span>
                 </div>
+                {skipped && (
+                  <div className="review-skipped-note">
+                    <EyeOff size={14} />
+                    <span>You skipped this one, so the answer stays hidden — attempt it on your next try to unlock the explanation.</span>
+                  </div>
+                )}
                 <div className="stack" style={{ marginTop: 10 }}>
                   {(r.options || []).map((opt) => {
                     let cls = '';
-                    if (!reviewLocked) {
+                    if (revealed) {
                       if (opt.key === r.correct_option) cls = 'correct';
                       else if (opt.key === r.your_answer) cls = 'incorrect';
                     } else if (opt.key === r.your_answer) {
@@ -166,7 +201,7 @@ export default function ExamReview() {
                     // Distractor Error Breakdown: an expandable note under any
                     // wrong option that has an admin-authored rationale,
                     // instead of only ever revealing the correct answer.
-                    const isWrongOption = !reviewLocked && opt.key !== r.correct_option;
+                    const isWrongOption = revealed && opt.key !== r.correct_option;
                     const accordionKey = `${r.id}-${opt.key}`;
                     return (
                       <div key={opt.key}>
@@ -195,7 +230,7 @@ export default function ExamReview() {
                     );
                   })}
                 </div>
-                {!reviewLocked && r.explanation && <p className="muted" style={{ marginTop: 10 }}><strong>Why:</strong> {r.explanation}</p>}
+                {revealed && r.explanation && <p className="muted" style={{ marginTop: 10 }}><strong>Why:</strong> {r.explanation}</p>}
                 <div className="row" style={{ marginTop: 10 }}>
                   <button className="btn btn-outline btn-sm" onClick={() => toggleBookmark(r.id)}>
                     {bookmarked[r.id] ? '★ Bookmarked' : '☆ Add to Memory Bank'}
@@ -211,7 +246,12 @@ export default function ExamReview() {
             );
           })}
         </div>
-        <Link to="/" className="btn btn-dark" style={{ marginTop: 20 }}>Back to dashboard</Link>
+        <div className="review-footer-actions">
+          <button type="button" className="btn btn-primary" onClick={() => navigate(`/take-exam/${quiz.id}`)}>
+            <RotateCcw size={15} /> Retake this quiz
+          </button>
+          <Link to="/" className="btn btn-dark">Back to dashboard</Link>
+        </div>
       </div>
 
       {/* Contextual Instructor Doubt Submission — slides in from the right,

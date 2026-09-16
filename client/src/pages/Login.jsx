@@ -30,40 +30,44 @@ export default function Login() {
   return (
     <div className="page login-page">
       <div className="container login-layout">
-        <aside className="login-story">
-          <div className="eyebrow">FlyCentric / Aviation learning</div>
-          <h1>Train with a clearer view of the sky.</h1>
-          <p>Structured CPL and ATPL preparation, intelligent practice, and performance feedback built for the way pilots actually learn.</p>
-          <div className="login-metrics"><span><b>6</b> DGCA subjects</span><span><b>24/7</b> practice access</span><span><b>∞</b> better decisions</span></div>
-        </aside>
-        <main className="card login-card">
-          <div className="auth-logo-row"><BrandLogo size={36} to={null} /></div>
-          <div className="page-header">
-            <div className="eyebrow">Secure sign in</div>
-            <h2>Welcome aboard.</h2>
-            <p className="muted">Continue your personalised flight plan.</p>
+        <main className="card login-card" aria-labelledby="login-title">
+          <div className="auth-logo-row">
+            <BrandLogo size={34} to={null} />
           </div>
+
+          <div className="auth-header">
+            <div className="auth-eyebrow">Secure sign in</div>
+            <h1 id="login-title">Welcome aboard.</h1>
+            <p>Continue your personalised flight plan.</p>
+          </div>
+
           {error && <div className="error-banner">{error}</div>}
-          <form onSubmit={handleSubmit}>
+
+          <form onSubmit={handleSubmit} className="auth-form">
             <div className="field">
-              <label>Email</label>
-              <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              <label htmlFor="login-email">Email</label>
+              <input id="login-email" className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
             </div>
+
             <div className="field">
-              <label>Password</label>
-              <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+              <label htmlFor="login-password">Password</label>
+              <input id="login-password" className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
             </div>
-            <p className="muted" style={{ textAlign: 'right', margin: '-8px 0 14px', fontSize: '0.85rem' }}>
-              <Link to="/forgot-password">Forgot password?</Link>
-            </p>
-            <button className="btn btn-primary" style={{ width: '100%' }} disabled={busy}>
+
+            <div className="auth-actions-row">
+              <Link to="/forgot-password" className="auth-link">Forgot password?</Link>
+            </div>
+
+            <button className="btn btn-primary auth-submit" type="submit" disabled={busy}>
               {busy ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
-          <p className="muted" style={{ marginTop: 16 }}>
+
+          <p className="auth-signup-text">
             No account? <Link to="/register">Register as a student</Link>
           </p>
-          <p className="muted" style={{ fontSize: '0.78rem', marginTop: 10 }}>
+
+          <p className="auth-demo-text">
             Demo logins (password: Password123!): admin@flycentric.in · instructor@flycentric.in · student@flycentric.in
           </p>
         </main>

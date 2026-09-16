@@ -3,19 +3,31 @@ import SidebarBrand from './SidebarBrand';
 import SidebarProCard from './SidebarProCard';
 import {
   LayoutDashboard, BookOpen, MessageCircle, CalendarClock, History, Brain, LineChart, Compass,
+  Home, ListChecks,
 } from 'lucide-react';
 
 const NAV_GROUPS = [
   {
     label: null,
-    items: [{ to: '/', end: true, icon: LayoutDashboard, label: 'Dashboard' }],
+    items: [
+      // Home sits above Dashboard and shows the public marketing/updates page
+      // inside the app shell, so a logged-in student can read announcements
+      // and new bundles without signing out or leaving the product.
+      { to: '/home', icon: Home, label: 'Home' },
+      { to: '/', end: true, icon: LayoutDashboard, label: 'Dashboard' },
+    ],
   },
   {
     label: 'Learning',
     items: [
       { to: '/explore', icon: Compass, label: 'Explore Bundles' },
       { to: '/my-subjects', icon: BookOpen, label: 'My Subjects' },
+      // Every published quiz an admin creates is reachable here. Without it a
+      // quiz filed under a subject (rather than a single chapter) had no route
+      // a student could actually reach.
+      { to: '/quizzes', icon: ListChecks, label: 'Quizzes' },
       { to: '/my-results', icon: History, label: 'My Results' },
+      { to: '/exam-history', icon: LineChart, label: 'Exam History' },
       { to: '/memory-bank', icon: Brain, label: 'Memory Box' },
       { to: '/analytics', icon: LineChart, label: 'Analytics' },
     ],
@@ -29,7 +41,7 @@ const NAV_GROUPS = [
   },
 ];
 
-export default function StudentSidebar({ collapsed }) {
+export default function StudentSidebar({ collapsed, onNavigate }) {
   return (
     <aside className={`admin-sidebar student-sidebar ${collapsed ? 'collapsed' : ''}`}>
       <SidebarBrand collapsed={collapsed} />
@@ -42,6 +54,7 @@ export default function StudentSidebar({ collapsed }) {
                 key={to}
                 to={to}
                 end={end}
+                onClick={onNavigate}
                 className={({ isActive }) => `admin-nav-link ${isActive ? 'active' : ''}`}
                 title={collapsed ? label : undefined}
               >

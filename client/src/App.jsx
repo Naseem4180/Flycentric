@@ -21,6 +21,8 @@ import ExploreBundles from './pages/ExploreBundles';
 import MyDoubts from './pages/MyDoubts';
 import ReportExamQuestion from './pages/ReportExamQuestion';
 import MyResults from './pages/MyResults';
+import StudentQuizzes from './pages/StudentQuizzes';
+import ExamHistory from './pages/ExamHistory';
 import Jobs from './pages/Jobs';
 import StudentShell from './pages/StudentShell';
 import NotFound from './pages/NotFound';
@@ -115,6 +117,12 @@ function AppRoutes() {
         <Route path="/pricing" element={<Pricing />} />
         <Route path="/checkout" element={<Protected roles={['student']}><StudentShell><Checkout /></StudentShell></Protected>} />
         <Route path="/" element={<HomeRoute />} />
+        {/* The public homepage rendered INSIDE the student shell, so a signed-in
+            student can browse announcements/bundles from the sidebar without
+            being logged out or bounced to a different-looking site. */}
+        <Route path="/home" element={<Protected roles={['student']}><StudentShell><Landing /></StudentShell></Protected>} />
+        <Route path="/quizzes" element={<Protected roles={['student']}><StudentShell><StudentQuizzes /></StudentShell></Protected>} />
+        <Route path="/exam-history" element={<Protected roles={['student']}><StudentShell><ExamHistory /></StudentShell></Protected>} />
         <Route path="/bundles/:id" element={<Protected><StudentAware><BundleView /></StudentAware></Protected>} />
         <Route path="/take-exam/:quizId" element={<Protected roles={['student']}><TakeExam /></Protected>} />
         <Route path="/review/:attemptId" element={<Protected><StudentAware><ExamReview /></StudentAware></Protected>} />

@@ -289,7 +289,7 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
 
   // Quizzes belonging to this subject, split by mode.
   const quizResult = await pool.query(
-    `SELECT id, title, type, chapter_id, duration_minutes
+    `SELECT id, title, type, chapter_id, chapter_ids, duration_minutes
      FROM quizzes
      WHERE subject_id = $1 AND deleted_at IS NULL AND status = 'published'
        AND source IS DISTINCT FROM 'memory_bank'`,
@@ -317,16 +317,22 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
   const fullAccess = req.user.role !== 'student' || await hasSubjectAccess(req.user.id, subjectId);
 
   const chapters = chaptersResult.rows.map((c) => {
-    const chapterQuizzes = quizResult.rows.filter((q) => String(q.chapter_id) === String(c.id));
+    // A quiz belongs to this chapter if it lists the chapter in chapter_ids
+    // (multi-chapter assignments) or via the legacy single chapter_id.
+    const chapterQuizzes = quizResult.rows.filter((q) => (
+      (Array.isArray(q.chapter_ids) && q.chapter_ids.some((id) => String(id) === String(c.id)))
+      || String(q.chapter_id) === String(c.id)
+    ));
     const assignment = chapterQuizzes.find((q) => q.type === 'practice') || null;
     const test = chapterQuizzes.find((q) => q.type === 'exam') || null;
 
-    const chapterAttempts = chapterQuizzes.flatMap((q) => attemptsByQuiz.get(q.id) || []);
+    const chapterAttempts = chapterQuizzes
+      .flatMap((q) => attemptsByQuiz.get(q.id) || [])
+      .sort((a, b) => new Date(a.submitted_at) - new Date(b.submitted_at));
     const attemptCount = chapterAttempts.length;
-    const lastScore = attemptCount ? Number(chapterAttempts[chapterAttempts.length - 1].score || 0) : null;
-    const bestScore = attemptCount
-      ? Math.max(...chapterAttempts.map((a) => Number(a.score || 0)))
-      : null;
+    const scores = chapterAttempts.map((a) => Number(a.score || 0));
+    const lastScore = attemptCount ? scores[scores.length - 1] : null;
+    const bestScore = attemptCount ? Math.max(...scores) : null;
 
     const unlocked = fullAccess || c.is_free;
     // status drives the left-hand indicator: locked -> padlock,
@@ -342,8 +348,14 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
       attempt_count: attemptCount,
       last_score: lastScore,
       best_score: bestScore,
+      // Full score history, oldest first — the chapter badge shows a trend
+      // arrow (improved / declined) and a tooltip of every past try.
+      score_history: scores,
+      trend: attemptCount >= 2 ? Math.round((lastScore - scores[scores.length - 2]) * 10) / 10 : null,
+      last_attempt_at: attemptCount ? chapterAttempts[attemptCount - 1].submitted_at : null,
       assignment_quiz_id: assignment ? assignment.id : null,
       test_quiz_id: test ? test.id : null,
+      quiz_count: chapterQuizzes.length,
       has_study_material: true,
     };
   });
@@ -352,17 +364,30 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
   const testQuizzes = quizResult.rows.filter((q) => q.type === 'exam');
   const completedAssignments = assignmentQuizzes.filter((q) => (attemptsByQuiz.get(q.id) || []).length).length;
   const takenTests = testQuizzes.filter((q) => (attemptsByQuiz.get(q.id) || []).length);
-  const testScores = takenTests.flatMap((q) => (attemptsByQuiz.get(q.id) || []).map((a) => Number(a.score || 0)));
-  const avgTestScore = testScores.length
-    ? Math.round((testScores.reduce((x, y) => x + y, 0) / testScores.length) * 10) / 10
-    : null;
 
-  const allScores = attemptsResult.rows.map((a) => Number(a.score || 0));
-  const overallScore = allScores.length
-    ? Math.round((allScores.reduce((x, y) => x + y, 0) / allScores.length) * 10) / 10
-    : 0;
+  // Every average below is built from each quiz's BEST attempt rather than a
+  // flat mean over all attempts, so retaking a quiz and improving raises the
+  // subject score instead of being dragged down by the earlier failed try.
+  const bestPerQuiz = (quizzes) => quizzes
+    .map((q) => {
+      const scores = (attemptsByQuiz.get(q.id) || []).map((a) => Number(a.score || 0));
+      return scores.length ? Math.max(...scores) : null;
+    })
+    .filter((s) => s != null);
+  const mean = (arr) => (arr.length ? Math.round((arr.reduce((x, y) => x + y, 0) / arr.length) * 10) / 10 : null);
+
+  const avgTestScore = mean(bestPerQuiz(testQuizzes));
+  // Overall score is the average across every attempted quiz in the subject.
+  // Unattempted quizzes are excluded rather than counted as 0 — "you have not
+  // done this yet" is not the same as "you scored zero on this".
+  const overallScore = mean(bestPerQuiz(quizResult.rows)) ?? 0;
 
   const attemptedChapters = chapters.filter((c) => c.attempt_count > 0).length;
+  // Chapters, not quizzes, are the unit of progress the chapter list below
+  // shows. The header used to count quizzes ("1 of 2") while the list showed
+  // chapters ("1 / 21 done"), so the same screen reported two different
+  // completion figures. Both now read from the chapter count.
+  const chaptersPercent = chapters.length ? Math.round((attemptedChapters / chapters.length) * 100) : 0;
 
   res.json({
     subject,
@@ -379,9 +404,10 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
       overall_score: overallScore,
       chapters_total: chapters.length,
       chapters_attempted: attemptedChapters,
-      chapters_percent: chapters.length
-        ? Math.round((attemptedChapters / chapters.length) * 100)
-        : 0,
+      chapters_percent: chaptersPercent,
+      // Progress bar + headline both read this, so they can never disagree.
+      progress_percent: chaptersPercent,
+      total_attempts: attemptsResult.rows.length,
       last_activity: attemptsResult.rows.length
         ? attemptsResult.rows[attemptsResult.rows.length - 1].submitted_at
         : null,

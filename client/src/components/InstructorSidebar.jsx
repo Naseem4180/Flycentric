@@ -14,7 +14,7 @@ const NAV_GROUPS = [
   },
 ];
 
-export default function InstructorSidebar({ collapsed }) {
+export default function InstructorSidebar({ collapsed, onNavigate }) {
   return (
     <aside className={`admin-sidebar ${collapsed ? 'collapsed' : ''}`} aria-label="Instructor navigation">
       <SidebarBrand collapsed={collapsed} />
@@ -27,6 +27,7 @@ export default function InstructorSidebar({ collapsed }) {
                 key={to}
                 to={to}
                 end={end}
+                onClick={onNavigate}
                 className={({ isActive }) => `admin-nav-link ${isActive ? 'active' : ''}`}
                 title={collapsed ? label : undefined}
               >

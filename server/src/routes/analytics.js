@@ -70,21 +70,201 @@ router.get('/mastery', authenticate, async (req, res) => {
   res.json({ level, mastery: aggregateMastery(rows, level) });
 });
 
+// Student: subject-wise exam history ------------------------------------------
+// Backs the "Exam History" screen: a card per subject (average score, lessons
+// done / total, % complete) and, underneath, one row per lesson (quiz) with
+// its attempt count plus Best / Latest / 1st / 2nd / 3rd try scores.
+//
+// Two deliberate rules make the numbers trustworthy:
+//   * only SUBMITTED attempts count — an abandoned attempt is not a try;
+//   * Memory Bank decks are excluded — they're personal flashcard drills, not
+//     catalogue lessons, and were previously inflating "exams taken".
+router.get('/exam-history', authenticate, async (req, res) => {
+  const studentId = (['admin', 'instructor'].includes(req.user.role) && req.query.student_id)
+    ? req.query.student_id
+    : req.user.id;
+
+  // Every published lesson the student can reach, with its subject/chapter.
+  const lessonsResult = await pool.query(
+    `SELECT q.id AS quiz_id, q.title AS quiz_title, q.type, q.pass_percent,
+            COALESCE(array_length(q.question_ids, 1), 0) AS question_count,
+            q.subject_id, COALESCE(s.title, 'Unassigned') AS subject_title,
+            q.chapter_id, c.title AS chapter_title, c.order_index AS chapter_order
+     FROM quizzes q
+     LEFT JOIN subjects s ON s.id = q.subject_id AND s.deleted_at IS NULL
+     LEFT JOIN chapters c ON c.id = q.chapter_id AND c.deleted_at IS NULL
+     WHERE q.deleted_at IS NULL AND q.status = 'published'
+       AND q.source IS DISTINCT FROM 'memory_bank'
+       AND ($2::boolean OR EXISTS (
+         SELECT 1 FROM bundle_access ba
+         WHERE ba.user_id = $1
+           AND (ba.bundle_id = q.bundle_id
+                OR q.subject_id IN (SELECT subject_id FROM bundle_subjects WHERE bundle_id = ba.bundle_id))
+       ))
+     ORDER BY s.order_index NULLS LAST, s.title, c.order_index NULLS LAST, q.id`,
+    [studentId, req.user.role !== 'student']
+  );
+
+  // All submitted attempts, oldest first, so index 0 is genuinely the 1st try.
+  const attemptsResult = await pool.query(
+    `SELECT a.id, a.quiz_id, a.score, a.correct_count, a.total_questions, a.submitted_at
+     FROM attempts a
+     JOIN quizzes q ON q.id = a.quiz_id
+     WHERE a.user_id = $1 AND a.status = 'submitted' AND q.source IS DISTINCT FROM 'memory_bank'
+     ORDER BY a.submitted_at ASC`,
+    [studentId]
+  );
+  const triesByQuiz = new Map();
+  for (const a of attemptsResult.rows) {
+    if (!triesByQuiz.has(a.quiz_id)) triesByQuiz.set(a.quiz_id, []);
+    triesByQuiz.get(a.quiz_id).push({
+      attempt_id: a.id,
+      score: a.score == null ? null : Number(a.score),
+      correct_count: a.correct_count,
+      total_questions: a.total_questions,
+      submitted_at: a.submitted_at,
+    });
+  }
+
+  const bySubject = new Map();
+  for (const l of lessonsResult.rows) {
+    const tries = triesByQuiz.get(l.quiz_id) || [];
+    const scores = tries.map((t) => t.score).filter((s) => s != null);
+    const lesson = {
+      quiz_id: l.quiz_id,
+      title: l.quiz_title,
+      type: l.type,
+      question_count: l.question_count,
+      pass_percent: l.pass_percent,
+      chapter_id: l.chapter_id,
+      chapter_title: l.chapter_title,
+      attempts: tries.length,
+      best_score: scores.length ? Math.max(...scores) : null,
+      latest_score: scores.length ? scores[scores.length - 1] : null,
+      // First three tries, in order, matching the 1st/2nd/3rd columns.
+      try_scores: [0, 1, 2].map((i) => (tries[i] ? tries[i].score : null)),
+      last_attempt_id: tries.length ? tries[tries.length - 1].attempt_id : null,
+      last_attempt_at: tries.length ? tries[tries.length - 1].submitted_at : null,
+      tries,
+      status: tries.length ? 'attempted' : 'not_started',
+    };
+    const key = l.subject_id == null ? 'none' : String(l.subject_id);
+    if (!bySubject.has(key)) {
+      bySubject.set(key, { subject_id: l.subject_id, subject_title: l.subject_title, lessons: [] });
+    }
+    bySubject.get(key).lessons.push(lesson);
+  }
+
+  const subjects = [...bySubject.values()].map((s) => {
+    const done = s.lessons.filter((l) => l.attempts > 0);
+    // Subject average uses each lesson's BEST score, not every attempt: a
+    // student who retakes a lesson and improves should see that improvement,
+    // not have it dragged down by their own earlier failed try. Lessons never
+    // attempted are excluded rather than counted as zero.
+    const bestScores = done.map((l) => l.best_score).filter((s2) => s2 != null);
+    const avg = bestScores.length
+      ? Math.round((bestScores.reduce((a, b) => a + b, 0) / bestScores.length) * 10) / 10
+      : null;
+    return {
+      ...s,
+      lessons_total: s.lessons.length,
+      lessons_done: done.length,
+      percent_complete: s.lessons.length ? Math.round((done.length / s.lessons.length) * 100) : 0,
+      avg_score: avg,
+      total_attempts: s.lessons.reduce((sum, l) => sum + l.attempts, 0),
+      last_activity: done.reduce((latest, l) => (
+        l.last_attempt_at && (!latest || new Date(l.last_attempt_at) > new Date(latest)) ? l.last_attempt_at : latest
+      ), null),
+    };
+  }).sort((a, b) => String(a.subject_title).localeCompare(String(b.subject_title)));
+
+  res.json({ subjects });
+});
+
+// Per-question report for one attempt, used by the "VIEW" drill-down in the
+// exam-history table: what was asked, what the student picked, what was
+// correct. Reuses the frozen attempt snapshot so it always reflects the paper
+// as it was sat.
+router.get('/exam-history/attempts/:attemptId', authenticate, async (req, res) => {
+  const attemptResult = await pool.query('SELECT * FROM attempts WHERE id = $1', [req.params.attemptId]);
+  const attempt = attemptResult.rows[0];
+  if (!attempt) return res.status(404).json({ error: 'Attempt not found' });
+  if (attempt.user_id !== req.user.id && !['admin', 'instructor'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  const quizResult = await pool.query('SELECT * FROM quizzes WHERE id = $1', [attempt.quiz_id]);
+  const quiz = quizResult.rows[0];
+  if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
+  const liveResult = await pool.query(
+    'SELECT id, question_text, question_type, options, correct_option FROM questions WHERE id = ANY($1)',
+    [quiz.question_ids]
+  );
+  const liveById = Object.fromEntries(liveResult.rows.map((q) => [q.id, q]));
+
+  const labelFor = (q, key) => {
+    if (key == null || key === '') return null;
+    const opt = (q.options || []).find((o) => o.key === key);
+    return opt ? opt.text : String(key);
+  };
+
+  const rows = quiz.question_ids.map((questionId, i) => {
+    const q = (attempt.question_snapshot && attempt.question_snapshot[questionId]) || liveById[questionId];
+    if (!q) return null;
+    const given = attempt.answers[questionId] ?? null;
+    const attempted = given != null && String(given).length > 0;
+    return {
+      index: i + 1,
+      question_id: questionId,
+      question_text: q.question_text,
+      your_answer: attempted ? labelFor(q, given) : null,
+      correct_answer: labelFor(q, q.correct_option),
+      is_correct: attempted ? given === q.correct_option : false,
+      attempted,
+    };
+  }).filter(Boolean);
+
+  res.json({
+    attempt: {
+      id: attempt.id, score: attempt.score, correct_count: attempt.correct_count,
+      total_questions: attempt.total_questions, submitted_at: attempt.submitted_at,
+    },
+    quiz: { id: quiz.id, title: quiz.title, pass_percent: quiz.pass_percent },
+    rows,
+  });
+});
+
 // Student: own performance -----------------------------------------------------
 router.get('/me', authenticate, async (req, res) => {
   const { subject_id } = req.query;
   const subjectParams = subject_id ? [req.user.id, subject_id] : [req.user.id];
   const overall = await pool.query(
-    `SELECT COUNT(*)::int AS attempts, ROUND(AVG(score)::numeric,2) AS avg_score,
-            MAX(score) AS best_score FROM attempts a
-            JOIN quizzes q ON q.id = a.quiz_id
-            WHERE a.user_id = $1 AND a.status = 'submitted' ${subject_id ? 'AND q.subject_id = $2' : ''}`,
+    `WITH scoped AS (
+       SELECT a.quiz_id, a.score
+       FROM attempts a
+       JOIN quizzes q ON q.id = a.quiz_id
+       WHERE a.user_id = $1 AND a.status = 'submitted'
+         AND q.source IS DISTINCT FROM 'memory_bank'
+         ${subject_id ? 'AND q.subject_id = $2' : ''}
+     )
+     SELECT
+       COUNT(*)::int AS attempts,
+       COUNT(DISTINCT quiz_id)::int AS quizzes_attempted,
+       ROUND(AVG(score)::numeric, 2) AS avg_score,
+       MAX(score) AS best_score,
+       -- Average of each quiz's BEST attempt. A student who retook a quiz and
+       -- improved should not be permanently averaged down by their own first
+       -- failed try, which is what a flat AVG over every attempt does.
+       (SELECT ROUND(AVG(best)::numeric, 2) FROM (
+          SELECT MAX(score) AS best FROM scoped GROUP BY quiz_id
+        ) b) AS avg_best_score
+     FROM scoped`,
     subjectParams
   );
   const byQuiz = await pool.query(
-    `SELECT a.quiz_id, q.title, q.type, a.score, a.correct_count, a.total_questions, a.submitted_at
+    `SELECT a.id AS attempt_id, a.quiz_id, q.title, q.type, a.score, a.correct_count, a.total_questions, a.submitted_at
      FROM attempts a JOIN quizzes q ON q.id = a.quiz_id
-    WHERE a.user_id = $1 AND a.status = 'submitted' ${subject_id ? 'AND q.subject_id = $2' : ''} ORDER BY a.submitted_at DESC LIMIT 20`,
+    WHERE a.user_id = $1 AND a.status = 'submitted' AND q.source IS DISTINCT FROM 'memory_bank'
+      ${subject_id ? 'AND q.subject_id = $2' : ''} ORDER BY a.submitted_at DESC LIMIT 20`,
       subjectParams
   );
   // Weak-topic identification now runs on the authoritative Topic Mastery
@@ -108,20 +288,30 @@ router.get('/me', authenticate, async (req, res) => {
   const subjectIdsInScope = subjectMastery.map((m) => m.subject_id).filter((id) => id != null);
   let batchAverage = [];
   if (subjectIdsInScope.length) {
+    // "Batch average" must mean OTHER learners: the previous query averaged
+    // every row in student_question_stats, which included this student's own
+    // answers (so a solo user was compared against themselves and always saw
+    // a flat tie) and any admin/instructor test attempts. Both are excluded
+    // now, and a subject with no peer data returns null rather than 0 — an
+    // absent comparison is not the same as a peer average of zero.
     const batchResult = await pool.query(
       `SELECT s.id AS subject_id, s.title AS subject_title,
-              SUM(st.correct_count)::int AS total_correct, SUM(st.attempt_count)::int AS total_attempts
+              SUM(st.correct_count)::int AS total_correct, SUM(st.attempt_count)::int AS total_attempts,
+              COUNT(DISTINCT st.student_id)::int AS student_count
        FROM student_question_stats st
+       JOIN users u ON u.id = st.student_id AND u.role = 'student'
        JOIN questions qq ON qq.id = st.question_id AND qq.deleted_at IS NULL
        LEFT JOIN chapters c ON c.id = qq.chapter_id
        LEFT JOIN subjects s ON s.id = COALESCE(qq.subject_id, c.subject_id)
-       WHERE st.attempt_count > 0 AND s.id = ANY($1)
+       WHERE st.attempt_count > 0 AND s.id = ANY($1) AND st.student_id <> $2
        GROUP BY s.id, s.title`,
-      [subjectIdsInScope]
+      [subjectIdsInScope, req.user.id]
     );
     batchAverage = batchResult.rows.map((r) => ({
-      subject_id: r.subject_id, subject_title: r.subject_title,
-      mastery_pct: computeMastery(r.total_correct, r.total_attempts),
+      subject_id: r.subject_id,
+      subject_title: r.subject_title,
+      student_count: r.student_count,
+      mastery_pct: r.total_attempts > 0 ? computeMastery(r.total_correct, r.total_attempts) : null,
     }));
   }
 
@@ -147,10 +337,28 @@ router.get('/me', authenticate, async (req, res) => {
     const variance = recentScores.reduce((sum, s) => sum + (s - mean) ** 2, 0) / recentScores.length;
     consistency = Math.max(0, Math.round((100 - Math.sqrt(variance)) * 100) / 100);
   }
+  // Coverage must be measured against the syllabus this student can actually
+  // reach — questions inside published quizzes in bundles they hold. The old
+  // query counted every subtopic in the entire question bank, including other
+  // courses they never bought, so coverage (and therefore readiness) was
+  // pushed artificially towards zero and could never reach 100%.
+  const coverageParams = [req.user.id];
+  let coverageSubjectClause = '';
+  if (subject_id) { coverageParams.push(subject_id); coverageSubjectClause = `AND qn.subject_id = $${coverageParams.length}`; }
   const totalSubtopicsResult = await pool.query(
-    `SELECT COUNT(DISTINCT COALESCE(tags[1], 'Untagged'))::int AS c FROM questions
-     WHERE deleted_at IS NULL AND is_latest = true ${subject_id ? 'AND subject_id = $1' : ''}`,
-    subject_id ? [subject_id] : []
+    `SELECT COUNT(DISTINCT COALESCE(qn.tags[1], 'Untagged'))::int AS c
+     FROM questions qn
+     WHERE qn.deleted_at IS NULL AND qn.is_latest = true ${coverageSubjectClause}
+       AND EXISTS (
+         SELECT 1 FROM quizzes q
+         JOIN bundle_access ba ON ba.user_id = $1
+           AND (ba.bundle_id = q.bundle_id
+                OR q.subject_id IN (SELECT subject_id FROM bundle_subjects WHERE bundle_id = ba.bundle_id))
+         WHERE q.deleted_at IS NULL AND q.status = 'published'
+           AND q.source IS DISTINCT FROM 'memory_bank'
+           AND qn.id = ANY(q.question_ids)
+       )`,
+    coverageParams
   );
   const totalSubtopics = totalSubtopicsResult.rows[0].c || 0;
   const attemptedSubtopics = subtopicMastery.length;
@@ -213,7 +421,12 @@ router.get('/admin/platform', authenticate, authorize('admin'), async (req, res)
     pool.query("SELECT COALESCE(ROUND(AVG(EXTRACT(EPOCH FROM (submitted_at - started_at)))::numeric), 0)::int AS seconds FROM attempts WHERE status = 'submitted' AND submitted_at IS NOT NULL"),
     pool.query("SELECT COALESCE(SUM(amount_inr),0)::int AS total FROM payments WHERE status = 'paid'"),
     pool.query(
-      `SELECT ROUND(100.0 * SUM(CASE WHEN status = 'submitted' THEN 1 ELSE 0 END) / NULLIF(COUNT(*),0), 2) AS pct FROM attempts`
+      // Completion rate = finished / (finished + abandoned). An attempt still
+      // in progress is not a failure to complete — counting it as one made the
+      // rate drop every time somebody simply opened a quiz.
+      `SELECT ROUND(100.0 * SUM(CASE WHEN status = 'submitted' THEN 1 ELSE 0 END)
+              / NULLIF(SUM(CASE WHEN status IN ('submitted','expired') THEN 1 ELSE 0 END), 0), 2) AS pct
+       FROM attempts`
     ),
     pool.query('SELECT status, COUNT(*)::int AS count FROM attempts GROUP BY status'),
     pool.query(
@@ -234,7 +447,9 @@ router.get('/admin/platform', authenticate, authorize('admin'), async (req, res)
        JOIN LATERAL unnest(qz.question_ids) AS qid ON true
        JOIN questions ques ON ques.id = qid AND ques.deleted_at IS NULL
        WHERE a.status = 'submitted' AND a.answers ? ques.id::text
-       GROUP BY ques.id, ques.difficulty HAVING SUM(CASE WHEN (a.answers->>ques.id::text) != ques.correct_option THEN 1 ELSE 0 END) > 0
+         AND (a.answers->>ques.id::text) IS NOT NULL AND (a.answers->>ques.id::text) <> ''
+       GROUP BY ques.id, ques.difficulty
+       HAVING SUM(CASE WHEN (a.answers->>ques.id::text) != ques.correct_option THEN 1 ELSE 0 END) > 0
        ORDER BY wrong DESC LIMIT 5`
     ),
     pool.query(

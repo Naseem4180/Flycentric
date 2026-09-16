@@ -557,3 +557,20 @@ CREATE INDEX IF NOT EXISTS idx_attempts_last_seen ON attempts (status, last_seen
 
 -- Backfill so existing in-progress rows don't all read as "never seen".
 UPDATE attempts SET last_seen_at = COALESCE(submitted_at, started_at) WHERE last_seen_at IS NULL;
+
+-- ============================================================================
+-- Multi-chapter quizzes ------------------------------------------------------
+-- A quiz used to carry a single `chapter_id`, which forced two separate
+-- chapter inputs in the admin quiz builder (one to file the quiz under a
+-- chapter, one to filter the question picker) and made "build one assignment
+-- from several chapters" impossible. `chapter_ids` is now the source of
+-- truth for which chapters a quiz draws from; `chapter_id` is kept in sync
+-- with the FIRST entry so every existing query/report keeps working.
+ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS chapter_ids INTEGER[] NOT NULL DEFAULT '{}';
+UPDATE quizzes SET chapter_ids = ARRAY[chapter_id]
+  WHERE chapter_id IS NOT NULL AND (chapter_ids IS NULL OR cardinality(chapter_ids) = 0);
+
+-- Hot paths for the results/exam-history screens, which filter attempts by
+-- student and then join quizzes for subject/chapter labels.
+CREATE INDEX IF NOT EXISTS idx_attempts_user_status ON attempts (user_id, status, submitted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_quizzes_subject_chapter ON quizzes (subject_id, chapter_id) WHERE deleted_at IS NULL;

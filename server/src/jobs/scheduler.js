@@ -1,0 +1,184 @@
+// Automated Email Engine + Inactivity Timeout safety net.
+//
+// This process has no external cron/OS scheduler available (see README —
+// the sandbox this was built in can't provision one), so each "Cron job"
+// described in the BRD is implemented as a setInterval loop that wakes up
+// periodically and checks whether it's due, guarded by a per-user/per-row
+// timestamp so it is safe to run more than once a day without double-sending.
+// In a real deployment these checks are equally happy to be triggered by an
+// actual system cron hitting a `run()` call instead of the interval below —
+// swapping that in is a one-line change (see start() at the bottom).
+
+const pool = require('../db/pool');
+const { enqueueMail } = require('../utils/mailQueue');
+
+const MINUTE = 60 * 1000;
+const HOUR = 60 * MINUTE;
+
+// ----------------------------------------------------------------------------
+// 6. Inactivity Timeout & Auto-Submit (server-side safety net)
+// ----------------------------------------------------------------------------
+// The frontend idle listener (TakeExam.jsx) handles the common case, but it
+// can't run if the student simply closed the tab/browser. This sweep force-
+// submits any attempt that's been 'in_progress' with no heartbeat for over
+// 180 minutes, using the exact same grading logic as a normal submission.
+async function sweepIdleAttempts() {
+  const { gradeAndSubmitAttempt } = require('../routes/exams'); // lazy require: avoids a require cycle at module load
+  const IDLE_MINUTES = 180;
+  const { rows } = await pool.query(
+    `SELECT id, user_id FROM attempts
+     WHERE status = 'in_progress'
+       AND COALESCE(last_seen_at, started_at) < now() - ($1 || ' minutes')::interval`,
+    [IDLE_MINUTES]
+  );
+  for (const row of rows) {
+    try {
+      await gradeAndSubmitAttempt(row.id, row.user_id);
+      console.log(`[scheduler] auto-submitted idle attempt #${row.id} (>${IDLE_MINUTES}m with no activity)`);
+    } catch (err) {
+      console.error(`[scheduler] failed to auto-submit attempt #${row.id}`, err.message);
+    }
+  }
+}
+
+// ----------------------------------------------------------------------------
+// 10. Automated Progress Reports — every 3 days, chapter-wise completion %
+//     and quiz scores, emailed to every active student.
+// ----------------------------------------------------------------------------
+async function sendProgressReports() {
+  const { rows: students } = await pool.query(
+    `SELECT id, email, name FROM users
+     WHERE role = 'student' AND status = 'active'
+       AND (last_progress_email_at IS NULL OR last_progress_email_at < now() - interval '3 days')`
+  );
+  for (const student of students) {
+    const { rows: progress } = await pool.query(
+      `SELECT s.title AS subject, c.title AS chapter,
+              COUNT(a.id) FILTER (WHERE a.status = 'submitted') AS attempts,
+              ROUND(AVG(a.score) FILTER (WHERE a.status = 'submitted'), 1) AS avg_score
+       FROM chapters c
+       JOIN subjects s ON s.id = c.subject_id
+       LEFT JOIN quizzes q ON q.chapter_id = c.id OR c.id = ANY(q.chapter_ids)
+       LEFT JOIN attempts a ON a.quiz_id = q.id AND a.user_id = $1
+       WHERE c.deleted_at IS NULL
+       GROUP BY s.title, c.title
+       ORDER BY s.title, c.title`,
+      [student.id]
+    );
+    await enqueueMail({
+      to: student.email,
+      subject: 'Your FlyCentric progress report',
+      template: 'progress-report',
+      data: { name: student.name, chapters: progress },
+    });
+    await pool.query('UPDATE users SET last_progress_email_at = now() WHERE id = $1', [student.id]);
+  }
+  if (students.length) console.log(`[scheduler] sent ${students.length} progress report email(s)`);
+}
+
+// ----------------------------------------------------------------------------
+// 11. Inactivity Re-engagement Workflow — users who haven't logged in for
+//     7 consecutive days.
+// ----------------------------------------------------------------------------
+async function sendReengagementEmails() {
+  const { rows: users } = await pool.query(
+    `SELECT id, email, name FROM users
+     WHERE status = 'active'
+       AND last_login_at IS NOT NULL
+       AND last_login_at <= now() - interval '7 days'
+       AND (last_reengagement_email_at IS NULL OR last_reengagement_email_at < now() - interval '7 days')`
+  );
+  for (const user of users) {
+    await enqueueMail({
+      to: user.email,
+      subject: "We miss you at FlyCentric — pick up where you left off",
+      template: 're-engagement',
+      data: { name: user.name },
+    });
+    await pool.query('UPDATE users SET last_reengagement_email_at = now() WHERE id = $1', [user.id]);
+  }
+  if (users.length) console.log(`[scheduler] sent ${users.length} re-engagement email(s)`);
+}
+
+// ----------------------------------------------------------------------------
+// 12. Bulk Marketing Email Scheduler — dispatch due campaigns.
+// ----------------------------------------------------------------------------
+async function dispatchDueCampaigns() {
+  const { rows: due } = await pool.query(
+    `SELECT * FROM email_campaigns WHERE status = 'scheduled' AND scheduled_send_time <= now()`
+  );
+  for (const campaign of due) {
+    await pool.query("UPDATE email_campaigns SET status = 'sending' WHERE id = $1", [campaign.id]);
+    const roleFilter = campaign.audience === 'students' ? "role = 'student'"
+      : campaign.audience === 'instructors' ? "role = 'instructor'"
+        : "role IN ('student','instructor')";
+    const { rows: recipients } = await pool.query(
+      `SELECT email, name FROM users WHERE status = 'active' AND ${roleFilter}`
+    );
+    for (const r of recipients) {
+      await enqueueMail({
+        to: r.email,
+        subject: campaign.subject,
+        template: 'bulk-campaign',
+        data: { name: r.name, body: campaign.body },
+      });
+    }
+    await pool.query(
+      "UPDATE email_campaigns SET status = 'sent', sent_at = now(), recipient_count = $2 WHERE id = $1",
+      [campaign.id, recipients.length]
+    );
+    console.log(`[scheduler] dispatched campaign #${campaign.id} "${campaign.subject}" to ${recipients.length} recipient(s)`);
+  }
+}
+
+// ----------------------------------------------------------------------------
+// 13. Automated Birthday Greetings — runs daily; de-duped per calendar year
+//     so a job that wakes up more than once a day never double-sends.
+// ----------------------------------------------------------------------------
+async function sendBirthdayGreetings() {
+  const thisYear = new Date().getFullYear();
+  const { rows: users } = await pool.query(
+    `SELECT id, email, name FROM users
+     WHERE status = 'active' AND date_of_birth IS NOT NULL
+       AND EXTRACT(MONTH FROM date_of_birth) = EXTRACT(MONTH FROM CURRENT_DATE)
+       AND EXTRACT(DAY FROM date_of_birth) = EXTRACT(DAY FROM CURRENT_DATE)
+       AND (last_birthday_email_year IS NULL OR last_birthday_email_year < $1)`,
+    [thisYear]
+  );
+  for (const user of users) {
+    await enqueueMail({
+      to: user.email,
+      subject: 'Happy Birthday from FlyCentric! 🎂',
+      template: 'birthday',
+      data: { name: user.name },
+    });
+    await pool.query('UPDATE users SET last_birthday_email_year = $2 WHERE id = $1', [user.id, thisYear]);
+  }
+  if (users.length) console.log(`[scheduler] sent ${users.length} birthday email(s)`);
+}
+
+async function runAllDailyJobs() {
+  await sweepIdleAttempts().catch((e) => console.error('[scheduler] sweepIdleAttempts failed', e));
+  await sendProgressReports().catch((e) => console.error('[scheduler] sendProgressReports failed', e));
+  await sendReengagementEmails().catch((e) => console.error('[scheduler] sendReengagementEmails failed', e));
+  await dispatchDueCampaigns().catch((e) => console.error('[scheduler] dispatchDueCampaigns failed', e));
+  await sendBirthdayGreetings().catch((e) => console.error('[scheduler] sendBirthdayGreetings failed', e));
+}
+
+let started = false;
+function start() {
+  if (started) return;
+  started = true;
+  // The idle-attempt sweep and campaign dispatch are time-sensitive (a
+  // student shouldn't wait hours for an overdue submit, and a scheduled
+  // campaign should go out close to its chosen minute), so they run every
+  // 5 minutes. The once-daily jobs are cheap to check that often too (the
+  // timestamp guards make repeat checks a no-op), so one shared interval is
+  // enough instead of five separate timers.
+  const CHECK_INTERVAL = 5 * MINUTE;
+  runAllDailyJobs();
+  setInterval(runAllDailyJobs, CHECK_INTERVAL);
+  console.log('[scheduler] started (idle-submit sweep, progress reports, re-engagement, campaigns, birthdays)');
+}
+
+module.exports = { start, sweepIdleAttempts, sendProgressReports, sendReengagementEmails, dispatchDueCampaigns, sendBirthdayGreetings };

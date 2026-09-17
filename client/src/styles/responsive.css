@@ -79,13 +79,13 @@ img, svg, video, canvas { max-width: 100%; height: auto; }
   /* Tables that opt in (results, exam history) become stacked cards on a
      phone: each row is a block, each cell prefixed by its column name via
      data-label. Far more readable than a 8-column horizontal scroll. */
-  .results-table, .eh-report-table {
+  .results-table, .eh-report-table, .eh-table {
     display: block;
     min-width: 0;
   }
-  .results-table thead, .eh-report-table thead { display: none; }
-  .results-table tbody, .eh-report-table tbody { display: block; }
-  .results-table tr, .eh-report-table tr {
+  .results-table thead, .eh-report-table thead, .eh-table thead { display: none; }
+  .results-table tbody, .eh-report-table tbody, .eh-table tbody { display: block; }
+  .results-table tr, .eh-report-table tr, .eh-table tr {
     display: block;
     border: 1px solid var(--line);
     border-radius: 10px;
@@ -93,7 +93,7 @@ img, svg, video, canvas { max-width: 100%; height: auto; }
     margin-bottom: 10px;
     background: var(--card-bg);
   }
-  .results-table td, .eh-report-table td {
+  .results-table td, .eh-report-table td, .eh-table td {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -103,7 +103,7 @@ img, svg, video, canvas { max-width: 100%; height: auto; }
     white-space: normal;
     text-align: right;
   }
-  .results-table td::before, .eh-report-table td::before {
+  .results-table td::before, .eh-report-table td::before, .eh-table td::before {
     content: attr(data-label);
     font-size: .68rem;
     font-weight: 800;
@@ -113,9 +113,19 @@ img, svg, video, canvas { max-width: 100%; height: auto; }
     text-align: left;
     flex: 0 0 auto;
   }
-  .results-table td:empty, .eh-report-table td:empty { display: none; }
+  .results-table td:empty, .eh-report-table td:empty, .eh-table td:empty { display: none; }
   .results-quiz-cell { font-weight: 700; }
   .results-row-actions { justify-content: flex-end; }
+  /* The stacked-card layout above replaces the horizontal-scroll table, so
+     the wrapper/table must give up the fixed min-width that forced
+     sideways scrolling — otherwise both behaviours fought each other and
+     cells rendered cut off (see .eh-table-wrap at 720px below). */
+  .eh-table-wrap { overflow-x: visible; }
+  .eh-table { min-width: 0; width: 100%; }
+  .eh-col-lesson { min-width: 0; }
+  .eh-lesson-title, .eh-lesson-chapter { display: block; text-align: left; }
+  .eh-table td.eh-col-lesson { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .eh-table td .eh-row-actions { justify-content: flex-end; }
 }
 
 /* --------------------------------------------------------------------------
@@ -194,6 +204,13 @@ img, svg, video, canvas { max-width: 100%; height: auto; }
   .quiz-catalog-filter-row { flex-direction: column; align-items: stretch; }
   .segmented { width: 100%; }
   .segmented-btn { flex: 1; text-align: center; }
+  /* Keep the Available/Attempted/Passed trio in one compact row on phones
+     instead of 2-then-1 wrapping (flex-basis 130px doesn't fit 3 across a
+     narrow screen). */
+  .quiz-catalog-stats { gap: 8px; flex-wrap: nowrap; }
+  .quiz-catalog-stat { flex: 1 1 0; padding: 10px 8px; min-width: 0; }
+  .quiz-catalog-stat strong { font-size: 1.1rem; }
+  .quiz-catalog-stat span { font-size: .62rem; }
 }
 
 .quiz-catalog-groups { display: flex; flex-direction: column; gap: 26px; }
@@ -282,11 +299,19 @@ img, svg, video, canvas { max-width: 100%; height: auto; }
 .eh-detail { background: var(--card-bg); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
 .eh-detail-head {
   display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
-  padding: 14px 18px; background: linear-gradient(120deg, #2d2a7a, #4a3ad9);
-  color: #fff;
+  padding: 14px 18px; background: var(--page-bg); border-bottom: 3px solid var(--line-strong);
+  color: var(--ink);
 }
-.eh-detail-head h2 { margin: 0; font-size: 1rem; font-weight: 800; }
-.eh-detail-head-meta { font-size: .78rem; opacity: .9; }
+/* Tone-matched header — the same good/mid/bad/idle colour language used by
+   the donut and progress bar elsewhere on this page (previously this was a
+   fixed purple gradient regardless of the subject's actual score, which
+   looked like an unrelated color code next to the correctly-tinted donut). */
+.eh-detail-head-good { background: var(--success-bg); border-bottom-color: var(--success); }
+.eh-detail-head-mid { background: var(--warning-bg); border-bottom-color: var(--warning); }
+.eh-detail-head-bad { background: var(--danger-bg); border-bottom-color: var(--danger); }
+.eh-detail-head-idle { background: var(--page-bg); border-bottom-color: var(--line-strong); }
+.eh-detail-head h2 { margin: 0; font-size: 1rem; font-weight: 800; color: var(--ink); }
+.eh-detail-head-meta { font-size: .78rem; font-weight: 600; color: var(--ink-soft); }
 .eh-detail-progress { height: 6px; background: var(--line); }
 .eh-detail-progress-fill { display: block; height: 100%; }
 .eh-detail-progress-meta {
@@ -316,10 +341,16 @@ img, svg, video, canvas { max-width: 100%; height: auto; }
 .eh-report-ok .eh-report-mark { color: var(--success); }
 .eh-report-bad .eh-report-mark { color: var(--danger); }
 
-@media (max-width: 720px) {
-  /* The tries matrix stays a table but scrolls inside its own wrapper. */
+@media (min-width: 641px) and (max-width: 720px) {
+  /* The tries matrix stays a table but scrolls inside its own wrapper —
+     only in this tablet range; at 640px and below .eh-table switches to
+     the stacked-card layout above instead (both can't apply at once, or
+     the fixed min-width re-imposes horizontal scroll and clips cells). */
   .eh-table-wrap { overflow-x: auto; }
   .eh-table { min-width: 620px; }
+  .eh-subject-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 140px), 1fr)); }
+}
+@media (max-width: 640px) {
   .eh-subject-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 140px), 1fr)); }
 }
 
@@ -332,6 +363,12 @@ img, svg, video, canvas { max-width: 100%; height: auto; }
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
   gap: 10px;
+}
+@media (max-width: 560px) {
+  /* Force a clean single column instead of an uneven 2-up wrap (two
+     170px-minimum columns can still just barely fit side by side on some
+     phones, producing ragged label/field alignment between them). */
+  .results-filter-grid { grid-template-columns: 1fr; }
 }
 .results-filter-grid .field { display: flex; flex-direction: column; gap: 4px; margin: 0; }
 .results-filter-grid .field > span {
@@ -373,6 +410,20 @@ img, svg, video, canvas { max-width: 100%; height: auto; }
 .review-stat-skipped { background: var(--page-bg); color: var(--ink-soft); }
 .review-summary-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .review-footer-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+
+/* Phone: the gauge used to sit wherever flex-wrap happened to drop it —
+   now explicitly centred above the text block in a clear top-to-bottom
+   sequence (gauge → title/score → stat pills → action buttons), and the
+   buttons become equal-width so the row reads as a clean grid instead of
+   ragged left-aligned chips. */
+@media (max-width: 640px) {
+  .review-summary-card {
+    flex-direction: column-reverse; align-items: stretch; text-align: center;
+  }
+  .review-summary-main { flex-basis: auto; }
+  .review-stat-row, .review-summary-actions { justify-content: center; }
+  .review-summary-actions .btn { flex: 1 1 auto; justify-content: center; }
+}
 
 .review-question-card.is-skipped { border-left: 3px solid var(--line-strong); }
 .review-question-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
@@ -529,4 +580,21 @@ img, svg, video, canvas { max-width: 100%; height: auto; }
   font-size: .8rem;
   font-weight: 600;
   line-height: 1.45;
+}
+
+/* ==========================================================================
+   Analytics overview stats (Exam History / Analytics page) — keep Exams
+   Taken / Gauge / Best score as one compact row on phones instead of the
+   generic .grid-3 stack, and shrink the gauge to fit.
+   ========================================================================== */
+@media (max-width: 640px) {
+  .analytics-stat-row.grid-3 { grid-template-columns: repeat(3, 1fr) !important; gap: 8px; }
+  .analytics-stat-row .stat-tile { padding: 10px 6px; }
+  .analytics-stat-row .stat-num { font-size: 1.2rem; }
+  .analytics-stat-row .stat-label { font-size: .6rem; }
+  .analytics-gauge-card { padding: 8px !important; }
+  .analytics-gauge-card .gauge { width: 76px !important; height: 76px !important; }
+  .analytics-gauge-card .gauge svg { width: 76px !important; height: 76px !important; }
+  .analytics-gauge-card .gauge-value { font-size: .95rem; }
+  .analytics-gauge-card .gauge-unit { font-size: .6rem; }
 }

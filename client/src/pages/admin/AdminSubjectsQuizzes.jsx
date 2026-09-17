@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../api';
 import {
-  Button, Modal, ConfirmModal, useToast, EmptyState, Badge, StatusBadge, RowMenu,
+  Button, Modal, ConfirmModal, useToast, EmptyState, Badge, StatusBadge, RowMenu, RichTextEditor,
 } from '../../ui';
 
 // Subjects & Quizzes — course builder.
@@ -52,6 +52,8 @@ export default function AdminSubjectsQuizzes() {
   // Chapter dialog
   const [chapterOpen, setChapterOpen] = useState(false);
   const [chapterTitle, setChapterTitle] = useState('');
+  const [chapterNotesUrl, setChapterNotesUrl] = useState('');
+  const [chapterHasExam, setChapterHasExam] = useState(false);
   const [chapterEditing, setChapterEditing] = useState(null);
   const [savingChapter, setSavingChapter] = useState(false);
 
@@ -276,6 +278,8 @@ export default function AdminSubjectsQuizzes() {
   function openChapterDialog(chapter) {
     setChapterEditing(chapter || null);
     setChapterTitle(chapter ? chapter.title : '');
+    setChapterNotesUrl(chapter?.notes_url || '');
+    setChapterHasExam(!!chapter?.has_exam);
     setChapterOpen(true);
   }
 
@@ -285,14 +289,17 @@ export default function AdminSubjectsQuizzes() {
     if (!title) { toast.warning('Chapter name is required'); return; }
     setSavingChapter(true);
     try {
+      const payload = { title, notes_url: chapterNotesUrl.trim(), has_exam: chapterHasExam };
       if (chapterEditing) {
-        await api.patch(`/content/chapters/${chapterEditing.id}`, { title });
+        await api.patch(`/content/chapters/${chapterEditing.id}`, payload);
         toast.success('Chapter renamed', title);
       } else {
-        await api.post(`/content/subjects/${active.id}/chapters`, { title });
+        await api.post(`/content/subjects/${active.id}/chapters`, payload);
         toast.success('Chapter added', title);
       }
       setChapterTitle('');
+      setChapterNotesUrl('');
+      setChapterHasExam(false);
       setChapterEditing(null);
       setChapterOpen(false);
       await loadTree();
@@ -682,7 +689,7 @@ export default function AdminSubjectsQuizzes() {
                           )}
                           <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
                             <Button size="sm" variant="outline" onClick={() => openQuiz(null, c.id)}>
-                              <Plus size={12} /> Add quiz to this chapter
+                              <Plus size={12} /> Add assignment to this chapter
                             </Button>
                             <Button size="sm" variant="outline" onClick={() => openChapterDialog(c)}>
                               <Pencil size={12} /> Rename
@@ -746,11 +753,9 @@ export default function AdminSubjectsQuizzes() {
           </div>
           <div className="field">
             <label htmlFor="cb-subject-desc">Description</label>
-            <textarea
-              id="cb-subject-desc"
-              rows={3}
+            <RichTextEditor
               value={subjectForm.description}
-              onChange={(e) => setSubjectForm((f) => ({ ...f, description: e.target.value }))}
+              onChange={(html) => setSubjectForm((f) => ({ ...f, description: html }))}
               placeholder="What this subject covers…"
             />
           </div>
@@ -796,13 +801,36 @@ export default function AdminSubjectsQuizzes() {
             />
             <small className="muted">Chapter names are unique across the platform, so questions map to exactly one.</small>
           </div>
+          <div className="field">
+            <label htmlFor="cb-chapter-notes">Notes URL <span className="muted">(optional)</span></label>
+            <input
+              id="cb-chapter-notes"
+              className="input"
+              value={chapterNotesUrl}
+              onChange={(e) => setChapterNotesUrl(e.target.value)}
+              placeholder="https://…"
+            />
+            <small className="muted">Leave blank to hide the Notes icon on the student view for this chapter.</small>
+          </div>
+          <div className="field">
+            <label className="checkbox-row" htmlFor="cb-chapter-exam">
+              <input
+                id="cb-chapter-exam"
+                type="checkbox"
+                checked={chapterHasExam}
+                onChange={(e) => setChapterHasExam(e.target.checked)}
+              />
+              This chapter has an Exam
+            </label>
+            <small className="muted">Unchecked hides the Exam icon on the student view for this chapter.</small>
+          </div>
         </form>
       </Modal>
 
       <Modal
         open={quizOpen}
         onClose={() => setQuizOpen(false)}
-        size="lg"
+        size="full"
         title={quizEditing ? 'Edit quiz' : 'New quiz'}
         description={active ? `In ${active.title}` : ''}
         footer={(

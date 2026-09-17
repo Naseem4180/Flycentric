@@ -195,7 +195,7 @@ export default function ExamHistory() {
 
           {visible.filter((s) => String(s.subject_id ?? 'none') === openSubject).map((s) => (
             <section className="eh-detail" key={String(s.subject_id ?? 'none')}>
-              <header className="eh-detail-head">
+              <header className={`eh-detail-head eh-detail-head-${tone(s.avg_score)}`}>
                 <h2>{s.subject_title}</h2>
                 <span className="eh-detail-head-meta">
                   {s.lessons_done} / {s.lessons_total} lessons · Avg {pct(s.avg_score)}

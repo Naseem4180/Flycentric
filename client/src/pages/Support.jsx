@@ -17,11 +17,17 @@ export default function Support() {
 
   const [reportReason, setReportReason] = useState('general');
   const [reportNote, setReportNote] = useState('');
+  // Student Reporting Mechanism: the report must carry exactly two
+  // comma-separated keywords (validated again on the server) so the admin
+  // queue can be scanned/filtered by keyword instead of free-text alone.
+  const [reportKeywords, setReportKeywords] = useState('');
   const [reportSent, setReportSent] = useState(false);
   const [reportError, setReportError] = useState('');
+  const [myReports, setMyReports] = useState([]);
 
   function load() {
     api.get('/doubts').then((data) => setDoubts(data.doubts)).catch((err) => setError(err.message));
+    api.get('/questions/reports/mine').then((data) => setMyReports(data.reports)).catch(() => {});
   }
 
   useEffect(load, []);
@@ -40,12 +46,19 @@ export default function Support() {
   async function submitReport(e) {
     e.preventDefault();
     if (!reportNote.trim()) return;
+    const keywordCount = reportKeywords.split(',').map((s) => s.trim()).filter(Boolean).length;
+    if (keywordCount !== 2) {
+      setReportError('Enter exactly two comma-separated keywords, e.g. "wrong answer, regs 04".');
+      return;
+    }
     setReportError('');
     try {
-      await api.post('/questions/reports', { reason: reportReason, note: reportNote });
+      await api.post('/questions/reports', { reason: reportReason, note: reportNote, keywords: reportKeywords });
       setReportNote('');
+      setReportKeywords('');
       setReportSent(true);
       setTimeout(() => setReportSent(false), 4000);
+      load();
     } catch (err) { setReportError(err.message); }
   }
 
@@ -76,8 +89,36 @@ export default function Support() {
               </select>
             </div>
             <textarea rows={3} placeholder="Describe the issue…" value={reportNote} onChange={(e) => setReportNote(e.target.value)} required />
+            <div className="field">
+              <label>Keywords <span className="muted">(exactly two, comma-separated)</span></label>
+              <input
+                className="input"
+                value={reportKeywords}
+                onChange={(e) => setReportKeywords(e.target.value)}
+                placeholder="e.g. wrong answer, regs 04"
+                required
+              />
+            </div>
             <button className="btn btn-outline">Send report</button>
           </form>
+        </div>
+
+        <h2 className="support-heading">Reported</h2>
+        <div className="stack">
+          {myReports.map((r) => (
+            <article className="card support-item" key={r.id}>
+              <div className="flex-between">
+                <span className={`badge ${r.status === 'open' ? 'badge-draft' : r.status === 'resolved' ? 'badge-live' : 'badge-muted'}`}>{r.status}</span>
+                <time className="muted">{new Date(r.created_at).toLocaleDateString()}</time>
+              </div>
+              {r.question_text && <p className="muted" style={{ fontSize: '.8rem' }}>{r.question_text}</p>}
+              <p>{r.note}</p>
+              {Array.isArray(r.keywords) && r.keywords.length > 0 && (
+                <p className="muted" style={{ fontSize: '.78rem' }}>Keywords: {r.keywords.join(', ')}</p>
+              )}
+            </article>
+          ))}
+          {!myReports.length && <div className="empty-state">No reports submitted yet.</div>}
         </div>
 
         <h2 className="support-heading">Your requests</h2>

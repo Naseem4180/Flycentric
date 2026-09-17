@@ -110,12 +110,12 @@ export default function StudentAnalytics() {
 
         {error && <div className="error-banner">{error}</div>}
 
-        <div className="grid grid-3">
+        <div className="grid grid-3 analytics-stat-row">
           <div className="card stat-tile">
             <div className="stat-num">{overall.attempts}</div>
             <div className="stat-label">Exams taken</div>
           </div>
-          <div className="card" style={{ display: 'flex', justifyContent: 'center' }}>
+          <div className="card analytics-gauge-card" style={{ display: 'flex', justifyContent: 'center' }}>
             <Gauge value={overall.avg_score ? parseFloat(overall.avg_score) : 0} />
           </div>
           <div className="card stat-tile">

@@ -157,22 +157,19 @@ html, body { max-width: 100%; overflow-x: hidden; }
   height: 100vh;
   display: flex;
   flex-direction: column;
-  /* A rich, premium indigo→violet gradient — deliberately dark in both
-     light and dark app themes so the white brand wordmark and light nav
-     icons always have the contrast they need (previously the sidebar was
-     near-white in light mode while its text stayed hard-coded white,
-     making the brand name and icons nearly invisible). Purple pops as an
-     accent (active nav pill, badges, CTA) against this deep base rather
-     than dominating the whole panel. */
-  background: linear-gradient(165deg, #173d78 0%, #1f5bb8 48%, #2563eb 100%);
-  border-right: 1px solid rgba(255, 255, 255, .06);
-  box-shadow: 2px 0 24px rgba(29, 78, 216, .16);
+  /* Lite theme: a clean off-white sidebar with a hairline border instead of
+     a saturated dark gradient — the brand accent shows up only in the
+     active nav pill and a couple of small details, not across the whole
+     panel. */
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  box-shadow: none;
   transition: width var(--t-base);
   z-index: 60;
 }
-.student-sidebar { background: linear-gradient(165deg, #173d78 0%, #1f5bb8 48%, #2563eb 100%); }
+.student-sidebar { background: var(--surface); }
 [data-theme='dark'] .admin-sidebar {
-  background: linear-gradient(165deg, #14102e 0%, #1c1745 45%, #241c5c 100%);
+  background: var(--surface);
 }
 .admin-shell.sidebar-collapsed .admin-sidebar { width: var(--sidebar-w-collapsed); }
 
@@ -181,27 +178,27 @@ html, body { max-width: 100%; overflow-x: hidden; }
   align-items: center;
   height: var(--topbar-h);
   padding: 0 18px;
-  border-bottom: 1px solid rgba(255, 255, 255, .12);
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 .admin-shell.sidebar-collapsed .admin-sidebar-head { justify-content: center; padding: 0; }
 .admin-sidebar-head .fc-brand-word {
   font-family: var(--font-display); font-weight: 800; font-size: 1.08rem;
-  color: #fff; letter-spacing: -.02em; white-space: nowrap;
+  color: var(--text); letter-spacing: -.02em; white-space: nowrap;
 }
-.admin-sidebar-head .fc-brand-word em { font-style: normal; color: #c4b8ff; }
+.admin-sidebar-head .fc-brand-word em { font-style: normal; color: var(--primary); }
 
 .admin-sidebar-nav {
   display: flex; flex-direction: column; gap: 2px;
   padding: 14px 12px 8px; overflow-y: auto; overflow-x: hidden; flex: 1;
-  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.25) transparent;
+  scrollbar-width: thin; scrollbar-color: var(--border) transparent;
 }
 .admin-sidebar-nav::-webkit-scrollbar { width: 5px; }
-.admin-sidebar-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,.22); border-radius: 4px; }
+.admin-sidebar-nav::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
 
 .sidebar-group-label {
   font-size: .64rem; font-weight: 800; text-transform: uppercase; letter-spacing: .1em;
-  color: rgba(255, 255, 255, .42); padding: 16px 12px 6px;
+  color: var(--muted-2); padding: 16px 12px 6px;
 }
 .admin-nav-group + .admin-nav-group { margin-top: 2px; }
 
@@ -209,70 +206,68 @@ html, body { max-width: 100%; overflow-x: hidden; }
   position: relative;
   display: flex; align-items: center; gap: 11px;
   padding: 9px 12px; border-radius: 10px;
-  color: rgba(232, 228, 255, .78);
+  color: var(--muted);
   font-size: .845rem; font-weight: 600; white-space: nowrap;
   transition: background var(--t-fast), color var(--t-fast);
 }
-.admin-nav-link svg { flex-shrink: 0; color: rgba(196, 184, 255, .75); transition: color var(--t-fast); }
-/* Hover: a soft translucent white wash, readable on the dark gradient. */
-.admin-nav-link:hover { background: rgba(255, 255, 255, .08); color: #fff; }
-.admin-nav-link:hover svg { color: #fff; }
-/* Active: a bright, saturated purple pill so it reads at a glance even
-   while scanning quickly — the one place pure accent purple is used at
-   full strength in the sidebar. */
+.admin-nav-link svg { flex-shrink: 0; color: var(--muted-2); transition: color var(--t-fast); }
+/* Hover: a soft neutral wash, readable on the light surface. */
+.admin-nav-link:hover { background: var(--surface-alt); color: var(--text); }
+.admin-nav-link:hover svg { color: var(--text); }
+/* Active: a light tint pill with the primary accent — the one place the
+   brand color is used with any strength in the sidebar. */
 .admin-nav-link.active {
-  background: #2876e8;
-  color: #fff;
-  box-shadow: 0 4px 14px rgba(37, 118, 232, .34);
+  background: var(--primary-light);
+  color: var(--primary-700);
+  box-shadow: none;
 }
-.admin-nav-link.active svg { color: #fff; }
+.admin-nav-link.active svg { color: var(--primary-700); }
 .admin-nav-link.active::before {
   content: ''; position: absolute; left: -12px; top: 8px; bottom: 8px;
-  width: 3px; border-radius: 0 3px 3px 0; background: #a9d0ff;
+  width: 3px; border-radius: 0 3px 3px 0; background: var(--primary);
 }
 .admin-shell.sidebar-collapsed .admin-nav-link { justify-content: center; padding: 11px 0; }
 .admin-shell.sidebar-collapsed .admin-nav-link.active::before { display: none; }
 .admin-nav-badge {
   margin-left: auto; min-width: 20px; height: 19px; padding: 0 6px; border-radius: var(--r-pill);
-  background: rgba(255, 255, 255, .92); color: #4a3ad9; font-size: .68rem; font-weight: 800;
-  display: inline-grid; place-items: center;
+  background: var(--surface-alt); color: var(--muted); font-size: .68rem; font-weight: 800;
+  display: inline-grid; place-items: center; border: 1px solid var(--border);
 }
-.admin-nav-link.active .admin-nav-badge { background: rgba(255, 255, 255, .28); color: #fff; }
+.admin-nav-link.active .admin-nav-badge { background: var(--surface); color: var(--primary-700); border-color: var(--primary-light); }
 
-/* Sidebar upgrade card — a frosted glass surface that sits clearly above
-   the dark gradient rather than blending flat into it. */
+/* Sidebar upgrade card — a quiet, flat tinted surface instead of frosted
+   glass over a dark gradient, matching the rest of the lite theme. */
 .sidebar-promo {
   margin: 10px 12px 16px; padding: 14px 14px; border-radius: var(--r-md);
-  background: rgba(255, 255, 255, .07);
-  border: 1px solid rgba(255, 255, 255, .14);
-  backdrop-filter: blur(6px);
-  color: #fff; flex-shrink: 0;
+  background: var(--primary-soft);
+  border: 1px solid var(--border);
+  color: var(--text); flex-shrink: 0;
 }
 .sidebar-promo-badge {
   display: inline-flex; align-items: center; gap: 5px;
   font-size: .62rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
-  color: #c4b8ff; margin-bottom: 6px;
+  color: var(--primary-700); margin-bottom: 6px;
 }
-.sidebar-promo strong { display: block; font-size: .88rem; font-weight: 800; margin-bottom: 4px; color: #fff; }
-.sidebar-promo p { font-size: .74rem; color: rgba(232, 228, 255, .75); margin: 0 0 11px; line-height: 1.45; }
-.sidebar-promo .sidebar-promo-price { color: #fff; font-weight: 700; }
+.sidebar-promo strong { display: block; font-size: .88rem; font-weight: 800; margin-bottom: 4px; color: var(--text); }
+.sidebar-promo p { font-size: .74rem; color: var(--muted); margin: 0 0 11px; line-height: 1.45; }
+.sidebar-promo .sidebar-promo-price { color: var(--text); font-weight: 700; }
 .sidebar-promo a {
   display: inline-flex; align-items: center; gap: 5px; width: 100%; justify-content: center;
-  background: linear-gradient(90deg, #6b5bf5, #8a6ff2); color: #fff; font-size: .78rem; font-weight: 700;
+  background: var(--primary); color: #fff; font-size: .78rem; font-weight: 700;
   padding: 8px 10px; border-radius: var(--r-sm); transition: transform var(--t-fast), box-shadow var(--t-fast);
 }
-.sidebar-promo a:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(107, 91, 245, .4); }
+.sidebar-promo a:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); background: var(--primary-600); }
 .admin-shell.sidebar-collapsed .sidebar-promo { display: none; }
 
 /* Collapsed sidebar: a small icon-only Pro indicator instead of the full
    card, so it doesn't get silently dropped on narrow layouts. */
 .sidebar-promo-mini {
   display: none; margin: 8px auto 16px; width: 36px; height: 36px; border-radius: 10px;
-  background: rgba(255, 255, 255, .08); border: 1px solid rgba(255, 255, 255, .16);
-  align-items: center; justify-content: center; color: #c4b8ff; flex-shrink: 0;
+  background: var(--primary-soft); border: 1px solid var(--border);
+  align-items: center; justify-content: center; color: var(--primary-700); flex-shrink: 0;
   transition: background var(--t-fast), color var(--t-fast);
 }
-.sidebar-promo-mini:hover { background: linear-gradient(90deg, #6b5bf5, #8a6ff2); color: #fff; }
+.sidebar-promo-mini:hover { background: var(--primary); color: #fff; }
 .admin-shell.sidebar-collapsed .sidebar-promo-mini { display: flex; }
 @media (max-width: 1024px) { .sidebar-promo-mini { display: none !important; } }
 
@@ -438,7 +433,7 @@ html, body { max-width: 100%; overflow-x: hidden; }
 .fc-avatar-pill:hover { background: var(--background); }
 .fc-avatar-circle {
   width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0;
-  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-700) 100%);
+  background: var(--primary);
   color: #fff; font-weight: 800; font-size: .76rem;
 }
 .fc-avatar-meta { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.25; }
@@ -1042,6 +1037,16 @@ td .row, td .btn-group { flex-wrap: nowrap; }
 .modal-sm { max-width: 420px; }
 .modal-lg { max-width: 720px; }
 .modal-xl { max-width: 940px; }
+/* Full-screen / max-workspace modal — used for content-heavy authoring
+   surfaces like quiz creation, which need room for the question picker
+   alongside the settings form instead of a cramped 720px box. */
+.modal-full {
+  width: 96vw;
+  max-width: 1400px;
+  height: 92vh;
+  max-height: 92vh;
+}
+.modal-full .modal-body { max-height: none; }
 .modal-head {
   display: flex; align-items: flex-start; gap: 12px;
   padding: 18px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0;
@@ -1322,7 +1327,7 @@ td .row, td .btn-group { flex-wrap: nowrap; }
 .bundle-card { position: relative; overflow: hidden; display: flex; flex-direction: column; }
 .bundle-card::before {
   content: ''; position: absolute; inset: 0 0 auto; height: 3px;
-  background: linear-gradient(90deg, var(--primary), var(--pink));
+  background: var(--primary);
 }
 .bundle-price { font-size: 1.7rem; font-weight: 800; letter-spacing: -.02em; line-height: 1.1; }
 .bundle-subject-row { display: flex; align-items: center; gap: 7px; font-size: .82rem; padding: 3px 0; }
@@ -1599,7 +1604,7 @@ table td.td-nowrap { white-space: nowrap; vertical-align: middle; }
 }
 .subject-progress-fill {
   height: 100%; border-radius: 99px;
-  background: linear-gradient(90deg, var(--primary), #8b5cf6);
+  background: var(--primary);
   transition: width 400ms cubic-bezier(.2,.9,.3,1);
 }
 .subject-progress-meta {
@@ -1651,6 +1656,18 @@ table td.td-nowrap { white-space: nowrap; vertical-align: middle; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
+/* Conditional resource icons (Notes / Exam) — only rendered when the admin
+   has actually set a value, so an empty subject row never shows a dead icon. */
+.chapter-resource-icons { flex: none; display: flex; align-items: center; gap: 6px; }
+.chapter-resource-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: var(--r-sm);
+  background: var(--surface-alt); color: var(--muted);
+  border: 1px solid var(--border);
+}
+a.chapter-resource-icon:hover { color: var(--primary); border-color: var(--primary); }
+.chapter-resource-icon.is-static { cursor: default; }
+
 .chapter-badge {
   flex: none; font-size: .72rem; font-weight: 700;
   padding: 5px 12px; border-radius: 99px; white-space: nowrap;
@@ -1701,6 +1718,22 @@ table td.td-nowrap { white-space: nowrap; vertical-align: middle; }
   .chapter-row { flex-wrap: wrap; }
   .chapter-title { flex-basis: 100%; white-space: normal; }
   .chapter-actions { margin-left: auto; }
+}
+
+/* Phone-only: keep Assignments / Tests / Overall score as a single
+   compact row (matching the desktop layout) instead of the tablet
+   breakpoint's full stack above — just smaller type/padding so three
+   columns still fit a narrow screen without wrapping or overflowing. */
+@media (max-width: 560px) {
+  .subject-stats-row { grid-template-columns: repeat(3, 1fr); gap: 4px; }
+  .subject-stat { padding: 4px 4px; }
+  .subject-stat + .subject-stat::before { display: block; }
+  .subject-stat + .subject-stat { border-top: 0; padding-top: 4px; }
+  .subject-stat-label { font-size: .56rem; letter-spacing: .06em; margin-bottom: 4px; }
+  .subject-stat-value { font-size: 1.3rem; }
+  .subject-stat-value em { font-size: .8rem; }
+  .subject-stat small { font-size: .62rem; margin-top: 4px; }
+  .subject-stats-card { padding: 16px 12px; }
 }
 
 /* Subject cards now navigate to the subject dashboard rather than expanding. */
@@ -1828,3 +1861,77 @@ table td.td-nowrap { white-space: nowrap; vertical-align: middle; }
   display: inline-flex; align-items: center; gap: 6px;
   font-size: .78rem; font-weight: 600; color: var(--muted); cursor: pointer;
 }
+
+/* -----------------------------------------------------------------------
+   Multi-Tiered Notification System (ticker + banner)
+----------------------------------------------------------------------- */
+.notice-stack { display: flex; flex-direction: column; }
+
+.notice-banner {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 20px;
+  background: var(--primary-tint, #eef2ff); color: var(--text);
+  border-bottom: 1px solid var(--border);
+}
+.notice-banner svg { flex: none; color: var(--primary); }
+.notice-banner-text { flex: 1; font-size: .85rem; font-weight: 600; color: inherit; text-decoration: none; }
+a.notice-banner-text:hover { text-decoration: underline; }
+.notice-banner-close {
+  flex: none; background: none; border: none; cursor: pointer;
+  color: var(--muted); display: inline-flex; padding: 4px; border-radius: var(--r-sm);
+}
+.notice-banner-close:hover { background: rgba(0,0,0,.06); color: var(--text); }
+
+.notice-ticker {
+  overflow: hidden; white-space: nowrap;
+  background: var(--surface-alt); border-bottom: 1px solid var(--border);
+  padding: 7px 0;
+}
+.notice-ticker-track {
+  display: inline-flex; gap: 48px;
+  animation: fc-ticker-scroll 30s linear infinite;
+  padding-left: 100%;
+}
+.notice-ticker-item {
+  font-size: .8rem; font-weight: 600; color: var(--muted); text-decoration: none;
+}
+a.notice-ticker-item:hover { color: var(--primary); text-decoration: underline; }
+@keyframes fc-ticker-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .notice-ticker-track { animation: none; }
+}
+
+/* -----------------------------------------------------------------------
+   Rich Text Editor (subject description)
+----------------------------------------------------------------------- */
+.rte {
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  overflow: hidden; background: var(--surface);
+}
+.rte-toolbar {
+  display: flex; gap: 4px; padding: 6px 8px;
+  background: var(--surface-alt); border-bottom: 1px solid var(--border);
+}
+.rte-toolbar button {
+  width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid transparent; border-radius: var(--r-sm);
+  background: none; color: var(--muted); cursor: pointer;
+}
+.rte-toolbar button:hover { background: var(--surface); color: var(--text); border-color: var(--border); }
+.rte-body {
+  min-height: 90px; padding: 10px 12px; font-size: .85rem; line-height: 1.5;
+  outline: none; color: var(--text);
+}
+.rte-body:empty::before { content: attr(data-placeholder); color: var(--muted-2); }
+.rte-body a { color: var(--primary); }
+.rte-body ul { margin: 0; padding-left: 20px; }
+
+.subject-description-rich {
+  font-size: .85rem; line-height: 1.6; color: var(--muted);
+  margin: -6px 0 16px; padding: 0 2px;
+}
+.subject-description-rich a { color: var(--primary); font-weight: 600; }
+.subject-description-rich ul { padding-left: 20px; }

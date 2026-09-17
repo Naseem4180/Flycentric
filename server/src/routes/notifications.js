@@ -1,6 +1,7 @@
 const express = require('express');
 const pool = require('../db/pool');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, authorize } = require('../middleware/auth');
+const { logAudit } = require('../utils/audit');
 
 const router = express.Router();
 
@@ -28,6 +29,70 @@ router.post('/reads', authenticate, async (req, res) => {
 
 router.delete('/reads', authenticate, async (req, res) => {
   await pool.query('DELETE FROM notification_reads WHERE user_id = $1', [req.user.id]);
+  res.json({ ok: true });
+});
+
+// ----------------------------------------------------------------------------
+// Multi-Tiered Notification System with Scheduling
+// ----------------------------------------------------------------------------
+// Two admin-authored notification kinds:
+//   - "ticker" (Soft): a clickable scrolling ticker line on the dashboard.
+//   - "banner" (Hard): a prominent dashboard banner.
+// Both carry a start/end window; only rows whose window currently contains
+// "now" are ever served to students.
+
+// Student/general: currently-active notifications only.
+router.get('/active', authenticate, async (req, res) => {
+  const result = await pool.query(
+    `SELECT id, type, content, link_url, start_datetime, end_datetime
+     FROM notifications
+     WHERE is_active = true
+       AND start_datetime <= now()
+       AND (end_datetime IS NULL OR end_datetime >= now())
+     ORDER BY start_datetime DESC`
+  );
+  res.json({ notifications: result.rows });
+});
+
+// Admin: full list (including scheduled/expired/inactive) for the management UI.
+router.get('/', authenticate, authorize('admin'), async (req, res) => {
+  const result = await pool.query('SELECT * FROM notifications ORDER BY start_datetime DESC, id DESC');
+  res.json({ notifications: result.rows });
+});
+
+router.post('/', authenticate, authorize('admin'), async (req, res) => {
+  const { type, content, link_url, start_datetime, end_datetime, is_active } = req.body;
+  if (!content || !String(content).trim()) return res.status(400).json({ error: 'content required' });
+  if (!['ticker', 'banner'].includes(type)) return res.status(400).json({ error: "type must be 'ticker' or 'banner'" });
+  const result = await pool.query(
+    `INSERT INTO notifications (type, content, link_url, start_datetime, end_datetime, is_active, created_by)
+     VALUES ($1,$2,$3, COALESCE($4, now()), $5, COALESCE($6, true), $7) RETURNING *`,
+    [type, content.trim(), link_url || null, start_datetime || null, end_datetime || null, is_active, req.user.id]
+  );
+  await logAudit({ req, action: 'notification.create', entityType: 'notification', entityId: result.rows[0].id });
+  res.status(201).json({ notification: result.rows[0] });
+});
+
+router.patch('/:id', authenticate, authorize('admin'), async (req, res) => {
+  const { type, content, link_url, start_datetime, end_datetime, is_active } = req.body;
+  const result = await pool.query(
+    `UPDATE notifications SET
+       type = COALESCE($1, type),
+       content = COALESCE($2, content),
+       link_url = CASE WHEN $8 THEN $3 ELSE link_url END,
+       start_datetime = COALESCE($4, start_datetime),
+       end_datetime = CASE WHEN $9 THEN $5 ELSE end_datetime END,
+       is_active = COALESCE($6, is_active)
+     WHERE id = $7 RETURNING *`,
+    [type, content, link_url, start_datetime, end_datetime, is_active, req.params.id, link_url !== undefined, end_datetime !== undefined]
+  );
+  if (!result.rows.length) return res.status(404).json({ error: 'Notification not found' });
+  res.json({ notification: result.rows[0] });
+});
+
+router.delete('/:id', authenticate, authorize('admin'), async (req, res) => {
+  await pool.query('DELETE FROM notifications WHERE id = $1', [req.params.id]);
+  await logAudit({ req, action: 'notification.delete', entityType: 'notification', entityId: req.params.id });
   res.json({ ok: true });
 });
 

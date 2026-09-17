@@ -2,6 +2,7 @@ const express = require('express');
 const pool = require('../db/pool');
 const { authenticate, authorize } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
+const { sanitizeHtml } = require('../utils/sanitizeHtml');
 
 const router = express.Router();
 
@@ -38,9 +39,10 @@ function naturalCompare(a, b) {
 
 // Re-sorts every chapter of a subject alphabetically (natural order) and
 // rewrites order_index accordingly, spaced by 10 so a future insert never
-// needs a full renumber. Called after a chapter is added or renamed so the
-// curriculum a student sees always reflects alphabetic/numeric chapter order
-// without the admin having to manually drag anything into place.
+// needs a full renumber. This is now ONLY ever invoked explicitly by the
+// admin (the "Sort A→Z" action below) — curriculum order is otherwise a
+// deliberate, admin-controlled sequence (see custom chapter sequencing
+// below), so nothing calls this automatically on create/rename anymore.
 async function realphabetizeChapters(subjectId, client = pool) {
   const { rows } = await client.query(
     'SELECT id, title FROM chapters WHERE subject_id = $1 AND deleted_at IS NULL ORDER BY id',
@@ -51,6 +53,19 @@ async function realphabetizeChapters(subjectId, client = pool) {
     'UPDATE chapters SET order_index = $1 WHERE id = $2',
     [(i + 1) * 10, c.id]
   )));
+}
+
+// Custom Chapter Sequencing: the curriculum is ordered strictly by
+// order_index (an admin-set integer), never alphabetically or by created_at.
+// A newly created chapter with no explicit order_index is appended to the
+// END of the subject's existing sequence (MAX(order_index) + 10) instead of
+// being slotted alphabetically, so admins get full manual control of flow.
+async function nextOrderIndex(subjectId, client = pool) {
+  const { rows } = await client.query(
+    'SELECT COALESCE(MAX(order_index), 0) AS max_order FROM chapters WHERE subject_id = $1 AND deleted_at IS NULL',
+    [subjectId]
+  );
+  return Number(rows[0].max_order) + 10;
 }
 
 // ---- Bundles (Course & Bundle Publishing) ----------------------------------
@@ -180,7 +195,7 @@ router.post('/subjects', authenticate, authorize('admin'), async (req, res) => {
   if (!title) return res.status(400).json({ error: 'title required' });
   const result = await pool.query(
     'INSERT INTO subjects (title, description, order_index) VALUES ($1,$2,$3) RETURNING *',
-    [title, description || null, order_index || 0]
+    [title, description ? sanitizeHtml(description) : null, order_index || 0]
   );
   const bundleIds = Array.isArray(bundle_ids) ? bundle_ids.map(Number).filter(Number.isInteger) : [];
   if (bundleIds.length) {
@@ -221,7 +236,7 @@ router.patch('/subjects/:id', authenticate, authorize('admin'), async (req, res)
     `UPDATE subjects SET title = COALESCE($1,title), description = COALESCE($2,description),
        order_index = COALESCE($3,order_index), status = COALESCE($4,status)
      WHERE id = $5 AND deleted_at IS NULL RETURNING *`,
-    [title, description, order_index, status, req.params.id]
+    [title, description != null ? sanitizeHtml(description) : description, order_index, status, req.params.id]
   );
   if (!result.rows.length) return res.status(404).json({ error: 'Subject not found' });
   if (Array.isArray(bundle_ids)) {
@@ -308,7 +323,7 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
   const subject = subjectResult.rows[0];
 
   const chaptersResult = await pool.query(
-    'SELECT id, title, order_index, is_free FROM chapters WHERE subject_id = $1 AND deleted_at IS NULL ORDER BY order_index, id',
+    'SELECT id, title, order_index, is_free, notes_url, has_exam FROM chapters WHERE subject_id = $1 AND deleted_at IS NULL ORDER BY order_index, id',
     [subjectId]
   );
 
@@ -368,6 +383,10 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
       id: c.id,
       title: c.title,
       is_free: c.is_free,
+      // Optional resource affordances — the frontend hides these icons
+      // entirely when null/false, it never renders a placeholder for them.
+      notes_url: c.notes_url || null,
+      has_exam: !!c.has_exam,
       unlocked,
       status,
       attempt_count: attemptCount,
@@ -475,7 +494,7 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
 });
 
 router.post('/subjects/:subjectId/chapters', authenticate, authorize('admin'), async (req, res) => {
-  const { title, order_index, is_free } = req.body;
+  const { title, order_index, is_free, notes_url, has_exam } = req.body;
   const cleanTitle = String(title || '').trim();
   if (!cleanTitle) return res.status(400).json({ error: 'title required' });
   const existing = await pool.query(
@@ -495,14 +514,13 @@ router.post('/subjects/:subjectId/chapters', authenticate, authorize('admin'), a
     });
   }
   try {
+    // Custom Chapter Sequencing: strictly append to the end of the admin's
+    // existing manual order unless a specific position was requested.
+    const resolvedOrder = order_index == null ? await nextOrderIndex(req.params.subjectId) : Number(order_index);
     const result = await pool.query(
-      'INSERT INTO chapters (subject_id, title, order_index, is_free) VALUES ($1,$2,$3,$4) RETURNING *',
-      [req.params.subjectId, cleanTitle, order_index || 0, !!is_free]
+      'INSERT INTO chapters (subject_id, title, order_index, is_free, notes_url, has_exam) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+      [req.params.subjectId, cleanTitle, resolvedOrder, !!is_free, notes_url || null, !!has_exam]
     );
-    // A newly added chapter has no deliberate manual position yet, so it
-    // falls into alphabetic/numeric order among its siblings automatically
-    // (e.g. "Regs 22" lands right after "Regs 21", not at the end of the list).
-    if (order_index == null) await realphabetizeChapters(req.params.subjectId);
     const fresh = await pool.query('SELECT * FROM chapters WHERE id = $1', [result.rows[0].id]);
     res.status(201).json({ chapter: fresh.rows[0] });
   } catch (err) {
@@ -516,19 +534,41 @@ router.post('/subjects/:subjectId/chapters', authenticate, authorize('admin'), a
 });
 
 router.patch('/chapters/:id', authenticate, authorize('admin'), async (req, res) => {
-  const { title, order_index, is_free } = req.body;
+  const { title, order_index, is_free, notes_url, has_exam } = req.body;
+  // Custom Chapter Sequencing: order_index is the sole, strict source of
+  // truth for curriculum order — renaming a chapter never moves it, and no
+  // automatic re-sort runs here. Admins reorder explicitly (drag/drop sends
+  // order_index, or the manual "Sort A→Z" action below).
   const result = await pool.query(
-    `UPDATE chapters SET title = COALESCE($1,title), order_index = COALESCE($2,order_index), is_free = COALESCE($3,is_free)
+    `UPDATE chapters SET
+       title = COALESCE($1,title),
+       order_index = COALESCE($2,order_index),
+       is_free = COALESCE($3,is_free),
+       notes_url = CASE WHEN $5 THEN NULLIF($6, '') ELSE notes_url END,
+       has_exam = COALESCE($7,has_exam)
      WHERE id = $4 AND deleted_at IS NULL RETURNING *`,
-    [title, order_index, is_free, req.params.id]
+    [title, order_index, is_free, req.params.id, notes_url !== undefined, notes_url, has_exam]
   );
   if (!result.rows.length) return res.status(404).json({ error: 'Chapter not found' });
-  // Renaming a chapter can change where it belongs alphabetically — unless
-  // the caller explicitly supplied a manual order_index (a drag/drop reorder),
-  // re-sort the subject so the new title lands in the right spot.
-  if (title != null && order_index == null) await realphabetizeChapters(result.rows[0].subject_id);
-  const fresh = await pool.query('SELECT * FROM chapters WHERE id = $1', [req.params.id]);
-  res.json({ chapter: fresh.rows[0] });
+  res.json({ chapter: result.rows[0] });
+});
+
+// Explicit drag-and-drop reorder: takes the full ordered list of chapter ids
+// for a subject and rewrites order_index to match exactly, spaced by 10.
+router.post('/subjects/:subjectId/chapters/reorder', authenticate, authorize('admin'), async (req, res) => {
+  const { chapter_ids } = req.body;
+  if (!Array.isArray(chapter_ids) || !chapter_ids.length) {
+    return res.status(400).json({ error: 'chapter_ids (ordered array) required' });
+  }
+  await Promise.all(chapter_ids.map((id, i) => pool.query(
+    'UPDATE chapters SET order_index = $1 WHERE id = $2 AND subject_id = $3 AND deleted_at IS NULL',
+    [(i + 1) * 10, id, req.params.subjectId]
+  )));
+  const result = await pool.query(
+    'SELECT * FROM chapters WHERE subject_id = $1 AND deleted_at IS NULL ORDER BY order_index, id',
+    [req.params.subjectId]
+  );
+  res.json({ chapters: result.rows });
 });
 
 // Manual "sort now" — alphabetizes every chapter of a subject on demand, for

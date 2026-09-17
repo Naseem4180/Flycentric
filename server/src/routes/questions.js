@@ -569,14 +569,41 @@ router.post('/:id/report', authenticate, async (req, res) => {
 
 // General report — no exam/question required. Any signed-in student can flag
 // a problem from anywhere in the app, not only after completing a test.
+//
+// Student Reporting Mechanism: the student-facing report form requires
+// exactly two comma-separated keywords (e.g. "wrong answer, regs 04") —
+// validated here server-side so a client bypass can't skip it. Keywords are
+// also stored structured (not just embedded in `note`) so the admin queue
+// can filter/sort on them.
+function parseExactlyTwoKeywords(raw) {
+  const parts = String(raw || '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (parts.length !== 2) return null;
+  return parts;
+}
+
 router.post('/reports', authenticate, async (req, res) => {
-  const { reason, note, question_id } = req.body;
+  const { reason, note, question_id, keywords } = req.body;
   if (!reason) return res.status(400).json({ error: 'reason required' });
+  const parsedKeywords = parseExactlyTwoKeywords(keywords);
+  if (!parsedKeywords) {
+    return res.status(400).json({ error: 'keywords must contain exactly two comma-separated keywords, e.g. "wrong answer, regs 04"' });
+  }
   const result = await pool.query(
-    'INSERT INTO discrepancy_reports (question_id, reported_by, reason, note) VALUES ($1,$2,$3,$4) RETURNING *',
-    [question_id || null, req.user.id, reason, note || null]
+    'INSERT INTO discrepancy_reports (question_id, reported_by, reason, note, keywords) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+    [question_id || null, req.user.id, reason, note || null, parsedKeywords]
   );
   res.status(201).json({ report: result.rows[0] });
+});
+
+// "Reported" section — a student's own submitted reports and their status.
+router.get('/reports/mine', authenticate, async (req, res) => {
+  const result = await pool.query(
+    `SELECT dr.*, q.question_text
+     FROM discrepancy_reports dr LEFT JOIN questions q ON q.id = dr.question_id
+     WHERE dr.reported_by = $1 ORDER BY dr.created_at DESC`,
+    [req.user.id]
+  );
+  res.json({ reports: result.rows });
 });
 
 router.get('/reports/queue', authenticate, authorize('admin'), async (req, res) => {

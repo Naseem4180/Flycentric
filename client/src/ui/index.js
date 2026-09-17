@@ -8,3 +8,4 @@ export {
   EmptyState, ErrorState, Skeleton, SkeletonTable, SkeletonCards, PageSkeleton,
   Pagination, RowMenu, BarStat, ProgressBar, Tabs, FilterChips,
 } from './Primitives';
+export { default as RichTextEditor } from './RichTextEditor';

@@ -8,7 +8,7 @@ import BrandLogo from './BrandLogo';
 export default function SidebarBrand({ collapsed }) {
   return (
     <div className="admin-sidebar-head">
-      <BrandLogo size={28} word={!collapsed} theme="dark" />
+      <BrandLogo size={28} word={!collapsed} theme="light" />
     </div>
   );
 }

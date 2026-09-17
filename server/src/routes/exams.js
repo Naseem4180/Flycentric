@@ -355,6 +355,90 @@ router.post('/attempts/:id/answer', authenticate, async (req, res) => {
   res.json({ attempt: updated.rows[0], feedback });
 });
 
+// Core grading/submission logic, shared by the student-triggered /submit
+// route below and the server-side idle-timeout safety net (see
+// jobs/scheduler.js), which force-submits an attempt whose last_seen_at is
+// stale even if the browser tab was closed outright (the frontend idle
+// listener in TakeExam.jsx can't fire if there's no tab left to run it).
+async function gradeAndSubmitAttempt(attemptId, userId) {
+  const attemptResult = await pool.query('SELECT * FROM attempts WHERE id = $1 AND user_id = $2', [attemptId, userId]);
+  const attempt = attemptResult.rows[0];
+  if (!attempt) return { error: 'not_found' };
+  if (attempt.status === 'submitted') return { attempt, alreadySubmitted: true };
+
+  const quizResult = await pool.query('SELECT * FROM quizzes WHERE id = $1', [attempt.quiz_id]);
+  const quiz = quizResult.rows[0];
+
+  const liveResult = await pool.query('SELECT id, question_type, correct_option FROM questions WHERE id = ANY($1)', [quiz.question_ids]);
+  const liveById = Object.fromEntries(liveResult.rows.map((q) => [q.id, q]));
+
+  let correct = 0;
+  let gradable = 0;
+  let pendingReview = 0;
+  const statsUpdates = [];
+  const timings = attempt.question_timings || {};
+  for (const questionId of quiz.question_ids) {
+    const frozen = attempt.question_snapshot && attempt.question_snapshot[questionId];
+    const live = liveById[questionId];
+    const q = frozen || live;
+    if (!q) continue;
+    const given = attempt.answers[questionId];
+    const type = q.question_type || 'mcq';
+    if (type === 'short_answer' || type === 'descriptive') {
+      if (given) pendingReview += 1;
+      continue;
+    }
+    gradable += 1;
+    if (!given) continue;
+    let isCorrect = false;
+    if (type === 'multi_select') {
+      const givenSet = String(given).split(',').map((s) => s.trim()).filter(Boolean).sort().join(',');
+      const correctSet = String(q.correct_option || '').split(',').map((s) => s.trim()).filter(Boolean).sort().join(',');
+      isCorrect = !!givenSet && givenSet === correctSet;
+    } else if (type === 'numerical') {
+      const givenNum = parseFloat(given);
+      const correctNum = parseFloat(q.correct_option);
+      isCorrect = !Number.isNaN(givenNum) && !Number.isNaN(correctNum) && Math.abs(givenNum - correctNum) < 0.01;
+    } else {
+      isCorrect = given === q.correct_option;
+    }
+    if (isCorrect) correct += 1;
+    statsUpdates.push({ questionId, isCorrect, seconds: Math.max(0, Math.round(Number(timings[questionId] ?? timings[String(questionId)] ?? 0))) });
+  }
+  const total = quiz.question_ids.length;
+  const score = gradable ? Math.round((correct / gradable) * 10000) / 100 : 0;
+
+  const updated = await pool.query(
+    `UPDATE attempts SET status = 'submitted', submitted_at = now(), correct_count = $1, total_questions = $2, score = $3
+     WHERE id = $4 RETURNING *`,
+    [correct, total, score, attemptId]
+  );
+
+  try {
+    for (const { questionId, isCorrect, seconds } of statsUpdates) {
+      await pool.query(
+        `INSERT INTO student_question_stats
+           (student_id, question_id, attempt_count, correct_count, wrong_count, total_time_seconds, avg_time_seconds, last_attempt)
+         VALUES ($1, $2, 1, $3, $4, $5::int, $5::numeric, now())
+         ON CONFLICT (student_id, question_id) DO UPDATE SET
+           attempt_count = student_question_stats.attempt_count + 1,
+           correct_count = student_question_stats.correct_count + $3,
+           wrong_count = student_question_stats.wrong_count + $4,
+           total_time_seconds = student_question_stats.total_time_seconds + $5::int,
+           avg_time_seconds = ROUND(
+             (student_question_stats.total_time_seconds + $5::int)::numeric
+             / GREATEST(student_question_stats.attempt_count + 1, 1), 2),
+           last_attempt = now()`,
+        [userId, questionId, isCorrect ? 1 : 0, isCorrect ? 0 : 1, seconds]
+      );
+    }
+  } catch (err) {
+    console.error('Failed to update student_question_stats', err);
+  }
+
+  return { attempt: updated.rows[0], passed: score >= quiz.pass_percent, pendingReview };
+}
+
 router.post('/attempts/:id/submit', authenticate, quizSubmitLimiter, async (req, res) => {
   const attemptResult = await pool.query('SELECT * FROM attempts WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
   const attempt = attemptResult.rows[0];
@@ -387,93 +471,10 @@ router.post('/attempts/:id/submit', authenticate, quizSubmitLimiter, async (req,
     await pool.query("UPDATE attempts SET status = 'expired' WHERE id = $1 AND status = 'in_progress'", [req.params.id]);
     return res.status(403).json({ error: 'Submission rejected: time limit (plus grace period) has been exceeded.' });
   }
-  // Live rows are only a fallback for attempts started before question_snapshot
-  // existed (see schema.sql) — normal scoring uses the frozen snapshot below
-  // so a question edited after this attempt started cannot change its grade.
-  const liveResult = await pool.query('SELECT id, question_type, correct_option FROM questions WHERE id = ANY($1)', [quiz.question_ids]);
-  const liveById = Object.fromEntries(liveResult.rows.map((q) => [q.id, q]));
 
-  // Auto-gradable types are scored immediately. Short-answer / descriptive
-  // questions need a human to grade them, so they're excluded from the
-  // score but still counted as "pending review" for the review screen.
-  let correct = 0;
-  let gradable = 0;
-  let pendingReview = 0;
-  // Per-question outcomes for gradable, attempted questions — feeds the
-  // rolling student_question_stats table that Topic Mastery is computed
-  // from (see server/src/utils/mastery.js). Only auto-gradable types with an
-  // actual answer count, matching the "valid question responses" semantics
-  // documented on that table.
-  const statsUpdates = [];
-  // Time-Per-Question: the per-question seconds accumulated on the attempt
-  // (see the /answer route) are rolled into student_question_stats below so
-  // "average time taken on this question" survives beyond a single attempt.
-  const timings = attempt.question_timings || {};
-  for (const questionId of quiz.question_ids) {
-    const frozen = attempt.question_snapshot && attempt.question_snapshot[questionId];
-    const live = liveById[questionId];
-    const q = frozen || live;
-    if (!q) continue; // question was hard-removed entirely; nothing to score
-    const given = attempt.answers[questionId];
-    const type = q.question_type || 'mcq';
-    if (type === 'short_answer' || type === 'descriptive') {
-      if (given) pendingReview += 1;
-      continue;
-    }
-    gradable += 1;
-    if (!given) continue;
-    let isCorrect = false;
-    if (type === 'multi_select') {
-      const givenSet = String(given).split(',').map((s) => s.trim()).filter(Boolean).sort().join(',');
-      const correctSet = String(q.correct_option || '').split(',').map((s) => s.trim()).filter(Boolean).sort().join(',');
-      isCorrect = !!givenSet && givenSet === correctSet;
-    } else if (type === 'numerical') {
-      const givenNum = parseFloat(given);
-      const correctNum = parseFloat(q.correct_option);
-      isCorrect = !Number.isNaN(givenNum) && !Number.isNaN(correctNum) && Math.abs(givenNum - correctNum) < 0.01;
-    } else {
-      isCorrect = given === q.correct_option;
-    }
-    if (isCorrect) correct += 1;
-    statsUpdates.push({ questionId, isCorrect, seconds: Math.max(0, Math.round(Number(timings[questionId] ?? timings[String(questionId)] ?? 0))) });
-  }
-  const total = quiz.question_ids.length;
-  const score = gradable ? Math.round((correct / gradable) * 10000) / 100 : 0;
-
-  const updated = await pool.query(
-    `UPDATE attempts SET status = 'submitted', submitted_at = now(), correct_count = $1, total_questions = $2, score = $3
-     WHERE id = $4 RETURNING *`,
-    [correct, total, score, req.params.id]
-  );
-
-  // Update rolling per-question mastery stats. Best-effort: a failure here
-  // must not fail the submission the student is waiting on.
-  try {
-    for (const { questionId, isCorrect, seconds } of statsUpdates) {
-      // total_time_seconds accumulates; avg_time_seconds is derived from it
-      // and attempt_count so the average stays correct across re-attempts
-      // without needing to re-read every historical attempt.
-      await pool.query(
-        `INSERT INTO student_question_stats
-           (student_id, question_id, attempt_count, correct_count, wrong_count, total_time_seconds, avg_time_seconds, last_attempt)
-         VALUES ($1, $2, 1, $3, $4, $5::int, $5::numeric, now())
-         ON CONFLICT (student_id, question_id) DO UPDATE SET
-           attempt_count = student_question_stats.attempt_count + 1,
-           correct_count = student_question_stats.correct_count + $3,
-           wrong_count = student_question_stats.wrong_count + $4,
-           total_time_seconds = student_question_stats.total_time_seconds + $5::int,
-           avg_time_seconds = ROUND(
-             (student_question_stats.total_time_seconds + $5::int)::numeric
-             / GREATEST(student_question_stats.attempt_count + 1, 1), 2),
-           last_attempt = now()`,
-        [req.user.id, questionId, isCorrect ? 1 : 0, isCorrect ? 0 : 1, seconds]
-      );
-    }
-  } catch (err) {
-    console.error('Failed to update student_question_stats', err);
-  }
-
-  res.json({ attempt: updated.rows[0], passed: score >= quiz.pass_percent, pendingReview });
+  const result = await gradeAndSubmitAttempt(req.params.id, req.user.id);
+  if (result.error) return res.status(404).json({ error: 'Attempt not found' });
+  res.json(result);
 });
 
 // Review screen — correct answers + explanations + the student's own choice.
@@ -696,3 +697,4 @@ router.get('/monitor', authenticate, authorize('admin', 'instructor'), async (re
 });
 
 module.exports = router;
+module.exports.gradeAndSubmitAttempt = gradeAndSubmitAttempt;

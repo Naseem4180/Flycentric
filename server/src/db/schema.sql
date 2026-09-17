@@ -574,3 +574,64 @@ UPDATE quizzes SET chapter_ids = ARRAY[chapter_id]
 -- student and then join quizzes for subject/chapter labels.
 CREATE INDEX IF NOT EXISTS idx_attempts_user_status ON attempts (user_id, status, submitted_at DESC);
 CREATE INDEX IF NOT EXISTS idx_quizzes_subject_chapter ON quizzes (subject_id, chapter_id) WHERE deleted_at IS NULL;
+
+-- ============================================================================
+-- Conditional Rendering for Course Resources ---------------------------------
+-- Optional per-chapter "Notes" and "Exam" affordances. When empty/false the
+-- corresponding icon is simply not rendered on the student chapter row.
+ALTER TABLE chapters ADD COLUMN IF NOT EXISTS notes_url TEXT;
+ALTER TABLE chapters ADD COLUMN IF NOT EXISTS has_exam BOOLEAN NOT NULL DEFAULT false;
+
+-- ============================================================================
+-- Automated Email Engine ------------------------------------------------------
+-- Tracks the data the scheduled jobs (see server/src/jobs/scheduler.js) need:
+-- when the user last logged in (7-day re-engagement), their date of birth
+-- (birthday greeting), and de-dupe stamps so a job that runs more than once a
+-- day never double-sends the same email to the same person.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS date_of_birth DATE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_progress_email_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_reengagement_email_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_birthday_email_year INTEGER;
+
+-- Bulk marketing / greeting campaigns, scheduled and dispatched by a
+-- background worker polling scheduled_send_time (see routes/notifications.js
+-- and jobs/scheduler.js).
+CREATE TABLE IF NOT EXISTS email_campaigns (
+  id SERIAL PRIMARY KEY,
+  subject TEXT NOT NULL,
+  body TEXT NOT NULL,
+  audience TEXT NOT NULL DEFAULT 'all' CHECK (audience IN ('all','students','instructors')),
+  scheduled_send_time TIMESTAMPTZ NOT NULL,
+  status TEXT NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled','sending','sent','cancelled')),
+  created_by INTEGER REFERENCES users(id),
+  sent_at TIMESTAMPTZ,
+  recipient_count INTEGER,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_email_campaigns_pending ON email_campaigns (status, scheduled_send_time);
+
+-- ============================================================================
+-- Multi-Tiered Notification System with Scheduling ---------------------------
+-- Real admin-authored notifications (ticker/banner) with a scheduling window,
+-- replacing the earlier "synthesize from doubts/reports" approach.
+CREATE TABLE IF NOT EXISTS notifications (
+  id SERIAL PRIMARY KEY,
+  type TEXT NOT NULL DEFAULT 'ticker' CHECK (type IN ('ticker','banner')),
+  content TEXT NOT NULL,
+  link_url TEXT,
+  start_datetime TIMESTAMPTZ NOT NULL DEFAULT now(),
+  end_datetime TIMESTAMPTZ,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_by INTEGER REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_window ON notifications (is_active, start_datetime, end_datetime);
+
+-- ============================================================================
+-- Student Reporting Mechanism -------------------------------------------------
+-- General (question-less) reports already land in discrepancy_reports; the
+-- new student-facing form requires exactly two comma-separated keywords,
+-- stored structured (not just embedded in free text) so the admin queue can
+-- filter/sort on them.
+ALTER TABLE discrepancy_reports ADD COLUMN IF NOT EXISTS keywords TEXT[];

@@ -189,4 +189,57 @@ router.get('/audit-log', async (req, res) => {
   res.json({ entries: result.rows });
 });
 
+// ----------------------------------------------------------------------------
+// Bulk Marketing Email Scheduler
+// ----------------------------------------------------------------------------
+// Campaigns are saved with a scheduled_send_time; the background worker in
+// jobs/scheduler.js polls email_campaigns for due rows and dispatches them
+// via enqueueMail (see utils/mailQueue.js) — this route only writes/reads
+// the queue table, it never sends anything itself.
+router.get('/email-campaigns', async (req, res) => {
+  const result = await pool.query('SELECT * FROM email_campaigns ORDER BY scheduled_send_time DESC');
+  res.json({ campaigns: result.rows });
+});
+
+router.post('/email-campaigns', async (req, res) => {
+  const { subject, body, audience, scheduled_send_time } = req.body;
+  if (!subject || !String(subject).trim()) return res.status(400).json({ error: 'subject required' });
+  if (!body || !String(body).trim()) return res.status(400).json({ error: 'body required' });
+  if (!scheduled_send_time) return res.status(400).json({ error: 'scheduled_send_time required' });
+  const result = await pool.query(
+    `INSERT INTO email_campaigns (subject, body, audience, scheduled_send_time, created_by)
+     VALUES ($1,$2,COALESCE($3,'all'),$4,$5) RETURNING *`,
+    [subject.trim(), body, audience, scheduled_send_time, req.user.id]
+  );
+  await logAudit({ req, action: 'email_campaign.create', entityType: 'email_campaign', entityId: result.rows[0].id });
+  res.status(201).json({ campaign: result.rows[0] });
+});
+
+router.patch('/email-campaigns/:id', async (req, res) => {
+  const { subject, body, audience, scheduled_send_time } = req.body;
+  const result = await pool.query(
+    `UPDATE email_campaigns SET
+       subject = COALESCE($1,subject), body = COALESCE($2,body),
+       audience = COALESCE($3,audience), scheduled_send_time = COALESCE($4,scheduled_send_time)
+     WHERE id = $5 AND status = 'scheduled' RETURNING *`,
+    [subject, body, audience, scheduled_send_time, req.params.id]
+  );
+  if (!result.rows.length) return res.status(404).json({ error: 'Campaign not found or already sent' });
+  res.json({ campaign: result.rows[0] });
+});
+
+router.post('/email-campaigns/:id/cancel', async (req, res) => {
+  const result = await pool.query(
+    `UPDATE email_campaigns SET status = 'cancelled' WHERE id = $1 AND status = 'scheduled' RETURNING *`,
+    [req.params.id]
+  );
+  if (!result.rows.length) return res.status(404).json({ error: 'Campaign not found or already sent' });
+  res.json({ campaign: result.rows[0] });
+});
+
+router.delete('/email-campaigns/:id', async (req, res) => {
+  await pool.query(`DELETE FROM email_campaigns WHERE id = $1 AND status IN ('scheduled','cancelled')`, [req.params.id]);
+  res.json({ ok: true });
+});
+
 module.exports = router;

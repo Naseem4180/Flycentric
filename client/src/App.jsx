@@ -44,6 +44,8 @@ import AdminBundlesPricing from './pages/admin/AdminBundlesPricing';
 import AdminMarkFAQ from './pages/admin/AdminMarkFAQ';
 import AdminInstructorDoubts from './pages/admin/AdminInstructorDoubts';
 import AdminMemoryBank from './pages/admin/AdminMemoryBank';
+import AdminNotifications from './pages/admin/AdminNotifications';
+import AdminEmailCampaigns from './pages/admin/AdminEmailCampaigns';
 import AdminSettings from './pages/admin/AdminSettings';
 import AdminAuditLog from './pages/admin/AdminAuditLog';
 import InstructorDashboard from './pages/InstructorDashboard';
@@ -151,6 +153,8 @@ function AppRoutes() {
           <Route path="reports/:id" element={<AdminReportDetail />} />
           <Route path="instructor-doubts" element={<AdminInstructorDoubts />} />
           <Route path="memory-bank" element={<AdminMemoryBank />} />
+          <Route path="notifications" element={<AdminNotifications />} />
+          <Route path="email-campaigns" element={<AdminEmailCampaigns />} />
           <Route path="student-analytics" element={<AdminStudentInsights />} />
           <Route path="trash" element={<AdminTrash />} />
           <Route path="settings" element={<AdminSettings />} />

@@ -14,6 +14,21 @@ function scoreTone(pct) {
   return 'success';
 }
 
+// Rewrites every <a href="..."> in an (already server-sanitized) HTML
+// snippet to open in a new tab, since a rich-text editor doesn't reliably
+// set target itself and the spec calls for external links to always open
+// in a new tab rather than navigating the student away from their course.
+function withBlankTargetLinks(html) {
+  if (typeof document === 'undefined') return html;
+  const el = document.createElement('div');
+  el.innerHTML = html;
+  el.querySelectorAll('a[href]').forEach((a) => {
+    a.setAttribute('target', '_blank');
+    a.setAttribute('rel', 'noopener noreferrer');
+  });
+  return el.innerHTML;
+}
+
 function fmtScore(n) {
   if (n == null) return '—';
   return `${Number(n).toFixed(1)}%`;
@@ -142,6 +157,18 @@ function SubjectDetailBody({ subject, chapters, summary, tests }) {
         </span>
       </div>
 
+      {subject.description && (
+        <div
+          className="subject-description-rich"
+          // Rich Text Support for Subject Descriptions: the server already
+          // strips this down to a small safe tag allowlist (see
+          // utils/sanitizeHtml.js) before it's ever stored, so rendering it
+          // here is safe. Every external link is force-rewritten to open in
+          // a new tab regardless of what the admin's editor produced.
+          dangerouslySetInnerHTML={{ __html: withBlankTargetLinks(subject.description) }}
+        />
+      )}
+
       <div className="chapter-list">
         {rows.map((row) => {
           if (row.kind === 'test') {
@@ -194,6 +221,28 @@ function SubjectDetailBody({ subject, chapters, summary, tests }) {
               </span>
 
               <span className="chapter-title">{c.title}</span>
+
+              {(c.notes_url || c.has_exam) && (
+                <span className="chapter-resource-icons">
+                  {c.notes_url && (
+                    <a
+                      href={c.notes_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="chapter-resource-icon"
+                      title="Notes"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <FileCheck2 size={13} />
+                    </a>
+                  )}
+                  {c.has_exam && (
+                    <span className="chapter-resource-icon is-static" title="Exam available">
+                      <BookOpen size={13} />
+                    </span>
+                  )}
+                </span>
+              )}
 
               {c.status === 'attempted' ? (
                 <span className={`chapter-badge chapter-badge-${tone}`}>

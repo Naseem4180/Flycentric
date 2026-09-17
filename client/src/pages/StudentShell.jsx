@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import StudentSidebar from '../components/StudentSidebar';
 import AppTopbar from '../components/AppTopbar';
+import NotificationBar from '../components/NotificationBar';
 
 // Below this width the sidebar is an off-canvas drawer rather than a column.
 // It must match the breakpoint in theme.css (.admin-sidebar @1024px) — when
@@ -42,6 +43,7 @@ export default function StudentShell({ children }) {
       <div className="admin-sidebar-backdrop" onClick={() => setCollapsed(true)} aria-hidden="true" />
       <div className="admin-main">
         <AppTopbar onToggleSidebar={() => setCollapsed((c) => !c)} />
+        <NotificationBar />
         {children}
       </div>
     </div>

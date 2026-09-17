@@ -1,9 +1,9 @@
-import { NavLink, Link } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import SidebarBrand from './SidebarBrand';
 import {
   LayoutGrid, Users, Layers, BookOpen, PackageSearch, Database, ListChecks,
   Flag, MessageCircle, Bookmark, BarChart3, Trash2, Settings as SettingsIcon,
-  ScrollText, Sparkles, ArrowRight, Radio,
+  ScrollText, Radio, Bell, Mail,
 } from 'lucide-react';
 
 // Grouped navigation: Academics / Engagement / System. Every route that
@@ -33,6 +33,8 @@ const NAV_GROUPS = [
       { to: '/admin/instructor-doubts', icon: MessageCircle, label: 'Instructor Doubts', badgeKey: 'doubts' },
       { to: '/admin/memory-bank', icon: Bookmark, label: 'Memory Bank' },
       { to: '/admin/student-analytics', icon: BarChart3, label: 'Student Analytics' },
+      { to: '/admin/notifications', icon: Bell, label: 'Notifications' },
+      { to: '/admin/email-campaigns', icon: Mail, label: 'Email Campaigns' },
     ],
   },
   {
@@ -74,16 +76,6 @@ export default function AdminSidebar({ collapsed, badges = {}, onNavigate }) {
           </div>
         ))}
       </nav>
-
-      {/* Links to the real Bundles & Pricing screen — not a decorative advert. */}
-      <div className="sidebar-promo">
-        <div className="sidebar-promo-badge"><Sparkles size={12} /> FlyCentric Pro</div>
-        <strong>Grow your academy</strong>
-        <p>Package subjects into paid bundles and unlock advanced analytics.</p>
-        <Link to="/admin/bundles-pricing" onClick={onNavigate}>
-          Manage Bundles <ArrowRight size={13} />
-        </Link>
-      </div>
     </aside>
   );
 }

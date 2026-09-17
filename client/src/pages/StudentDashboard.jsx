@@ -82,7 +82,17 @@ export default function StudentDashboard() {
   const totalCorrect = completed.reduce((sum, attempt) => sum + Number(attempt.correct_count || 0), 0);
   const nextQuiz = quizzes[0];
   const enrolledBundles = bundles.filter((bundle) => accessIds.has(String(bundle.id)));
-  const exploreBundles = bundles.filter((bundle) => !accessIds.has(String(bundle.id)));
+  // Dynamic Visibility for Paid vs. Free Content: a student who already
+  // holds a paid (non-free) bundle has "purchased a premium course" — free
+  // bundles are then hidden from the explore/dashboard list entirely, to
+  // reduce clutter, rather than competing for attention with what they paid for.
+  const hasPaidSubscription = enrolledBundles.some((bundle) => !bundle.is_free && Number(bundle.price_inr) > 0);
+  const exploreBundles = bundles.filter((bundle) => {
+    if (accessIds.has(String(bundle.id))) return false;
+    const bundleIsFree = bundle.is_free || !Number(bundle.price_inr);
+    if (hasPaidSubscription && bundleIsFree) return false;
+    return true;
+  });
 
   async function enrollFree(bundle) {
     try {

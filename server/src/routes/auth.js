@@ -65,6 +65,9 @@ router.post('/login', loginLimiter, async (req, res) => {
       `INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES ($1,$2, now() + interval '30 days')`,
       [user.id, refreshToken]
     );
+    // Inactivity Re-engagement Workflow reads this to find users who
+    // haven't logged in for 7 consecutive days (see jobs/scheduler.js).
+    await pool.query('UPDATE users SET last_login_at = now() WHERE id = $1', [user.id]);
     delete user.password_hash;
     res.json({ user, accessToken, refreshToken });
   } catch (err) {
@@ -119,10 +122,26 @@ router.post('/refresh', async (req, res) => {
 
 router.get('/me', authenticate, async (req, res) => {
   const result = await pool.query(
-    'SELECT id, email, name, role, institution_id, status, created_at FROM users WHERE id = $1',
+    'SELECT id, email, name, role, institution_id, status, date_of_birth, created_at FROM users WHERE id = $1',
     [req.user.id]
   );
   if (!result.rows.length) return res.status(404).json({ error: 'User not found' });
+  res.json({ user: result.rows[0] });
+});
+
+// Self-service profile update. Currently just name + date_of_birth — the
+// latter is what the Automated Birthday Greetings job (see jobs/scheduler.js)
+// keys off of; a user who never sets it simply never gets a birthday email.
+router.patch('/me', authenticate, async (req, res) => {
+  const { name, date_of_birth } = req.body;
+  const result = await pool.query(
+    `UPDATE users SET
+       name = COALESCE($1, name),
+       date_of_birth = CASE WHEN $3 THEN $2 ELSE date_of_birth END
+     WHERE id = $4
+     RETURNING id, email, name, role, institution_id, status, date_of_birth, created_at`,
+    [name || null, date_of_birth || null, date_of_birth !== undefined, req.user.id]
+  );
   res.json({ user: result.rows[0] });
 });
 

@@ -141,4 +141,7 @@ app.listen(port, () => {
   pool.query(
     "UPDATE attempts SET status = 'expired' WHERE status = 'in_progress' AND deadline_at IS NOT NULL AND deadline_at < now()"
   ).catch((err) => console.error('Failed to expire stale attempts', err));
+
+  // Automated Email Engine + idle-timeout safety net (see jobs/scheduler.js).
+  require('./jobs/scheduler').start();
 });

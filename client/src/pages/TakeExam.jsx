@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { X, Brain, Flag, ChevronDown } from 'lucide-react';
+import { X, Brain, Flag, ChevronDown, Eraser } from 'lucide-react';
 import { api } from '../api';
 import useAuth from '../context/useAuth';
 
@@ -226,6 +226,35 @@ export default function TakeExam() {
 
   // Always leave fullscreen when navigating away from the exam page.
   useEffect(() => () => exitFullscreenIfActive(), []);
+
+  // Inactivity Timeout & Auto-Submit: a system-level safety net independent
+  // of the exam/practice countdown above. If the student shows no mouse
+  // movement, click, or keystroke for 180 minutes (3 hours) while an
+  // assignment or exam is open, the attempt is force-submitted — this
+  // protects against a forgotten open tab holding an attempt "in_progress"
+  // indefinitely, on top of whatever timer (if any) the quiz itself has.
+  const IDLE_LIMIT_MS = 180 * 60 * 1000;
+  const lastActivityRef = useRef(Date.now());
+  useEffect(() => {
+    if (!attempt?.id) return undefined;
+
+    const markActive = () => { lastActivityRef.current = Date.now(); };
+    const events = ['mousemove', 'mousedown', 'click', 'keydown', 'touchstart', 'scroll'];
+    events.forEach((ev) => window.addEventListener(ev, markActive, { passive: true }));
+
+    const idleCheck = setInterval(() => {
+      if (submittedRef.current) return;
+      if (Date.now() - lastActivityRef.current >= IDLE_LIMIT_MS) {
+        handleSubmit();
+      }
+    }, 30000);
+
+    return () => {
+      events.forEach((ev) => window.removeEventListener(ev, markActive));
+      clearInterval(idleCheck);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attempt?.id]);
 
   // Mode-specific timer. An exam attempt has a server-issued deadline_at and
   // counts down to a forced auto-submit. A practice attempt has deadline_at
@@ -570,12 +599,34 @@ export default function TakeExam() {
             ))}
           </div>
 
+          {/* Compact progress summary for mobile/tablet — the two-pane
+              desktop layout already shows this (cbt-summary-strip in the
+              sidebar), but that sidebar is hidden below 1200px, which used
+              to leave dead, unused space under the question strip. This
+              mirrors the same live counts inline instead of leaving it empty. */}
+          <div className="cbt-qnav-summary">
+            <span><strong style={{ color: 'var(--success)' }}>{counts.answered}</strong> Answered</span>
+            <span><strong style={{ color: 'var(--danger)' }}>{counts.skipped}</strong> Skipped</span>
+            <span><strong style={{ color: '#8a94a6' }}>{counts.untouched}</strong> Not seen</span>
+            <span><strong style={{ color: '#6b5eae' }}>{counts.marked}</strong> Flagged</span>
+          </div>
+
           <div className="cbt-body">
             <div className="cbt-main">
               <div className="cbt-question-meta">
                 <strong>Question No. {current + 1}</strong>
                 <div className="cbt-question-actions">
                   <span className="cbt-marks">Difficulty: <b>{q.difficulty || 'medium'}</b></span>
+                  {/* Moved up from the bottom action bar: on mobile, four
+                      bottom buttons (Clear Response, Mark for Review & Next,
+                      Previous, Save & Next) overflowed and hid the primary
+                      Save & Next CTA. Clear Response is the least-used of
+                      the four, so it lives here — next to Save/Report —
+                      leaving the bottom bar with just three, always-visible
+                      buttons. */}
+                  <button type="button" className="cbt-icon-action" onClick={clearResponse} title="Clear your response">
+                    <Eraser size={14} />Clear
+                  </button>
                   <button
                     type="button"
                     className={`cbt-icon-action ${savedIds.has(q.id) ? 'active' : ''}`}
@@ -694,7 +745,6 @@ export default function TakeExam() {
               </div>
               <div className="cbt-bottombar">
                 <div className="cbt-bottombar-left">
-                  <button className="cbt-btn cbt-btn-clear" onClick={clearResponse}>Clear Response</button>
                   <button className="cbt-btn cbt-btn-mark" onClick={markForReviewAndNext}>Mark for Review &amp; Next</button>
                 </div>
                 <div className="cbt-bottombar-right">

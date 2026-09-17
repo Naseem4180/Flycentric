@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Lock, BookOpen, Zap, PenLine, ChevronLeft } from 'lucide-react';
+import { Lock, BookOpen, Zap, PenLine, ChevronLeft, FileCheck2 } from 'lucide-react';
 import { api } from '../api';
 import useAuth from '../context/useAuth';
 
@@ -42,7 +42,40 @@ export default function SubjectDetail() {
   if (error) return <div className="admin-main-inner"><div className="error-banner">{error}</div></div>;
   if (!data) return null;
 
-  const { subject, chapters, summary } = data;
+  const { subject, chapters, summary, tests } = data;
+
+  return <SubjectDetailBody subject={subject} chapters={chapters} summary={summary} tests={tests || []} />;
+}
+
+// Builds the row list once: every chapter, with any multi-chapter test
+// inserted right after the last chapter it covers (see anchor_chapter_id
+// from the API) — mirroring how the admin built it — instead of the test
+// being lost, or duplicated under every chapter it draws from.
+function useCurriculumRows(chapters, tests) {
+  return useMemo(() => {
+    const testsByAnchor = new Map();
+    const unanchored = [];
+    tests.forEach((t) => {
+      if (t.anchor_chapter_id == null) { unanchored.push(t); return; }
+      const key = String(t.anchor_chapter_id);
+      if (!testsByAnchor.has(key)) testsByAnchor.set(key, []);
+      testsByAnchor.get(key).push(t);
+    });
+    const rows = [];
+    chapters.forEach((c) => {
+      rows.push({ kind: 'chapter', chapter: c });
+      (testsByAnchor.get(String(c.id)) || []).forEach((t) => {
+        rows.push({ kind: 'test', test: t, unlocked: c.unlocked });
+      });
+    });
+    const anyUnlocked = chapters.some((c) => c.unlocked);
+    unanchored.forEach((t) => rows.push({ kind: 'test', test: t, unlocked: anyUnlocked }));
+    return rows;
+  }, [chapters, tests]);
+}
+
+function SubjectDetailBody({ subject, chapters, summary, tests }) {
+  const rows = useCurriculumRows(chapters, tests);
 
   return (
     <div className="admin-main-inner subject-detail">
@@ -110,7 +143,48 @@ export default function SubjectDetail() {
       </div>
 
       <div className="chapter-list">
-        {chapters.map((c) => {
+        {rows.map((row) => {
+          if (row.kind === 'test') {
+            const t = row.test;
+            const tested = t.attempt_count > 0;
+            const tone = scoreTone(t.last_score);
+            return (
+              <div className={`chapter-row test-row ${row.unlocked ? '' : 'locked'}`} key={`test-${t.id}`}>
+                <span className={`chapter-indicator chapter-indicator-test tone-${tone}`}>
+                  {!row.unlocked && <Lock size={13} />}
+                </span>
+                <span className="chapter-title">
+                  {t.title}
+                  <span className="badge badge-test">TEST</span>
+                  {t.chapter_count > 1 && (
+                    <small className="chapter-test-span"> · spans {t.chapter_count} chapters</small>
+                  )}
+                </span>
+                {tested ? (
+                  <span className={`chapter-badge chapter-badge-${tone}`}>
+                    {t.attempt_count} {t.attempt_count === 1 ? 'try' : 'tries'} · {fmtScore(t.last_score)}
+                  </span>
+                ) : (
+                  <span className="chapter-badge chapter-badge-idle">
+                    {row.unlocked ? 'Not started' : 'Locked'}
+                  </span>
+                )}
+                <div className="chapter-actions">
+                  {row.unlocked ? (
+                    <Link to={`/take-exam/${t.id}`} className="chapter-btn chapter-btn-test">
+                      <FileCheck2 size={12} /> {tested ? 'Retake Test' : 'Start Test'}
+                    </Link>
+                  ) : (
+                    <span className="chapter-btn chapter-btn-test is-disabled">
+                      <Lock size={12} /> Start Test
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          }
+
+          const c = row.chapter;
           const tone = scoreTone(c.last_score);
           return (
             <div className={`chapter-row ${c.status}`} key={c.id}>

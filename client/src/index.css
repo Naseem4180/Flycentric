@@ -547,7 +547,7 @@ tbody tr:hover { background: var(--page-bg); }
 .question-bank-toolbar { background: var(--card-bg); border: 1px solid var(--line-strong); border-radius: 8px; padding: 12px; }
 .question-bank-actions { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 14px; }
 .question-bank-actions .btn, .question-bank-filters .btn { display: inline-flex; align-items: center; gap: 6px; }
-.btn-success { background: #00a86b; color: #fff; border-color: #00a86b; }
+.btn-success { background: var(--success); color: #fff; border-color: var(--success); }
 .question-bank-toolbar h2 { font-size: 1.15rem; margin: 0 0 14px; }
 .question-bank-filters { display: grid; grid-template-columns: minmax(190px, 1.6fr) repeat(2, minmax(130px, 1fr)) minmax(150px, 1.2fr) repeat(3, minmax(120px, 1fr)) auto; gap: 10px; }
 .question-bank-filters select, .question-bank-filters input { min-width: 0; width: 100%; height: 36px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--card-bg); color: var(--ink); padding: 0 10px; font-size: .78rem; }
@@ -981,11 +981,11 @@ tbody tr:hover { background: var(--page-bg); }
 /* ==========================================================================
    NTA-style Computer Based Test (CBT) exam interface
    ========================================================================== */
-.cbt-shell { position: fixed; inset: 0; background: #eef1f5; color: #201c3d; display: flex; flex-direction: column; z-index: 60; font-family: var(--font-body); }
-.cbt-shell:fullscreen { background: #eef1f5; }
-.cbt-shell .cbt-question-area, .cbt-shell .cbt-main { color: #201c3d; }
-.cbt-shell .cbt-question-text, .cbt-shell .cbt-option-text, .cbt-shell .cbt-option-key, .cbt-shell .cbt-question-meta strong { color: #201c3d; }
-.cbt-shell .cbt-question-area .muted, .cbt-shell .cbt-answer-field label { color: #625d85; }
+.cbt-shell { position: fixed; inset: 0; background: var(--background); color: var(--text); display: flex; flex-direction: column; z-index: 60; font-family: var(--font-body); }
+.cbt-shell:fullscreen { background: var(--background); }
+.cbt-shell .cbt-question-area, .cbt-shell .cbt-main { color: var(--text); }
+.cbt-shell .cbt-question-text, .cbt-shell .cbt-option-text, .cbt-shell .cbt-option-key, .cbt-shell .cbt-question-meta strong { color: var(--text); }
+.cbt-shell .cbt-question-area .muted, .cbt-shell .cbt-answer-field label { color: var(--muted); }
 
 .cbt-topbar { flex-shrink: 0; background: var(--ink); color: #fff; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; height: 52px; border-bottom: 3px solid var(--blue); }
 .cbt-topbar-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -1045,8 +1045,19 @@ tbody tr:hover { background: var(--page-bg); }
 .cbt-qnav-btn.answered { background: var(--success); color: #fff; border-color: var(--success); }
 .cbt-qnav-btn.flagged { background: #6b5eae; color: #fff; border-color: #6b5eae; }
 
-.cbt-body { flex: 1; min-height: 0; display: flex; }
-.cbt-main { width: 75%; display: flex; flex-direction: column; min-width: 0; border-right: 1px solid var(--line); background: #fff; }
+.cbt-body { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; overflow: hidden; background: #fff; }
+/* Mobile/tablet is the DEFAULT layout (not an exception carved out of
+   desktop): one column, the sidebar palette replaced by the horizontal
+   .cbt-qnav strip, and the action bar pinned to the true bottom of the
+   viewport. Making this the base case — rather than something only switched
+   on inside a max-width query — means there is no width range that can fall
+   through the cracks and silently keep the desktop two-pane layout (which is
+   what produced the missing Next/Previous buttons and dead scroll space on
+   iPad). The two-pane layout is opted INTO for genuinely wide screens by the
+   min-width query further down. */
+.cbt-main { width: 100%; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; min-width: 0; background: #fff; }
+.cbt-sidebar, .cbt-sidebar-backdrop, .cbt-palette-toggle { display: none !important; }
+.cbt-qnav { display: flex; }
 .cbt-question-meta { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 10px 22px; border-bottom: 1px solid var(--line); background: var(--page-bg); }
 .cbt-question-meta strong { font-size: .92rem; }
 .cbt-marks { font-family: var(--font-mono); font-size: .72rem; color: var(--ink-soft); }
@@ -1094,9 +1105,20 @@ tbody tr:hover { background: var(--page-bg); }
 .cbt-answer-field { max-width: 560px; }
 .cbt-answer-field label { font-weight: 700; color: var(--ink); margin-bottom: 8px; }
 
-.cbt-bottombar { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 12px 22px; border-top: 1px solid var(--line); background: var(--page-bg); gap: 10px; flex-wrap: wrap; }
-.cbt-bottombar-left { display: flex; gap: 8px; flex-wrap: wrap; }
-.cbt-bottombar-right { display: flex; gap: 8px; align-items: center; }
+/* Pinned to the true bottom of the viewport in every layout (not just a
+   tablet-width special case) so Next/Previous/Save are always reachable
+   without scrolling the page — only .cbt-question-area ever scrolls. */
+.cbt-bottombar {
+  flex-shrink: 0; display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 22px; border-top: 1px solid var(--line); background: var(--page-bg);
+  gap: 10px; flex-wrap: nowrap; overflow-x: auto;
+  position: sticky; bottom: 0; z-index: 20; box-shadow: 0 -4px 14px rgba(20,34,64,.08);
+  /* iOS safe-area — flush-bottom buttons would otherwise sit partly behind
+     the home indicator on a notched phone. */
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+.cbt-bottombar-left { display: flex; gap: 8px; flex-wrap: nowrap; }
+.cbt-bottombar-right { display: flex; gap: 8px; align-items: center; flex-wrap: nowrap; }
 .cbt-btn { padding: 9px 16px; font-size: .82rem; font-weight: 700; border-radius: 6px; border: 1px solid var(--line-strong); background: #fff; color: var(--ink); }
 .cbt-btn:hover { border-color: var(--blue); }
 .cbt-btn-mark { border-color: #e0b877; color: #8a6410; background: var(--warning-bg); }
@@ -1145,27 +1167,24 @@ tbody tr:hover { background: var(--page-bg); }
 
 .cbt-loading { flex: 1; display: grid; place-items: center; color: var(--ink-soft); font-size: .95rem; }
 
-@media (max-width: 1200px) {
-  .cbt-body { flex-direction: column; position: relative; overflow: hidden; background: #fff; }
-  .cbt-main { width: 100%; flex: 1 1 auto; min-height: 0; }
+/* Desktop two-pane layout — opted INTO above 1200px instead of being the
+   default that mobile/tablet had to escape from (see the mobile-first base
+   rules above .cbt-question-meta). Anything narrower than this — including
+   every iPad size, portrait or landscape — gets the single-column layout
+   with the horizontal question strip and the sticky bottom action bar. */
+@media (min-width: 1200px) {
+  .cbt-body { flex-direction: row; overflow: visible; }
+  .cbt-main { width: 75%; border-right: 1px solid var(--line); }
+  .cbt-sidebar, .cbt-sidebar-backdrop { display: flex !important; }
+  .cbt-qnav { display: none; }
+  .cbt-btn { padding: 9px 16px; font-size: .82rem; }
+}
 
-  /* Replace the permanent sidebar entirely with the horizontal top strip
-     (.cbt-qnav, rendered in TakeExam.jsx) — this is the fix for the iPad
-     layout: previously this range (900–1200px, i.e. exactly iPad landscape)
-     still rendered the desktop 75/25 split, which is what produced the
-     misplaced buttons and dead white space that were reported. */
-  .cbt-sidebar, .cbt-sidebar-backdrop, .cbt-palette-toggle { display: none !important; }
-  .cbt-qnav { display: flex; }
-
-  /* Bottom action bar is pinned to the true bottom of the viewport and
-     never pushed out of place by page scroll — Save & Next / Submit always
-     render here, never floating up near the top. */
-  .cbt-bottombar { position: sticky; bottom: 0; z-index: 20; box-shadow: 0 -4px 14px rgba(20,34,64,.08); flex-wrap: nowrap; overflow-x: auto; }
-  .cbt-bottombar-left, .cbt-bottombar-right { flex-wrap: nowrap; }
-  .cbt-btn { padding: 8px 12px; font-size: .76rem; white-space: nowrap; }
-
+/* Slightly tighter paddings once we're below "tablet" width. */
+@media (max-width: 720px) {
   .cbt-question-area { padding: 18px 16px 24px; }
   .cbt-question-meta { padding: 10px 14px; flex-wrap: wrap; gap: 6px; }
+  .cbt-btn { padding: 8px 12px; font-size: .76rem; white-space: nowrap; }
 }
 
 /* Topbar: robust at any width via clamp/wrap rather than a fixed height,

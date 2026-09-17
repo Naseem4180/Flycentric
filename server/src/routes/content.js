@@ -28,6 +28,31 @@ function slugify(str) {
   return str.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + '-' + Date.now().toString(36);
 }
 
+// Natural sort — "Regs 2" comes before "Regs 10" instead of after, which a
+// plain string compare would get wrong. Used to keep the curriculum in the
+// order an admin actually expects when a chapter is added or renamed.
+const naturalCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+function naturalCompare(a, b) {
+  return naturalCollator.compare(String(a || ''), String(b || ''));
+}
+
+// Re-sorts every chapter of a subject alphabetically (natural order) and
+// rewrites order_index accordingly, spaced by 10 so a future insert never
+// needs a full renumber. Called after a chapter is added or renamed so the
+// curriculum a student sees always reflects alphabetic/numeric chapter order
+// without the admin having to manually drag anything into place.
+async function realphabetizeChapters(subjectId, client = pool) {
+  const { rows } = await client.query(
+    'SELECT id, title FROM chapters WHERE subject_id = $1 AND deleted_at IS NULL ORDER BY id',
+    [subjectId]
+  );
+  const sorted = [...rows].sort((a, b) => naturalCompare(a.title, b.title));
+  await Promise.all(sorted.map((c, i) => client.query(
+    'UPDATE chapters SET order_index = $1 WHERE id = $2',
+    [(i + 1) * 10, c.id]
+  )));
+}
+
 // ---- Bundles (Course & Bundle Publishing) ----------------------------------
 async function attachIncludedSubjects(bundles) {
   if (!bundles.length) return bundles;
@@ -365,6 +390,39 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
   const completedAssignments = assignmentQuizzes.filter((q) => (attemptsByQuiz.get(q.id) || []).length).length;
   const takenTests = testQuizzes.filter((q) => (attemptsByQuiz.get(q.id) || []).length);
 
+  // Order lookup so a test that spans several chapters can be anchored to the
+  // LAST one it covers — e.g. a test built from Regs 01-03 is inserted into
+  // the chapter list right after Regs 03, matching how the admin built it,
+  // instead of being duplicated across every chapter it draws from.
+  const orderByChapterId = new Map(chaptersResult.rows.map((c) => [String(c.id), c.order_index]));
+  const tests = testQuizzes.map((q) => {
+    const ids = (Array.isArray(q.chapter_ids) && q.chapter_ids.length)
+      ? q.chapter_ids.map(String)
+      : (q.chapter_id ? [String(q.chapter_id)] : []);
+    const knownIds = ids.filter((id) => orderByChapterId.has(id));
+    // Anchor to whichever covered chapter sorts last in the curriculum. A
+    // test with no recognised chapters (subject-wide, or built before
+    // chapters existed) has no anchor and is listed at the very end.
+    const anchorChapterId = knownIds.length
+      ? knownIds.reduce((best, id) => (
+          orderByChapterId.get(id) > orderByChapterId.get(best) ? id : best
+        ))
+      : null;
+    const testAttempts = attemptsByQuiz.get(q.id) || [];
+    const scores = testAttempts.map((a) => Number(a.score || 0));
+    return {
+      id: q.id,
+      title: q.title,
+      chapter_ids: ids,
+      chapter_count: ids.length,
+      anchor_chapter_id: anchorChapterId,
+      duration_minutes: q.duration_minutes,
+      attempt_count: testAttempts.length,
+      last_score: scores.length ? scores[scores.length - 1] : null,
+      best_score: scores.length ? Math.max(...scores) : null,
+    };
+  });
+
   // Every average below is built from each quiz's BEST attempt rather than a
   // flat mean over all attempts, so retaking a quiz and improving raises the
   // subject score instead of being dragged down by the earlier failed try.
@@ -392,6 +450,7 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
   res.json({
     subject,
     chapters,
+    tests,
     summary: {
       assignments_completed: completedAssignments,
       assignments_total: assignmentQuizzes.length,
@@ -440,7 +499,12 @@ router.post('/subjects/:subjectId/chapters', authenticate, authorize('admin'), a
       'INSERT INTO chapters (subject_id, title, order_index, is_free) VALUES ($1,$2,$3,$4) RETURNING *',
       [req.params.subjectId, cleanTitle, order_index || 0, !!is_free]
     );
-    res.status(201).json({ chapter: result.rows[0] });
+    // A newly added chapter has no deliberate manual position yet, so it
+    // falls into alphabetic/numeric order among its siblings automatically
+    // (e.g. "Regs 22" lands right after "Regs 21", not at the end of the list).
+    if (order_index == null) await realphabetizeChapters(req.params.subjectId);
+    const fresh = await pool.query('SELECT * FROM chapters WHERE id = $1', [result.rows[0].id]);
+    res.status(201).json({ chapter: fresh.rows[0] });
   } catch (err) {
     if (err.code === '23505' && err.constraint === 'chapters_unique_active_title') {
       return res.status(409).json({
@@ -459,7 +523,23 @@ router.patch('/chapters/:id', authenticate, authorize('admin'), async (req, res)
     [title, order_index, is_free, req.params.id]
   );
   if (!result.rows.length) return res.status(404).json({ error: 'Chapter not found' });
-  res.json({ chapter: result.rows[0] });
+  // Renaming a chapter can change where it belongs alphabetically — unless
+  // the caller explicitly supplied a manual order_index (a drag/drop reorder),
+  // re-sort the subject so the new title lands in the right spot.
+  if (title != null && order_index == null) await realphabetizeChapters(result.rows[0].subject_id);
+  const fresh = await pool.query('SELECT * FROM chapters WHERE id = $1', [req.params.id]);
+  res.json({ chapter: fresh.rows[0] });
+});
+
+// Manual "sort now" — alphabetizes every chapter of a subject on demand, for
+// curricula whose chapters were added before this auto-ordering existed.
+router.post('/subjects/:subjectId/chapters/sort', authenticate, authorize('admin'), async (req, res) => {
+  await realphabetizeChapters(req.params.subjectId);
+  const result = await pool.query(
+    'SELECT * FROM chapters WHERE subject_id = $1 AND deleted_at IS NULL ORDER BY order_index',
+    [req.params.subjectId]
+  );
+  res.json({ chapters: result.rows });
 });
 
 router.delete('/chapters/:id', authenticate, authorize('admin'), async (req, res) => {

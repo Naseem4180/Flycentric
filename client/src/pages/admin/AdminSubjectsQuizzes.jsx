@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Plus, BookOpen, Pencil, Trash2, Copy, Search, ChevronDown,
-  FileQuestion, Globe, EyeOff, Layers, ListChecks, GripVertical,
+  FileQuestion, Globe, EyeOff, Layers, ListChecks, GripVertical, ArrowDownAZ,
 } from 'lucide-react';
 import { api } from '../../api';
 import {
@@ -313,6 +313,21 @@ export default function AdminSubjectsQuizzes() {
     }
   }
 
+  const [sortingChapters, setSortingChapters] = useState(false);
+  async function sortChaptersAlphabetically() {
+    if (!active) return;
+    setSortingChapters(true);
+    try {
+      await api.post(`/content/subjects/${active.id}/chapters/sort`);
+      toast.success('Chapters sorted A→Z', active.title);
+      await loadTree();
+    } catch (err) {
+      toast.error('Could not sort chapters', err.message);
+    } finally {
+      setSortingChapters(false);
+    }
+  }
+
   function askDeleteChapter(chapter) {
     setConfirm({
       title: 'Remove chapter?',
@@ -610,6 +625,15 @@ export default function AdminSubjectsQuizzes() {
                   Chapters run in order; each can carry its own assignments.
                 </span>
                 <div className="cb-section-actions">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={sortChaptersAlphabetically}
+                    disabled={sortingChapters || !activeChapters.length}
+                    title="Re-sort every chapter in this subject alphabetically/numerically"
+                  >
+                    <ArrowDownAZ size={13} /> {sortingChapters ? 'Sorting…' : 'Sort A→Z'}
+                  </Button>
                   <Button size="sm" variant="outline" onClick={() => openChapterDialog(null)}>
                     <Plus size={13} /> Add chapter
                   </Button>

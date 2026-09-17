@@ -8,39 +8,39 @@
 
 :root {
   /* --- Brand ------------------------------------------------------------ */
-  --primary: #2563eb;
-  --primary-600: #1d4ed8;
-  --primary-700: #1e40af;
-  --primary-light: #e8f0ff;
-  --primary-soft: #f1f6ff;
+  --primary: #3b82f6;
+  --primary-600: #2563eb;
+  --primary-700: #1d4ed8;
+  --primary-light: #eaf2ff;
+  --primary-soft: #f4f8ff;
 
   /* --- Semantic --------------------------------------------------------- */
-  --info: #3b82f6;
+  --info: #4d94f7;
   --info-light: #eff6ff;
-  --success: #10b981;
+  --success: #16bf88;
   --success-light: #ecfdf5;
-  --warning: #f59e0b;
+  --warning: #f5a524;
   --warning-light: #fff7ed;
   --pink: #ec4899;
   --pink-light: #fdf2f8;
-  --danger: #ef4444;
+  --danger: #f0555b;
   --danger-light: #fef2f2;
   --cyan: #06b6d4;
   --cyan-light: #ecfeff;
-  --indigo: #6366f1;
+  --indigo: #7075f5;
   --indigo-light: #eef2ff;
-  --slate: #64748b;
+  --slate: #6b7690;
   --slate-light: #f1f5f9;
 
   /* --- Surfaces & text -------------------------------------------------- */
-  --background: #f7f8fc;
+  --background: #f8f9fd;
   --surface: #ffffff;
   --surface-alt: #fbfcfe;
-  --text: #172033;
-  --muted: #68738a;
-  --muted-2: #97a1b4;
-  --border: #e7eaf2;
-  --border-strong: #d9dfeb;
+  --text: #2b3346;
+  --muted: #6e7890;
+  --muted-2: #9aa4b6;
+  --border: #eaedf4;
+  --border-strong: #dde2ee;
 
   /* --- Shape & motion --------------------------------------------------- */
   --r-sm: 8px;
@@ -1641,8 +1641,8 @@ table td.td-nowrap { white-space: nowrap; vertical-align: middle; }
 }
 .chapter-indicator-attempted { border-radius: 50%; }
 .chapter-indicator-attempted.tone-success { background: var(--success); }
-.chapter-indicator-attempted.tone-warning { background: #f5b400; }
-.chapter-indicator-attempted.tone-danger  { background: #f5b400; }
+.chapter-indicator-attempted.tone-warning { background: var(--warning); }
+.chapter-indicator-attempted.tone-danger  { background: var(--danger); }
 .chapter-indicator-attempted.tone-neutral { background: var(--muted-2); }
 
 .chapter-title {
@@ -1671,11 +1671,28 @@ table td.td-nowrap { white-space: nowrap; vertical-align: middle; }
 }
 .chapter-btn-study { background: #fffbe6; color: #8a6100; border-color: #f2d675; }
 .chapter-btn-assign { background: #e9fbf3; color: #067a4b; border-color: #9fe3c4; }
+.chapter-btn-test { background: #eef1ff; color: #3d3aa8; border-color: #c7cbf5; }
 .chapter-btn:hover:not(.is-disabled) { filter: brightness(.97); }
 .chapter-btn.is-disabled {
   background: var(--surface-alt); color: var(--muted-2);
   border-color: var(--border); cursor: not-allowed; pointer-events: none;
 }
+
+/* Multi-chapter test row — inserted into the chapter list right after the
+   last chapter it covers (see anchor_chapter_id from /progress), instead of
+   the test being invisible or duplicated under every chapter it draws from. */
+.chapter-row.test-row {
+  background: linear-gradient(0deg, var(--surface), var(--surface)), #fbf9ef;
+  border-color: #ecdfa8;
+}
+.chapter-row.test-row.locked { background: var(--surface-alt); }
+.chapter-indicator-test { color: #a4842a; }
+.badge-test {
+  display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 99px;
+  background: #fff3cf; color: #8a6100; font-size: .62rem; font-weight: 800;
+  letter-spacing: .06em; text-transform: uppercase; vertical-align: middle;
+}
+.chapter-test-span { color: var(--muted); font-weight: 500; text-transform: none; letter-spacing: normal; }
 
 @media (max-width: 860px) {
   .subject-stats-row { grid-template-columns: 1fr; gap: 18px; }

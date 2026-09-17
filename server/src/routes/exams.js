@@ -120,9 +120,16 @@ router.get('/quizzes', authenticate, async (req, res) => {
         `SELECT q.id, q.bundle_id, q.chapter_id, q.chapter_ids, q.subject_id, q.title, q.type, q.duration_minutes, q.pass_percent, q.attempt_limit,
           q.status, q.show_explanations, q.allow_review_after_submit, q.source,
           q.question_ids, COALESCE(array_length(q.question_ids,1), 0) AS question_count, q.created_at,
-          s.title AS subject_title, c.title AS chapter_title,
+          s.title AS subject_title, s.order_index AS subject_order_index, c.title AS chapter_title,
           (SELECT COALESCE(json_agg(json_build_object('id', ch.id, 'title', ch.title) ORDER BY ch.order_index, ch.id), '[]'::json)
              FROM chapters ch WHERE ch.id = ANY(q.chapter_ids) AND ch.deleted_at IS NULL) AS chapters,
+          -- Anchors a quiz to the EARLIEST chapter it covers, so within a
+          -- subject the catalogue reads in the same order as the curriculum
+          -- the admin built (Regs 01's assignment before Regs 02's), instead
+          -- of newest-created-first. A quiz with no recognised chapter sorts
+          -- after every chaptered one in its subject.
+          (SELECT MIN(ch.order_index) FROM chapters ch
+             WHERE ch.deleted_at IS NULL AND (ch.id = ANY(q.chapter_ids) OR ch.id = q.chapter_id)) AS anchor_order_index,
           (SELECT COUNT(*)::int FROM attempts a
              WHERE a.quiz_id = q.id AND a.user_id = ${meParam} AND a.status = 'submitted') AS my_attempt_count,
           (SELECT MAX(a.score) FROM attempts a
@@ -136,7 +143,8 @@ router.get('/quizzes', authenticate, async (req, res) => {
      FROM quizzes q
      LEFT JOIN subjects s ON s.id = q.subject_id AND s.deleted_at IS NULL
      LEFT JOIN chapters c ON c.id = q.chapter_id AND c.deleted_at IS NULL
-     WHERE ${clauses.join(' AND ')} ORDER BY q.created_at DESC`,
+     WHERE ${clauses.join(' AND ')}
+     ORDER BY s.order_index NULLS LAST, s.title NULLS LAST, anchor_order_index NULLS LAST, q.created_at ASC`,
     params
   );
   res.json({ quizzes: result.rows });

@@ -87,6 +87,9 @@ export default function StudentQuizzes() {
     });
   }, [catalogue, type, status, subjectId, search]);
 
+  // Subjects are grouped in FIRST-SEEN order, which — since the API now
+  // returns quizzes ordered by the subject's curriculum position — matches
+  // the sequence the admin actually built, not an alphabetical shuffle of it.
   const grouped = useMemo(() => {
     const map = new Map();
     filtered.forEach((q) => {
@@ -96,7 +99,7 @@ export default function StudentQuizzes() {
       }
       map.get(key).quizzes.push(q);
     });
-    return [...map.values()].sort((a, b) => a.title.localeCompare(b.title));
+    return [...map.values()];
   }, [filtered]);
 
   const totals = useMemo(() => ({

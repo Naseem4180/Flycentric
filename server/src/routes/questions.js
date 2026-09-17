@@ -358,11 +358,7 @@ router.post('/bulk/import', authenticate, authorize('admin'), upload.single('fil
       if (!key) return null;
       if (subjectCache.has(key)) return subjectCache.get(key);
       const found = await client.query('SELECT id FROM subjects WHERE lower(title) = $1 AND deleted_at IS NULL LIMIT 1', [key]);
-      let id = found.rows[0]?.id;
-      if (!id) {
-        const created = await client.query('INSERT INTO subjects (title) VALUES ($1) RETURNING id', [String(title).trim()]);
-        id = created.rows[0].id;
-      }
+      const id = found.rows[0]?.id || null;
       subjectCache.set(key, id);
       return id;
     }
@@ -377,13 +373,9 @@ router.post('/bulk/import', authenticate, authorize('admin'), upload.single('fil
          ${subjectId ? 'AND subject_id = $2' : ''} LIMIT 1`,
         subjectId ? [clean.toLowerCase(), subjectId] : [clean.toLowerCase()]
       );
-      let id = found.rows[0]?.id;
-      if (!id && subjectId) {
-        const created = await client.query('INSERT INTO chapters (subject_id, title) VALUES ($1,$2) RETURNING id', [subjectId, clean]);
-        id = created.rows[0].id;
-      }
+      const id = found.rows[0]?.id || null;
       if (id) chapterCache.set(key, id);
-      return id || null;
+      return id;
     }
 
     const seenHashesThisFile = new Map();

@@ -75,6 +75,19 @@ export default function AdminReportDetail() {
           </>
         )}
 
+        {Array.isArray(report.keywords) && report.keywords.length > 0 && (
+          <>
+            <h3 style={{ marginTop: 20 }}>Associated Keywords</h3>
+            <div className="row" style={{ gap: 8, marginTop: 6 }}>
+              {report.keywords.map((kw, i) => (
+                <span key={i} className="badge badge-role" style={{ fontSize: '0.82rem', padding: '4px 10px' }}>
+                  {kw}
+                </span>
+              ))}
+            </div>
+          </>
+        )}
+
         {report.question_id ? (
           <>
             <h3 style={{ marginTop: 20 }}>Reported question</h3>

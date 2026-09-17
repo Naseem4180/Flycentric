@@ -84,6 +84,12 @@ CREATE TABLE IF NOT EXISTS chapters (
   deleted_at TIMESTAMPTZ
 );
 ALTER TABLE chapters ADD COLUMN IF NOT EXISTS is_free BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE chapters ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'live';
+DO $$ BEGIN
+  ALTER TABLE chapters ADD CONSTRAINT chapters_status_check CHECK (status IN ('draft','live'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
 
 CREATE TABLE IF NOT EXISTS sections (
   id SERIAL PRIMARY KEY,
@@ -590,6 +596,10 @@ ALTER TABLE chapters ADD COLUMN IF NOT EXISTS has_exam BOOLEAN NOT NULL DEFAULT 
 -- day never double-sends the same email to the same person.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS date_of_birth DATE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS country TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS city TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_progress_email_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_reengagement_email_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_birthday_email_year INTEGER;
@@ -635,3 +645,119 @@ CREATE INDEX IF NOT EXISTS idx_notifications_window ON notifications (is_active,
 -- stored structured (not just embedded in free text) so the admin queue can
 -- filter/sort on them.
 ALTER TABLE discrepancy_reports ADD COLUMN IF NOT EXISTS keywords TEXT[];
+
+-- Chapter notes (text / content) alongside external notes_url
+ALTER TABLE chapters ADD COLUMN IF NOT EXISTS notes TEXT;
+
+-- Notification target audience
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS target_audience TEXT NOT NULL DEFAULT 'all';
+
+-- System settings for configurable communications (e.g. birthday emails, announcements)
+CREATE TABLE IF NOT EXISTS system_settings (
+  key TEXT PRIMARY KEY,
+  value JSONB NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+INSERT INTO system_settings (key, value)
+VALUES (
+  'birthday_email',
+  '{"subject": "Happy Birthday from FlyCentric! 🎂", "message": "Wishing you clear skies and smooth tailwinds on your special day! Happy Birthday from all of us at FlyCentric.", "branding": "FlyCentric Team"}'::jsonb
+)
+ON CONFLICT (key) DO NOTHING;
+
+-- LMS Commerce, Students, and Assessment Extensions
+ALTER TABLE users ADD COLUMN IF NOT EXISTS qualification TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS school_college TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS passing_year INTEGER;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS percentage_cgpa NUMERIC;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS math_score TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS physics_score TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS english_score TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS aviation_student_id TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS licence_number TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS licence_type TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS regulatory_authority TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS medical_class TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS medical_validity DATE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS flight_hours NUMERIC DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS gender TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS address TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS state TEXT;
+
+CREATE TABLE IF NOT EXISTS transactions (
+  id SERIAL PRIMARY KEY,
+  purchase_id INTEGER REFERENCES payments(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  bundle_id INTEGER REFERENCES bundles(id) ON DELETE SET NULL,
+  amount_inr NUMERIC NOT NULL DEFAULT 0,
+  gateway TEXT DEFAULT 'razorpay',
+  gateway_ref TEXT,
+  status TEXT NOT NULL DEFAULT 'successful',
+  payment_method TEXT DEFAULT 'UPI / Card',
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS refunds (
+  id SERIAL PRIMARY KEY,
+  payment_id INTEGER REFERENCES payments(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  bundle_id INTEGER REFERENCES bundles(id) ON DELETE SET NULL,
+  amount_inr NUMERIC NOT NULL,
+  refund_amount_inr NUMERIC NOT NULL,
+  reason TEXT,
+  status TEXT NOT NULL DEFAULT 'requested',
+  requested_at TIMESTAMPTZ DEFAULT now(),
+  processed_at TIMESTAMPTZ,
+  processed_by INTEGER REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS coupons (
+  id SERIAL PRIMARY KEY,
+  code TEXT UNIQUE NOT NULL,
+  discount_percent INTEGER,
+  discount_amount_inr INTEGER,
+  max_uses INTEGER DEFAULT 100,
+  used_count INTEGER DEFAULT 0,
+  bundle_id INTEGER REFERENCES bundles(id) ON DELETE SET NULL,
+  expires_at TIMESTAMPTZ,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS course_enrollments (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  bundle_id INTEGER NOT NULL REFERENCES bundles(id) ON DELETE CASCADE,
+  batch_id INTEGER REFERENCES batches(id) ON DELETE SET NULL,
+  enrollment_type TEXT NOT NULL DEFAULT 'paid',
+  purchase_id INTEGER REFERENCES payments(id) ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  completion_pct NUMERIC DEFAULT 0,
+  start_date TIMESTAMPTZ DEFAULT now(),
+  expiry_date TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (user_id, bundle_id)
+);
+
+CREATE TABLE IF NOT EXISTS assignments (
+  id SERIAL PRIMARY KEY,
+  bundle_id INTEGER REFERENCES bundles(id) ON DELETE CASCADE,
+  subject_id INTEGER REFERENCES subjects(id) ON DELETE CASCADE,
+  chapter_id INTEGER REFERENCES chapters(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT,
+  instructions TEXT,
+  duration_minutes INTEGER DEFAULT 60,
+  inactivity_timeout_minutes INTEGER DEFAULT 180,
+  attempts_allowed INTEGER DEFAULT 1,
+  start_date TIMESTAMPTZ,
+  due_date TIMESTAMPTZ,
+  status TEXT NOT NULL DEFAULT 'published',
+  created_by INTEGER REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE attempts ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMPTZ DEFAULT now();
+ALTER TABLE attempts ADD COLUMN IF NOT EXISTS inactivity_timeout_at TIMESTAMPTZ;
+

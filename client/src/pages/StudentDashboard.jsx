@@ -149,10 +149,9 @@ export default function StudentDashboard() {
       <div className="container">
         <section className="flight-hero">
           <div className="hero-copy">
-            <div className="eyebrow">Flight deck / study plan</div>
             <h1>Good to see you, {user?.name?.split(' ')[0] || 'Pilot'}.</h1>
             <p>Your next focused session is ready. Build confident decisions, one question at a time.</p>
-            {nextQuiz ? <Link to={`/take-exam/${nextQuiz.id}`} className="btn btn-accent">Start an exam <span>→</span></Link> : <Link to="/explore" className="btn btn-accent">Explore bundles <span>→</span></Link>}
+            <Link to="/explore" className="btn btn-accent">Explore courses <span>→</span></Link>
           </div>
           <div className="hero-gauge-wrap">
             <ReadinessGauge score={readiness?.score} band={readiness?.band} size={168} sub="readiness" />
@@ -181,17 +180,16 @@ export default function StudentDashboard() {
         )}
 
         <section className="mission-strip">
-          <div><span>STUDY STREAK</span><strong>{studyStreak} <em>{studyStreak === 1 ? 'day' : 'days'}</em></strong></div>
-          <div><span>EXAM AVERAGE</span><strong style={completed.length ? { color: readinessBand.color } : undefined}>{completed.length ? average : '—'}<em>{completed.length ? '%' : 'start a mock'}</em></strong></div>
-          <div><span>FLIGHT XP</span><strong>{flightXp}<em>points</em></strong></div>
-          <div><span>COMPLETED TESTS</span><strong>{completed.length}<em>submitted</em></strong></div>
+          <div><span>Study streak</span><strong>{studyStreak} <em>{studyStreak === 1 ? 'day' : 'days'}</em></strong></div>
+          <div><span>Exam average</span><strong style={completed.length ? { color: readinessBand.color } : undefined}>{completed.length ? average : '—'} <em>{completed.length ? '%' : 'start a mock'}</em></strong></div>
+          <div><span>Flight XP</span><strong>{flightXp} <em>points</em></strong></div>
+          <div><span>Completed tests</span><strong>{completed.length} <em>submitted</em></strong></div>
         </section>
 
         <section className="mastery-overview">
           <div className="section-heading mastery-overview-heading">
             <div>
-              <div className="eyebrow">Topic mastery</div>
-              <h2>Know what to learn next</h2>
+              <h2>Topic mastery</h2>
               <p className="muted">Mastery is calculated from total correct attempts divided by total attempts.</p>
             </div>
             <Link to="/analytics" className="btn btn-outline btn-sm">Open mastery details →</Link>
@@ -226,7 +224,7 @@ export default function StudentDashboard() {
         {!!weakTopics.length && (
           <>
             <div className="section-heading">
-              <div><div className="eyebrow">Focus areas</div><h2>Topics that need more practice</h2></div>
+              <div><h2>Topics that need more practice</h2></div>
               <Link to="/analytics" className="btn btn-outline btn-sm">View full mastery →</Link>
             </div>
             <div className="grid grid-3">
@@ -247,13 +245,9 @@ export default function StudentDashboard() {
           </>
         )}
 
-        <div className="page-header dashboard-title">
-          <div className="eyebrow">Your learning hangar</div>
-          <h2>Continue your flight plan</h2>
-        </div>
         {error && <div className="error-banner">{error}</div>}
 
-        <div className="section-heading dashboard-section-heading"><div><div className="eyebrow">Your learning hangar</div><h2>Your courses</h2></div><span>{enrolledBundles.length} enrolled</span></div>
+        <div className="section-heading dashboard-section-heading"><div><h2>Your courses</h2></div><span>{enrolledBundles.length} enrolled</span></div>
         <div className="grid grid-2">
           {enrolledBundles.map((b) => (
             <div className="card course-card" key={b.id}>
@@ -278,15 +272,14 @@ export default function StudentDashboard() {
         {!!exploreBundles.length && (
           <div className="dashboard-explore-cta">
             <div>
-              <div className="eyebrow">Course catalogue</div>
               <h2>{exploreBundles.length} more bundle{exploreBundles.length === 1 ? '' : 's'} to explore</h2>
               <p className="muted">Browse the full catalogue, filter by free or paid, and enrol.</p>
             </div>
-            <Link to="/explore" className="btn btn-primary">Explore bundles →</Link>
+            <Link to="/explore" className="btn btn-primary">Explore courses →</Link>
           </div>
         )}
 
-        <div className="section-heading"><div><div className="eyebrow">Simulator</div><h2>Mock exams & practice</h2></div><span>{quizzes.length} available</span></div>
+        <div className="section-heading"><div><h2>Mock exams & practice</h2></div><span>{quizzes.length} available</span></div>
         <div className="grid grid-3">
           {quizzes.map((q) => (
             <div className="card quiz-card" key={q.id}>

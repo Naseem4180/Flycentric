@@ -54,22 +54,44 @@ async function sendProgressReports() {
   for (const student of students) {
     const { rows: progress } = await pool.query(
       `SELECT s.title AS subject, c.title AS chapter,
-              COUNT(a.id) FILTER (WHERE a.status = 'submitted') AS attempts,
-              ROUND(AVG(a.score) FILTER (WHERE a.status = 'submitted'), 1) AS avg_score
+              COUNT(DISTINCT q.id) AS total_quizzes,
+              COUNT(DISTINCT a.quiz_id) FILTER (WHERE a.status = 'submitted') AS completed_quizzes,
+              ROUND(AVG(a.score) FILTER (WHERE a.status = 'submitted'), 0) AS avg_score,
+              COUNT(a.id) FILTER (WHERE a.status = 'submitted') AS attempts
        FROM chapters c
        JOIN subjects s ON s.id = c.subject_id
-       LEFT JOIN quizzes q ON q.chapter_id = c.id OR c.id = ANY(q.chapter_ids)
+       LEFT JOIN quizzes q ON (q.chapter_id = c.id OR c.id = ANY(q.chapter_ids))
+         AND q.deleted_at IS NULL AND q.status = 'published'
        LEFT JOIN attempts a ON a.quiz_id = q.id AND a.user_id = $1
-       WHERE c.deleted_at IS NULL
-       GROUP BY s.title, c.title
-       ORDER BY s.title, c.title`,
+       WHERE c.deleted_at IS NULL AND s.deleted_at IS NULL
+       GROUP BY s.id, s.title, c.id, c.title, c.order_index
+       ORDER BY s.title, c.order_index ASC, c.title ASC`,
       [student.id]
     );
+
+    const reportLines = progress.map((r) => {
+      const total = Number(r.total_quizzes) || 0;
+      const done = Number(r.completed_quizzes) || 0;
+      const completionPct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : (Number(r.attempts) > 0 ? 100 : 0);
+      const scoreStr = r.avg_score != null ? `${r.avg_score}%` : (Number(r.attempts) > 0 ? 'Completed' : 'Not started');
+      return {
+        subject: r.subject,
+        chapter: r.chapter,
+        completion_percent: completionPct,
+        score: scoreStr,
+        line: `${r.subject} – ${r.chapter}: ${completionPct}% – Score: ${scoreStr}`,
+      };
+    });
+
     await enqueueMail({
       to: student.email,
       subject: 'Your FlyCentric progress report',
       template: 'progress-report',
-      data: { name: student.name, chapters: progress },
+      data: {
+        name: student.name,
+        chapters: reportLines,
+        summaryText: reportLines.map((x) => x.line).join('\n'),
+      },
     });
     await pool.query('UPDATE users SET last_progress_email_at = now() WHERE id = $1', [student.id]);
   }
@@ -132,11 +154,24 @@ async function dispatchDueCampaigns() {
 }
 
 // ----------------------------------------------------------------------------
-// 13. Automated Birthday Greetings — runs daily; de-duped per calendar year
-//     so a job that wakes up more than once a day never double-sends.
+// 13. Automated Birthday Greetings — runs daily; configurable via admin system_settings
 // ----------------------------------------------------------------------------
 async function sendBirthdayGreetings() {
   const thisYear = new Date().getFullYear();
+  let customConfig = {};
+  try {
+    const sRes = await pool.query("SELECT value FROM system_settings WHERE key = 'birthday_email'");
+    if (sRes.rows.length) {
+      customConfig = typeof sRes.rows[0].value === 'string' ? JSON.parse(sRes.rows[0].value) : sRes.rows[0].value;
+    }
+  } catch (e) {
+    // fallback to defaults
+  }
+
+  const emailSubject = customConfig.subject || 'Happy Birthday from FlyCentric! 🎂';
+  const emailMessage = customConfig.message || 'Wishing you clear skies and smooth tailwinds on your special day! Happy Birthday from all of us at FlyCentric.';
+  const branding = customConfig.branding || 'FlyCentric Team';
+
   const { rows: users } = await pool.query(
     `SELECT id, email, name FROM users
      WHERE status = 'active' AND date_of_birth IS NOT NULL
@@ -148,9 +183,9 @@ async function sendBirthdayGreetings() {
   for (const user of users) {
     await enqueueMail({
       to: user.email,
-      subject: 'Happy Birthday from FlyCentric! 🎂',
+      subject: emailSubject,
       template: 'birthday',
-      data: { name: user.name },
+      data: { name: user.name, message: emailMessage, branding },
     });
     await pool.query('UPDATE users SET last_birthday_email_year = $2 WHERE id = $1', [user.id, thisYear]);
   }

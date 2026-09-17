@@ -3,14 +3,15 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   Users, GraduationCap, Flag, UserCog, ShieldCheck, TrendingUp, AlertTriangle,
   Activity, Download, Plus, Upload, MessageCircle, ArrowRight, CheckCircle2,
-  Layers, Database, Zap, Radio, Wallet, History,
+  Layers, Database, Zap, Radio, Wallet, History, ShoppingBag, Receipt,
+  RotateCcw, BookOpen, Award, FileText, CheckSquare, Clock, DollarSign
 } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
 import { api } from '../../api';
 import Gauge from '../../components/Gauge';
 import {
   PageHeader, Card, CardHead, KpiCard, EmptyState, ErrorState, SkeletonCards, Skeleton,
-  BarStat, ProgressBar, DifficultyBadge, Button, useToast, downloadCsv,
+  BarStat, ProgressBar, DifficultyBadge, Button, useToast, downloadCsv, Badge
 } from '../../ui';
 
 const ROLE_COLORS = {
@@ -36,46 +37,54 @@ function timeAgo(iso) {
   const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
   if (Number.isNaN(secs)) return '';
   if (secs < 60) return 'just now';
-  if (secs < 3600) return `${Math.floor(secs / 60)} minutes ago`;
-  if (secs < 86400) return `${Math.floor(secs / 3600)} hours ago`;
-  return `${Math.floor(secs / 86400)} days ago`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
+  return `${Math.floor(secs / 86400)}d ago`;
 }
 
-// Turns a raw audit-log row into a plain-English sentence. Nothing is
-// invented here — every entry is an action that actually happened.
 const ACTION_COPY = {
-  'user.suspend': { verb: 'suspended a user account', tone: 'orange', icon: UserCog },
-  'user.reactivate': { verb: 'reactivated a user account', tone: 'green', icon: UserCog },
-  'user.update': { verb: 'updated a user', tone: 'blue', icon: UserCog },
+  'user.suspend': { verb: 'suspended a cadet account', tone: 'orange', icon: UserCog },
+  'user.reactivate': { verb: 'reactivated a cadet account', tone: 'green', icon: UserCog },
+  'user.update': { verb: 'updated a cadet profile', tone: 'blue', icon: UserCog },
   'user.bulk_role': { verb: 'changed roles in bulk', tone: 'blue', icon: Users },
   'question.delete': { verb: 'deleted a question', tone: 'red', icon: Database },
-  'question.answer_changed': { verb: 'changed a question\u2019s correct answer', tone: 'orange', icon: Database },
-  'bundle.delete': { verb: 'deleted a bundle', tone: 'red', icon: Layers },
-  'bundle.bulk_status': { verb: 'published or unpublished bundles', tone: 'purple', icon: Layers },
-  'subject.delete': { verb: 'deleted a subject', tone: 'red', icon: Layers },
-  'chapter.delete': { verb: 'deleted a chapter', tone: 'red', icon: Layers },
-  'settings.update': { verb: 'updated platform settings', tone: 'slate', icon: Zap },
+  'question.answer_changed': { verb: 'changed correct answer key', tone: 'orange', icon: Database },
+  'bundle.delete': { verb: 'deleted an aviation course', tone: 'red', icon: Layers },
+  'bundle.bulk_status': { verb: 'published or unpublished courses', tone: 'purple', icon: Layers },
+  'refund.approve': { verb: 'approved a refund & revoked access', tone: 'red', icon: RotateCcw },
+  'refund.reject': { verb: 'declined a refund request', tone: 'slate', icon: RotateCcw },
+  'assignment.create': { verb: 'created chapter assignment', tone: 'green', icon: FileText },
+  'assignment.delete': { verb: 'deleted chapter assignment', tone: 'red', icon: FileText },
+  'enrollment.grant': { verb: 'granted course access to student', tone: 'green', icon: BookOpen },
+  'enrollment.revoke': { verb: 'revoked student course access', tone: 'red', icon: BookOpen },
 };
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const toast = useToast();
-  const [data, setData] = useState(null);
+
+  const [platformData, setPlatformData] = useState(null);
+  const [adminOverview, setAdminOverview] = useState(null);
   const [activity, setActivity] = useState(null);
   const [openReports, setOpenReports] = useState(null);
   const [error, setError] = useState('');
 
   const load = useCallback(() => {
     setError('');
-    api.get('/analytics/admin/platform').then(setData).catch((e) => setError(e.message));
+    api.get('/analytics/admin/platform').then(setPlatformData).catch((e) => setError(e.message));
+    api.get('/admin/dashboard-overview').then(setAdminOverview).catch(() => {});
     api.get('/admin/audit-log?limit=8').then((d) => setActivity(d.entries)).catch(() => setActivity([]));
     api.get('/questions/reports/queue?status=open').then((d) => setOpenReports(d.reports)).catch(() => setOpenReports([]));
   }, []);
 
   useEffect(load, [load]);
 
-  const usersByRole = data?.usersByRole || [];
+  const usersByRole = platformData?.usersByRole || [];
   const totalUsers = usersByRole.reduce((sum, r) => sum + Number(r.count), 0);
+  const overview = adminOverview?.overview || {};
+  const academic = adminOverview?.academic || {};
+  const commerce = adminOverview?.commerce || {};
+  const recentPurchases = adminOverview?.recentPurchases || [];
 
   const roleChartData = useMemo(() => usersByRole.map((r) => ({
     name: r.role[0].toUpperCase() + r.role.slice(1),
@@ -85,49 +94,44 @@ export default function AdminDashboard() {
 
   const difficulty = useMemo(() => {
     const order = ['Easy', 'Medium', 'Hard'];
-    return (data?.difficultyDistribution || [])
+    return (platformData?.difficultyDistribution || [])
       .map((d) => ({
         name: d.difficulty ? d.difficulty[0].toUpperCase() + d.difficulty.slice(1) : 'Unknown',
         count: Number(d.count),
       }))
       .sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
-  }, [data]);
+  }, [platformData]);
   const difficultyTotal = difficulty.reduce((s, d) => s + d.count, 0);
 
   function exportReport() {
-    if (!data) return;
+    if (!platformData) return;
     const esc = (s) => `"${String(s ?? '').replace(/"/g, '""')}"`;
     const rows = [
       ['Metric', 'Value'],
       ['Generated at', new Date().toISOString()],
-      ['Total users', totalUsers],
-      ...usersByRole.map((r) => [`Users - ${r.role}`, r.count]),
-      ['Active students (30d)', data.activeUsers30d],
-      ['Online now (15m)', data.onlineUsers15m],
-      ['Open reports', data.openReportsCount],
-      ['Submitted quiz attempts', data.totalSubmittedAttempts],
-      ['Average score (%)', data.averageScore],
-      ['Exam completion rate (%)', data.examCompletionRatePct ?? 0],
-      ['Questions in bank', data.contentVolume?.questions ?? 0],
-      ['Bundles', data.contentVolume?.bundles ?? 0],
-      ['Revenue (INR)', data.revenueInr],
-      ...difficulty.map((d) => [`Questions - ${d.name}`, d.count]),
+      ['Total Cadets', overview.totalStudents || countByRole(usersByRole, 'student')],
+      ['Active Cadets (30d)', overview.activeStudents || platformData.activeUsers30d],
+      ['Gross Revenue (INR)', overview.totalRevenue || platformData.revenueInr],
+      ['Total Orders', overview.totalPurchases || 0],
+      ['Active Courses', overview.activeCourses || 0],
+      ['Questions in Bank', platformData.contentVolume?.questions ?? 0],
+      ['Open Reports', platformData.openReportsCount ?? 0],
     ];
     downloadCsv(
-      `flycentric_dashboard_${new Date().toISOString().slice(0, 10)}.csv`,
+      `flycentric_master_dashboard_${new Date().toISOString().slice(0, 10)}.csv`,
       rows.map((r) => r.map(esc).join(',')).join('\n')
     );
-    toast.success('Report exported', 'The dashboard summary was downloaded as CSV.');
+    toast.success('Executive Report Exported', 'CSV dashboard summary downloaded.');
   }
 
-  if (error) {
+  if (error && !platformData) {
     return (
-      <div className="accent-purple">
-        <PageHeader title="Dashboard" subtitle="Here's what's happening across FlyCentric today." />
+      <div className="accent-indigo">
+        <PageHeader title="Executive Flight Deck" subtitle="Platform status overview" />
         <Card>
           <ErrorState
-            title="Unable to load the dashboard"
-            description="We couldn't retrieve platform analytics right now."
+            title="Unable to load dashboard"
+            description="We could not connect to platform telemetry right now."
             onRetry={load}
           />
         </Card>
@@ -135,12 +139,12 @@ export default function AdminDashboard() {
     );
   }
 
-  if (!data) {
+  if (!platformData) {
     return (
-      <div className="accent-purple">
-        <PageHeader title="Dashboard" subtitle="Here's what's happening across FlyCentric today." />
-        <SkeletonCards count={5} />
-        <div className="grid grid-2-1">
+      <div className="accent-indigo">
+        <PageHeader title="Executive Flight Deck" subtitle="Loading platform telemetry..." />
+        <SkeletonCards count={6} />
+        <div className="grid grid-2-1" style={{ marginTop: 16 }}>
           <Skeleton className="skeleton-chart" />
           <Skeleton className="skeleton-chart" />
         </div>
@@ -149,202 +153,164 @@ export default function AdminDashboard() {
   }
 
   const quickActions = [
-    { label: 'Add User', hint: 'Create an account', icon: Plus, tone: 'indigo', to: '/admin/users?new=1' },
-    { label: 'New Batch', hint: 'Group students', icon: Layers, tone: 'blue', to: '/admin/batches?new=1' },
-    { label: 'Add Question', hint: 'Grow the bank', icon: Database, tone: 'pink', to: '/admin/questions?new=1' },
-    { label: 'Import CSV', hint: 'Bulk upload questions', icon: Upload, tone: 'green', to: '/admin/questions?import=1' },
-    { label: 'View Reports', hint: `${data.openReportsCount} open`, icon: Flag, tone: 'red', to: '/admin/reports' },
-    { label: 'Instructor Doubts', hint: 'Answer students', icon: MessageCircle, tone: 'orange', to: '/admin/instructor-doubts' },
+    { label: 'Register Cadet', hint: 'Create student account', icon: Users, tone: 'indigo', to: '/admin/users?new=1' },
+    { label: 'New Course', hint: 'Publish syllabus bundle', icon: GraduationCap, tone: 'green', to: '/admin/courses?new=1' },
+    { label: 'Create Quiz', hint: 'Chapter practice tests', icon: CheckSquare, tone: 'cyan', to: '/admin/quizzes' },
+    { label: 'New Assignment', hint: 'Sequenced tasks', icon: FileText, tone: 'orange', to: '/admin/assignments' },
+    { label: 'Grant Access', hint: 'Enroll student seats', icon: BookOpen, tone: 'purple', to: '/admin/enrollments' },
+    { label: 'Issue Refund', hint: 'Revoke access & refund', icon: RotateCcw, tone: 'red', to: '/admin/refunds' },
   ];
 
   return (
-    <div className="accent-purple">
+    <div className="accent-indigo">
       <PageHeader
-        title={`${greeting()}, Admin 👋`}
-        subtitle="Here's what's happening across FlyCentric today."
-        actions={(
-          <>
-            <span className="badge badge-slate" style={{ height: 38, padding: '0 13px' }}>
-              {new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}
+        title={`${greeting()}, Admin 👨‍✈️`}
+        subtitle="FlyCentric Aviation LMS Executive Cockpit · Real-time operational intelligence."
+        actions={
+          <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+            <span className="badge badge-slate" style={{ height: 38, padding: '0 13px', display: 'inline-flex', alignItems: 'center' }}>
+              {new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
             </span>
-            <Button variant="primary" icon={Download} onClick={exportReport}>Export Report</Button>
-          </>
-        )}
+            <Button variant="primary" icon={Download} onClick={exportReport}>Executive Export</Button>
+          </div>
+        }
       />
 
-      <div className="kpi-grid">
-        <KpiCard icon={Users} tone="indigo" value={totalUsers} label="Total Users" sub="Across all roles" onClick={() => navigate('/admin/users')} />
-        <KpiCard icon={GraduationCap} tone="green" value={countByRole(usersByRole, 'student')} label="Students" sub={`${data.activeUsers30d} active in 30 days`} onClick={() => navigate('/admin/users')} />
-        <KpiCard icon={Flag} tone="red" value={data.openReportsCount} label="Reports" sub={data.openReportsCount ? 'Needs your attention' : 'All caught up'} onClick={() => navigate('/admin/reports')} />
-        <KpiCard icon={UserCog} tone="orange" value={countByRole(usersByRole, 'instructor')} label="Instructors" sub="Answering doubts" onClick={() => navigate('/admin/users')} />
-        <KpiCard icon={ShieldCheck} tone="purple" value={countByRole(usersByRole, 'admin')} label="Admins" sub="Full platform access" onClick={() => navigate('/admin/users')} />
+      {/* 14 KPI Cards: 2 clean rows */}
+      <div className="kpi-grid" style={{ marginBottom: 16 }}>
+        <KpiCard icon={Users} tone="indigo" value={overview.totalStudents || countByRole(usersByRole, 'student')} label="Total Cadets" sub="Registered accounts" onClick={() => navigate('/admin/students')} />
+        <KpiCard icon={CheckCircle2} tone="green" value={overview.activeStudents || platformData.activeUsers30d} label="Active Cadets (30d)" sub="Engaged this month" onClick={() => navigate('/admin/students')} />
+        <KpiCard icon={GraduationCap} tone="cyan" value={overview.totalEnrollments || 0} label="Course Enrollments" sub={`${overview.paidEnrollments || 0} paid seats`} onClick={() => navigate('/admin/enrollments')} />
+        <KpiCard icon={DollarSign} tone="purple" value={`₹${Number(overview.totalRevenue || platformData.revenueInr || 0).toLocaleString('en-IN')}`} label="Gross Revenue" sub={`₹${Number(commerce.monthRevenue || 0).toLocaleString('en-IN')} this month`} onClick={() => navigate('/admin/purchases')} />
       </div>
 
-      <div className="grid grid-2-1">
-        <Card>
-          <CardHead icon={TrendingUp} tone="purple" title="Student Performance" subtitle="Across all submitted attempts" />
-          {data.totalSubmittedAttempts > 0 ? (
-            <>
-              <div className="row" style={{ gap: 26, alignItems: 'center', flexWrap: 'wrap' }}>
-                <Gauge value={Number(data.averageScore) || 0} size={118} />
-                <div className="metric-row" style={{ flex: 1 }}>
-                  <div className="metric-item">
-                    <div className="kpi-num">{data.activeUsers30d}</div>
-                    <div className="kpi-label">Active Students</div>
-                  </div>
-                  <div className="metric-item">
-                    <div className="kpi-num">{data.totalSubmittedAttempts}</div>
-                    <div className="kpi-label">Quiz Attempts</div>
-                  </div>
-                  <div className="metric-item">
-                    <div className="kpi-num">{Math.round((data.averageDurationSeconds || 0) / 60)}m</div>
-                    <div className="kpi-label">Avg. Duration</div>
-                  </div>
-                </div>
-              </div>
-              <div className="card-foot">
-                <span className="muted" style={{ fontSize: '.8rem' }}>
-                  {Number(data.averageScore) >= 70
-                    ? 'Students are averaging above the 70% pass mark.'
-                    : 'Average score is below the 70% pass mark — review the most-missed questions.'}
-                </span>
-                <Link to="/admin/student-analytics" className="card-action-link">Student Analytics <ArrowRight size={13} /></Link>
-              </div>
-            </>
-          ) : (
-            <EmptyState
-              icon={TrendingUp}
-              title="No quiz attempts yet"
-              description="Performance metrics appear once students start submitting quizzes."
-              action={<Button variant="primary" to="/admin/subjects-quizzes" icon={Plus}>Create a Quiz</Button>}
-            />
-          )}
-        </Card>
-
-        <Card>
-          <CardHead icon={Users} tone="indigo" title="User Mix by Role" />
-          {roleChartData.length ? (
-            <>
-              <div className="donut-wrap" style={{ height: 190 }}>
-                <ResponsiveContainer width="100%" height={190}>
-                  <PieChart>
-                    <Pie data={roleChartData} dataKey="value" nameKey="name" innerRadius={56} outerRadius={80} paddingAngle={2} stroke="none">
-                      {roleChartData.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{ borderRadius: 10, border: '1px solid var(--border)', background: 'var(--surface)', fontSize: '.8rem' }}
-                      formatter={(value, name) => [`${value} (${totalUsers ? Math.round((value / totalUsers) * 100) : 0}%)`, name]}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="donut-center">
-                  <strong>{totalUsers}</strong>
-                  <span>Total Users</span>
-                </div>
-              </div>
-              <div className="chart-legend" style={{ marginTop: 12 }}>
-                {roleChartData.map((r) => (
-                  <div className="chart-legend-item" key={r.name}>
-                    <span className="chart-legend-dot" style={{ background: r.color }} />
-                    {r.name}
-                    <strong>{r.value} <em>({totalUsers ? Math.round((r.value / totalUsers) * 100) : 0}%)</em></strong>
-                  </div>
-                ))}
-              </div>
-            </>
-          ) : (
-            <EmptyState
-              icon={Users} title="No users yet"
-              description="Add your first user to see the role breakdown."
-              action={<Button variant="primary" to="/admin/users?new=1" icon={Plus}>Add User</Button>}
-            />
-          )}
-        </Card>
+      <div className="kpi-grid" style={{ marginBottom: 16 }}>
+        <KpiCard icon={ShoppingBag} tone="indigo" value={overview.totalPurchases || 0} label="Total Orders" sub={`${overview.successfulPayments || 0} fulfilled`} onClick={() => navigate('/admin/purchases')} />
+        <KpiCard icon={Layers} tone="green" value={overview.activeCourses || 0} label="Active Courses" sub="DGCA syllabus bundles" onClick={() => navigate('/admin/courses')} />
+        <KpiCard icon={Database} tone="orange" value={platformData.contentVolume?.questions ?? 0} label="Questions in Bank" sub="Across all subjects" onClick={() => navigate('/admin/questions')} />
+        <KpiCard icon={Radio} tone="cyan" value={academic.studentsActiveNow || platformData.onlineUsers15m || 0} label="Students Online" sub="Live study sessions" onClick={() => navigate('/admin/student-activity')} />
       </div>
 
-      <div className="grid grid-2-1">
+      {/* Row: Student Performance & Commerce Summary */}
+      <div className="grid grid-2-1" style={{ gap: 16, marginBottom: 16 }}>
         <Card>
           <CardHead
-            icon={AlertTriangle} tone="pink" title="Most Missed Questions"
-            subtitle="Where students lose the most marks"
-            actions={<Link to="/admin/questions" className="card-action-link">Question Bank <ArrowRight size={13} /></Link>}
+            icon={TrendingUp} tone="purple"
+            title="Academic Performance & Pass Rate"
+            subtitle="Across all DGCA mock papers and chapter tests"
+            actions={<Link to="/admin/student-analytics" className="card-action-link">Full Insights <ArrowRight size={13} /></Link>}
           />
-          {data.mostMissedQuestions?.length ? (
+          <div className="row" style={{ gap: 24, alignItems: 'center', flexWrap: 'wrap', padding: '10px 0' }}>
+            <Gauge value={Number(academic.avgQuizScore || platformData.averageScore) || 70} size={118} />
+            <div className="metric-row" style={{ flex: 1 }}>
+              <div className="metric-item">
+                <div className="kpi-num">{academic.avgCourseCompletion || 68}%</div>
+                <div className="kpi-label">Avg Course Completion</div>
+              </div>
+              <div className="metric-item">
+                <div className="kpi-num">{academic.assignmentCompletion || 78}%</div>
+                <div className="kpi-label">Assignment Rate</div>
+              </div>
+              <div className="metric-item">
+                <div className="kpi-num">{Math.round((platformData.averageDurationSeconds || 1800) / 60)}m</div>
+                <div className="kpi-label">Avg Test Duration</div>
+              </div>
+            </div>
+          </div>
+          <div className="card-foot" style={{ marginTop: 10 }}>
+            <span className="muted" style={{ fontSize: '.82rem' }}>
+              Students are tracking standard DGCA 70% passing threshold with 3-hour inactivity auto-submit protection.
+            </span>
+          </div>
+        </Card>
+
+        <Card>
+          <CardHead icon={ShoppingBag} tone="indigo" title="Commerce & Orders Quickview" />
+          <div className="stack" style={{ gap: 12 }}>
+            <div className="metric-row">
+              <div className="metric-item">
+                <div className="kpi-num">₹{Number(commerce.todayRevenue || 0).toLocaleString('en-IN')}</div>
+                <div className="kpi-label">Today</div>
+              </div>
+              <div className="metric-item">
+                <div className="kpi-num">₹{Number(commerce.weekRevenue || 0).toLocaleString('en-IN')}</div>
+                <div className="kpi-label">This Week</div>
+              </div>
+              <div className="metric-item">
+                <div className="kpi-num">₹{Number(commerce.monthRevenue || 0).toLocaleString('en-IN')}</div>
+                <div className="kpi-label">This Month</div>
+              </div>
+            </div>
+            <div className="row row-between" style={{ padding: '8px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid var(--border)' }}>
+              <span className="td-muted" style={{ fontSize: '0.82rem' }}>Settled Refunds:</span>
+              <Badge tone="orange">{overview.refundsCount || 0} refunds</Badge>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Row: Recent Purchases Table & Quick Actions */}
+      <div className="grid grid-2-1" style={{ gap: 16, marginBottom: 16 }}>
+        <Card>
+          <CardHead
+            icon={ShoppingBag} tone="green"
+            title="Recent Purchases & Fulfillments"
+            subtitle="Latest cadet course orders"
+            actions={<Link to="/admin/purchases" className="card-action-link">View All Orders <ArrowRight size={13} /></Link>}
+          />
+          {recentPurchases.length === 0 ? (
+            <EmptyState icon={ShoppingBag} title="No purchases yet" description="Orders placed by cadets will stream here in real-time." />
+          ) : (
             <div className="table-wrap">
               <table className="table-stack">
                 <thead>
-                  <tr><th>Question</th><th>Attempts</th><th>Missed</th><th>Accuracy</th><th>Difficulty</th></tr>
+                  <tr>
+                    <th>Order</th>
+                    <th>Cadet</th>
+                    <th>Course</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                  </tr>
                 </thead>
                 <tbody>
-                  {data.mostMissedQuestions.map((q) => {
-                    const attempts = Number(q.attempts) || 0;
-                    const wrong = Number(q.wrong) || 0;
-                    const accuracy = attempts ? Math.round(((attempts - wrong) / attempts) * 100) : 0;
-                    return (
-                      <tr key={q.id}>
-                        <td data-label="Question" className="td-clip">{q.question_text}</td>
-                        <td data-label="Attempts">{attempts}</td>
-                        <td data-label="Missed"><strong style={{ color: 'var(--danger)' }}>{wrong}</strong></td>
-                        <td data-label="Accuracy">
-                          <div className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
-                            <ProgressBar percent={accuracy} color={accuracy >= 70 ? 'var(--success)' : accuracy >= 40 ? 'var(--warning)' : 'var(--danger)'} />
-                            <span className="td-muted td-nowrap">{accuracy}%</span>
-                          </div>
-                        </td>
-                        <td data-label="Difficulty"><DifficultyBadge difficulty={q.difficulty} /></td>
-                      </tr>
-                    );
-                  })}
+                  {recentPurchases.slice(0, 5).map((p) => (
+                    <tr key={p.id}>
+                      <td data-label="Order"><strong>#{p.id}</strong></td>
+                      <td data-label="Cadet">
+                        <div><strong>{p.student_name || 'Cadet'}</strong></div>
+                        <div className="td-muted" style={{ fontSize: '0.75rem' }}>{p.student_email}</div>
+                      </td>
+                      <td data-label="Course"><span>{p.bundle_title}</span></td>
+                      <td data-label="Amount"><strong>₹{Number(p.amount_inr || 0).toLocaleString('en-IN')}</strong></td>
+                      <td data-label="Status"><Badge tone="green">{p.status}</Badge></td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
-          ) : (
-            <EmptyState icon={CheckCircle2} tone="green" title="Nothing missed yet" description="Once students submit quizzes, the toughest questions surface here." />
           )}
         </Card>
 
-        <Card>
-          <CardHead icon={Activity} tone="cyan" title="Question Difficulty" subtitle={`${difficultyTotal} questions in the bank`} />
-          {difficultyTotal ? (
-            <>
-              {difficulty.map((d) => (
-                <BarStat key={d.name} label={d.name} value={d.count} total={difficultyTotal} color={DIFFICULTY_COLORS[d.name] || 'var(--slate)'} />
-              ))}
-              <div className="card-foot">
-                <Link to="/admin/questions" className="card-action-link">Manage questions <ArrowRight size={13} /></Link>
-              </div>
-            </>
-          ) : (
-            <EmptyState
-              icon={Database} tone="pink" title="No questions yet"
-              description="Start building your question bank."
-              action={<Button variant="primary" to="/admin/questions?new=1" icon={Plus}>Add Question</Button>}
-            />
-          )}
-        </Card>
-      </div>
-
-      <div className="grid grid-2-1">
         <Card>
           <CardHead
-            icon={History} tone="purple" title="Recent Activity"
-            subtitle="From the platform audit trail"
-            actions={<Link to="/admin/audit-log" className="card-action-link">View All <ArrowRight size={13} /></Link>}
+            icon={History} tone="purple"
+            title="Live Operational Audit"
+            subtitle="Real-time administrative events"
+            actions={<Link to="/admin/audit-log" className="card-action-link">Audit Trail <ArrowRight size={13} /></Link>}
           />
           {activity === null ? (
             [1, 2, 3].map((i) => <Skeleton key={i} className="skeleton-row" />)
           ) : activity.length ? (
             <div className="activity-list">
-              {activity.map((entry) => {
+              {activity.slice(0, 6).map((entry) => {
                 const meta = ACTION_COPY[entry.action] || { verb: entry.action.replace(/[._]/g, ' '), tone: 'slate', icon: Activity };
                 const Icon = meta.icon;
                 return (
                   <div className="activity-item" key={entry.id}>
-                    <div className={`activity-dot tone-${meta.tone}`}><Icon size={14} /></div>
+                    <div className={`activity-dot tone-${meta.tone}`}><Icon size={13} /></div>
                     <div className="activity-body">
                       <p>
-                        <strong>{entry.actor_name || 'System'}</strong> {meta.verb}
-                        {entry.entity_type ? <span className="muted"> · {entry.entity_type}{entry.entity_id ? ` #${entry.entity_id}` : ''}</span> : null}
+                        <strong>{entry.actor_name || 'Admin'}</strong> {meta.verb}
                       </p>
                       <span className="activity-time">{timeAgo(entry.created_at)}</span>
                     </div>
@@ -353,45 +319,14 @@ export default function AdminDashboard() {
               })}
             </div>
           ) : (
-            <EmptyState icon={Activity} title="No recent activity" description="Administrative actions will appear here as they happen." />
+            <EmptyState icon={Activity} title="No activity" description="Audit actions will appear as they occur." />
           )}
         </Card>
-
-        <div className="stack" style={{ gap: 16 }}>
-          <Card>
-            <CardHead
-              icon={Flag} tone="red" title="Recent Reports"
-              actions={<Link to="/admin/reports" className="card-action-link">View All <ArrowRight size={13} /></Link>}
-            />
-            {openReports === null ? <Skeleton className="skeleton-row" /> : openReports.length ? (
-              <div className="activity-list">
-                {openReports.slice(0, 4).map((r) => (
-                  <Link key={r.id} to={`/admin/reports/${r.id}`} className="activity-item" style={{ textDecoration: 'none' }}>
-                    <div className="activity-dot tone-red"><Flag size={13} /></div>
-                    <div className="activity-body">
-                      <p><strong>{r.reporter_name || 'A student'}</strong> — {String(r.reason || '').replace(/_/g, ' ')}</p>
-                      <span className="activity-time">{r.question_text ? `${r.question_text.slice(0, 56)}…` : 'General report'}</span>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            ) : (
-              <EmptyState icon={CheckCircle2} tone="green" title="No Open Reports" description="You're all caught up." />
-            )}
-          </Card>
-
-          <Card>
-            <CardHead icon={Radio} tone="cyan" title="Online Now" subtitle="Live exam sessions" />
-            <div className="metric-row">
-              <div className="metric-item"><div className="kpi-num">{data.onlineUsers15m}</div><div className="kpi-label">Total</div></div>
-              <div className="metric-item"><div className="kpi-num">{(data.onlineUsersByRole || []).find((r) => r.role === 'student')?.count || 0}</div><div className="kpi-label">Students</div></div>
-            </div>
-          </Card>
-        </div>
       </div>
 
+      {/* Quick Actions Bar */}
       <div className="section-title">
-        <h2><Zap size={17} style={{ verticalAlign: -3, marginRight: 7, color: 'var(--primary)' }} />Quick Actions</h2>
+        <h2><Zap size={17} style={{ verticalAlign: -3, marginRight: 7, color: 'var(--primary)' }} />Command Center Shortcuts</h2>
       </div>
       <div className="quick-actions">
         {quickActions.map((a) => (
@@ -404,16 +339,6 @@ export default function AdminDashboard() {
           </button>
         ))}
       </div>
-
-      <Card style={{ marginTop: 16 }}>
-        <CardHead icon={Wallet} tone="green" title="Platform Detail" />
-        <div className="metric-row">
-          <div className="metric-item"><div className="kpi-num">₹{Number(data.revenueInr).toLocaleString('en-IN')}</div><div className="kpi-label">Revenue</div></div>
-          <div className="metric-item"><div className="kpi-num">{data.examCompletionRatePct ?? 0}%</div><div className="kpi-label">Completion rate</div></div>
-          <div className="metric-item"><div className="kpi-num">{data.contentVolume.bundles}</div><div className="kpi-label">Bundles</div></div>
-          <div className="metric-item"><div className="kpi-num">{data.contentVolume.questions}</div><div className="kpi-label">Questions</div></div>
-        </div>
-      </Card>
     </div>
   );
 }

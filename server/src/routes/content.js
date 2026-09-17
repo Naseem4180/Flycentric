@@ -84,6 +84,65 @@ async function attachIncludedSubjects(bundles) {
   return bundles.map((b) => ({ ...b, subjects: byBundle[b.id] || [] }));
 }
 
+// Unified Content Overview for Content Manager Grid Hub
+router.get('/overview', authenticate, authorize('admin'), async (req, res) => {
+  const bundlesRes = await pool.query(`
+    SELECT b.*,
+      COUNT(DISTINCT bs.subject_id)::int AS subject_count
+    FROM bundles b
+    LEFT JOIN bundle_subjects bs ON bs.bundle_id = b.id
+    WHERE b.deleted_at IS NULL
+    GROUP BY b.id
+    ORDER BY b.created_at DESC
+  `);
+  const bundles = await attachIncludedSubjects(bundlesRes.rows);
+
+  const subjectsRes = await pool.query(`
+    SELECT s.*,
+      COUNT(DISTINCT c.id)::int AS chapter_count,
+      COUNT(DISTINCT qz.id)::int AS quiz_count
+    FROM subjects s
+    LEFT JOIN chapters c ON c.subject_id = s.id AND c.deleted_at IS NULL
+    LEFT JOIN quizzes qz ON qz.subject_id = s.id AND qz.deleted_at IS NULL
+    WHERE s.deleted_at IS NULL
+    GROUP BY s.id
+    ORDER BY s.order_index ASC, s.id ASC
+  `);
+
+  const chaptersRes = await pool.query(`
+    SELECT c.*,
+      s.title AS subject_title,
+      COUNT(DISTINCT q.id)::int AS question_count,
+      EXISTS(SELECT 1 FROM questions q2 WHERE q2.chapter_id = c.id) AS has_quiz
+    FROM chapters c
+    JOIN subjects s ON s.id = c.subject_id AND s.deleted_at IS NULL
+    LEFT JOIN questions q ON q.chapter_id = c.id
+    WHERE c.deleted_at IS NULL
+    GROUP BY c.id, s.title, s.order_index
+    ORDER BY s.order_index ASC, c.order_index ASC, c.id ASC
+  `);
+
+  const stats = {
+    total_bundles: bundles.length,
+    live_bundles: bundles.filter((b) => b.status === 'live').length,
+    draft_bundles: bundles.filter((b) => b.status !== 'live').length,
+    total_subjects: subjectsRes.rows.length,
+    live_subjects: subjectsRes.rows.filter((s) => s.status === 'live').length,
+    draft_subjects: subjectsRes.rows.filter((s) => s.status !== 'live').length,
+    total_chapters: chaptersRes.rows.length,
+    live_chapters: chaptersRes.rows.filter((c) => c.status === 'live').length,
+    draft_chapters: chaptersRes.rows.filter((c) => c.status !== 'live').length,
+    total_items: bundles.length + subjectsRes.rows.length + chaptersRes.rows.length,
+  };
+
+  res.json({
+    bundles,
+    subjects: subjectsRes.rows,
+    chapters: chaptersRes.rows,
+    stats,
+  });
+});
+
 router.get('/bundles', async (req, res) => {
   const { status } = req.query;
   const includeDrafts = req.query.include_drafts === 'true';
@@ -126,9 +185,9 @@ router.patch('/bundles/:id', authenticate, authorize('admin'), async (req, res) 
        title = COALESCE($1, title),
        description = COALESCE($2, description),
        exam_type = COALESCE($3, exam_type),
-       price_inr = CASE WHEN $6 THEN 0 ELSE COALESCE($4, price_inr) END,
-      is_free = $6
-     WHERE id = $5 AND deleted_at IS NULL RETURNING *`,
+       price_inr = CASE WHEN $5 THEN 0 ELSE COALESCE($4, price_inr) END,
+       is_free = $5
+     WHERE id = $6 AND deleted_at IS NULL RETURNING *`,
     [title, description, exam_type, price_inr, bundleIsFree, req.params.id]
   );
   if (!result.rows.length) return res.status(404).json({ error: 'Bundle not found' });
@@ -193,9 +252,14 @@ router.get('/subjects', async (req, res) => {
 router.post('/subjects', authenticate, authorize('admin'), async (req, res) => {
   const { title, description, order_index, bundle_ids } = req.body;
   if (!title) return res.status(400).json({ error: 'title required' });
+  let finalOrder = Number(order_index);
+  if (!Number.isFinite(finalOrder) || finalOrder <= 0) {
+    const maxRes = await pool.query('SELECT COALESCE(MAX(order_index), 0) + 1 AS next_order FROM subjects WHERE deleted_at IS NULL');
+    finalOrder = Number(maxRes.rows[0]?.next_order || 1);
+  }
   const result = await pool.query(
     'INSERT INTO subjects (title, description, order_index) VALUES ($1,$2,$3) RETURNING *',
-    [title, description ? sanitizeHtml(description) : null, order_index || 0]
+    [title, description ? sanitizeHtml(description) : null, finalOrder]
   );
   const bundleIds = Array.isArray(bundle_ids) ? bundle_ids.map(Number).filter(Number.isInteger) : [];
   if (bundleIds.length) {
@@ -232,11 +296,12 @@ router.post('/bundles/:bundleId/subjects', authenticate, authorize('admin'), asy
 
 router.patch('/subjects/:id', authenticate, authorize('admin'), async (req, res) => {
   const { title, description, order_index, status, bundle_ids } = req.body;
+  const nextOrder = order_index !== undefined ? (Number(order_index) || 1) : null;
   const result = await pool.query(
     `UPDATE subjects SET title = COALESCE($1,title), description = COALESCE($2,description),
-       order_index = COALESCE($3,order_index), status = COALESCE($4,status)
+        order_index = COALESCE($3,order_index), status = COALESCE($4,status)
      WHERE id = $5 AND deleted_at IS NULL RETURNING *`,
-    [title, description != null ? sanitizeHtml(description) : description, order_index, status, req.params.id]
+    [title, description != null ? sanitizeHtml(description) : description, nextOrder, status, req.params.id]
   );
   if (!result.rows.length) return res.status(404).json({ error: 'Subject not found' });
   if (Array.isArray(bundle_ids)) {
@@ -278,6 +343,25 @@ router.delete('/subjects/:id', authenticate, authorize('admin'), async (req, res
   await logAudit({ req, action: 'subject.delete', entityType: 'subject', entityId: req.params.id });
   res.json({ ok: true });
 });
+
+router.post('/subjects/:id/publish', authenticate, authorize('admin'), async (req, res) => {
+  const result = await pool.query(
+    `UPDATE subjects SET status = 'live' WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
+    [req.params.id]
+  );
+  if (!result.rows.length) return res.status(404).json({ error: 'Subject not found' });
+  res.json({ subject: result.rows[0] });
+});
+
+router.post('/subjects/:id/unpublish', authenticate, authorize('admin'), async (req, res) => {
+  const result = await pool.query(
+    `UPDATE subjects SET status = 'draft' WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
+    [req.params.id]
+  );
+  if (!result.rows.length) return res.status(404).json({ error: 'Subject not found' });
+  res.json({ subject: result.rows[0] });
+});
+
 
 // ---- Chapters -----------------------------------------------------------------
 // Global chapter list for admin authoring surfaces. Keeping this separate from
@@ -323,7 +407,7 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
   const subject = subjectResult.rows[0];
 
   const chaptersResult = await pool.query(
-    'SELECT id, title, order_index, is_free, notes_url, has_exam FROM chapters WHERE subject_id = $1 AND deleted_at IS NULL ORDER BY order_index, id',
+    'SELECT id, title, order_index, is_free, notes_url, has_exam, notes FROM chapters WHERE subject_id = $1 AND deleted_at IS NULL ORDER BY order_index ASC, id ASC',
     [subjectId]
   );
 
@@ -357,14 +441,26 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
   const fullAccess = req.user.role !== 'student' || await hasSubjectAccess(req.user.id, subjectId);
 
   const chapters = chaptersResult.rows.map((c) => {
-    // A quiz belongs to this chapter if it lists the chapter in chapter_ids
-    // (multi-chapter assignments) or via the legacy single chapter_id.
+    // All quizzes covering this chapter (either single-chapter or part of a multi-chapter quiz)
     const chapterQuizzes = quizResult.rows.filter((q) => (
       (Array.isArray(q.chapter_ids) && q.chapter_ids.some((id) => String(id) === String(c.id)))
       || String(q.chapter_id) === String(c.id)
     ));
-    const assignment = chapterQuizzes.find((q) => q.type === 'practice') || null;
-    const test = chapterQuizzes.find((q) => q.type === 'exam') || null;
+
+    // Prefer a dedicated single-chapter quiz if available, otherwise link any assignment covering this chapter
+    const singleAssignment = chapterQuizzes.find((q) => {
+      if (q.type !== 'practice') return false;
+      const ids = Array.isArray(q.chapter_ids) ? q.chapter_ids : [];
+      return ids.length === 1 || (!ids.length && String(q.chapter_id) === String(c.id));
+    });
+    const assignment = singleAssignment || chapterQuizzes.find((q) => q.type === 'practice') || null;
+
+    const singleTest = chapterQuizzes.find((q) => {
+      if (q.type !== 'exam') return false;
+      const ids = Array.isArray(q.chapter_ids) ? q.chapter_ids : [];
+      return ids.length === 1 || (!ids.length && String(q.chapter_id) === String(c.id));
+    });
+    const test = singleTest || chapterQuizzes.find((q) => q.type === 'exam') || null;
 
     const chapterAttempts = chapterQuizzes
       .flatMap((q) => attemptsByQuiz.get(q.id) || [])
@@ -379,14 +475,20 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
     // not_started -> grey square, attempted -> coloured circle.
     const status = !unlocked ? 'locked' : (attemptCount > 0 ? 'attempted' : 'not_started');
 
+    const hasNotes = !!(c.notes || c.notes_url);
+    const hasExam = !!c.has_exam || !!test;
+    const hasQuiz = !!assignment || chapterQuizzes.length > 0;
+
     return {
       id: c.id,
       title: c.title,
+      order_index: c.order_index,
       is_free: c.is_free,
-      // Optional resource affordances — the frontend hides these icons
-      // entirely when null/false, it never renders a placeholder for them.
       notes_url: c.notes_url || null,
-      has_exam: !!c.has_exam,
+      notes: c.notes || null,
+      has_notes: hasNotes,
+      has_exam: hasExam,
+      has_quiz: hasQuiz,
       unlocked,
       status,
       attempt_count: attemptCount,
@@ -400,38 +502,49 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
       assignment_quiz_id: assignment ? assignment.id : null,
       test_quiz_id: test ? test.id : null,
       quiz_count: chapterQuizzes.length,
-      has_study_material: true,
+      has_study_material: hasNotes,
     };
   });
 
   const assignmentQuizzes = quizResult.rows.filter((q) => q.type === 'practice');
   const testQuizzes = quizResult.rows.filter((q) => q.type === 'exam');
+  // All exams and subject-wide / multi-chapter assessments
+  const assessmentQuizzes = quizResult.rows.filter((q) => {
+    if (q.type === 'exam') return true;
+    const ids = (Array.isArray(q.chapter_ids) && q.chapter_ids.length)
+      ? q.chapter_ids
+      : (q.chapter_id ? [q.chapter_id] : []);
+    return ids.length === 0 || ids.length > 1;
+  });
   const completedAssignments = assignmentQuizzes.filter((q) => (attemptsByQuiz.get(q.id) || []).length).length;
-  const takenTests = testQuizzes.filter((q) => (attemptsByQuiz.get(q.id) || []).length);
+  const takenTests = assessmentQuizzes.filter((q) => (attemptsByQuiz.get(q.id) || []).length);
 
-  // Order lookup so a test that spans several chapters can be anchored to the
-  // LAST one it covers — e.g. a test built from Regs 01-03 is inserted into
-  // the chapter list right after Regs 03, matching how the admin built it,
-  // instead of being duplicated across every chapter it draws from.
-  const orderByChapterId = new Map(chaptersResult.rows.map((c) => [String(c.id), c.order_index]));
-  const tests = testQuizzes.map((q) => {
+  // Position lookup based on curriculum order so a test that spans several chapters
+  // is anchored to the LAST one in the sequence — e.g. a quiz built from Regs 01-06
+  // is inserted into the chapter list right after Regs 06 (between 6 & 7).
+  const chapterPositionById = new Map(chaptersResult.rows.map((c, idx) => [String(c.id), idx]));
+  const tests = assessmentQuizzes.map((q) => {
     const ids = (Array.isArray(q.chapter_ids) && q.chapter_ids.length)
       ? q.chapter_ids.map(String)
       : (q.chapter_id ? [String(q.chapter_id)] : []);
-    const knownIds = ids.filter((id) => orderByChapterId.has(id));
-    // Anchor to whichever covered chapter sorts last in the curriculum. A
-    // test with no recognised chapters (subject-wide, or built before
-    // chapters existed) has no anchor and is listed at the very end.
-    const anchorChapterId = knownIds.length
-      ? knownIds.reduce((best, id) => (
-          orderByChapterId.get(id) > orderByChapterId.get(best) ? id : best
-        ))
-      : null;
+    const knownIds = ids.filter((id) => chapterPositionById.has(id));
+    // Anchor to whichever covered chapter sorts LATEST in the curriculum sequence
+    let anchorChapterId = null;
+    if (knownIds.length) {
+      anchorChapterId = knownIds.reduce((best, id) => (
+        chapterPositionById.get(id) > chapterPositionById.get(best) ? id : best
+      ));
+    } else if (chaptersResult.rows.length) {
+      // If quiz is subject-wide, anchor to the very last chapter of the curriculum
+      anchorChapterId = String(chaptersResult.rows[chaptersResult.rows.length - 1].id);
+    }
     const testAttempts = attemptsByQuiz.get(q.id) || [];
     const scores = testAttempts.map((a) => Number(a.score || 0));
     return {
       id: q.id,
       title: q.title,
+      type: q.type,
+      pass_percent: q.pass_percent || 70,
       chapter_ids: ids,
       chapter_count: ids.length,
       anchor_chapter_id: anchorChapterId,
@@ -494,7 +607,7 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
 });
 
 router.post('/subjects/:subjectId/chapters', authenticate, authorize('admin'), async (req, res) => {
-  const { title, order_index, is_free, notes_url, has_exam } = req.body;
+  const { title, order_index, is_free, notes_url, has_exam, notes } = req.body;
   const cleanTitle = String(title || '').trim();
   if (!cleanTitle) return res.status(400).json({ error: 'title required' });
   const existing = await pool.query(
@@ -518,8 +631,8 @@ router.post('/subjects/:subjectId/chapters', authenticate, authorize('admin'), a
     // existing manual order unless a specific position was requested.
     const resolvedOrder = order_index == null ? await nextOrderIndex(req.params.subjectId) : Number(order_index);
     const result = await pool.query(
-      'INSERT INTO chapters (subject_id, title, order_index, is_free, notes_url, has_exam) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-      [req.params.subjectId, cleanTitle, resolvedOrder, !!is_free, notes_url || null, !!has_exam]
+      'INSERT INTO chapters (subject_id, title, order_index, is_free, notes_url, has_exam, notes) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
+      [req.params.subjectId, cleanTitle, resolvedOrder, !!is_free, notes_url || null, !!has_exam, notes || null]
     );
     const fresh = await pool.query('SELECT * FROM chapters WHERE id = $1', [result.rows[0].id]);
     res.status(201).json({ chapter: fresh.rows[0] });
@@ -534,7 +647,7 @@ router.post('/subjects/:subjectId/chapters', authenticate, authorize('admin'), a
 });
 
 router.patch('/chapters/:id', authenticate, authorize('admin'), async (req, res) => {
-  const { title, order_index, is_free, notes_url, has_exam } = req.body;
+  const { title, order_index, is_free, notes_url, has_exam, notes, status, subject_id } = req.body;
   // Custom Chapter Sequencing: order_index is the sole, strict source of
   // truth for curriculum order — renaming a chapter never moves it, and no
   // automatic re-sort runs here. Admins reorder explicitly (drag/drop sends
@@ -545,13 +658,35 @@ router.patch('/chapters/:id', authenticate, authorize('admin'), async (req, res)
        order_index = COALESCE($2,order_index),
        is_free = COALESCE($3,is_free),
        notes_url = CASE WHEN $5 THEN NULLIF($6, '') ELSE notes_url END,
-       has_exam = COALESCE($7,has_exam)
+       has_exam = COALESCE($7,has_exam),
+       notes = CASE WHEN $8 THEN $9 ELSE notes END,
+       status = COALESCE($10,status),
+       subject_id = COALESCE($11,subject_id)
      WHERE id = $4 AND deleted_at IS NULL RETURNING *`,
-    [title, order_index, is_free, req.params.id, notes_url !== undefined, notes_url, has_exam]
+    [title, order_index, is_free, req.params.id, notes_url !== undefined, notes_url, has_exam, notes !== undefined, notes, status, subject_id || null]
   );
   if (!result.rows.length) return res.status(404).json({ error: 'Chapter not found' });
   res.json({ chapter: result.rows[0] });
 });
+
+router.post('/chapters/:id/publish', authenticate, authorize('admin'), async (req, res) => {
+  const result = await pool.query(
+    `UPDATE chapters SET status = 'live' WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
+    [req.params.id]
+  );
+  if (!result.rows.length) return res.status(404).json({ error: 'Chapter not found' });
+  res.json({ chapter: result.rows[0] });
+});
+
+router.post('/chapters/:id/unpublish', authenticate, authorize('admin'), async (req, res) => {
+  const result = await pool.query(
+    `UPDATE chapters SET status = 'draft' WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
+    [req.params.id]
+  );
+  if (!result.rows.length) return res.status(404).json({ error: 'Chapter not found' });
+  res.json({ chapter: result.rows[0] });
+});
+
 
 // Explicit drag-and-drop reorder: takes the full ordered list of chapter ids
 // for a subject and rewrites order_index to match exactly, spaced by 10.
@@ -660,4 +795,83 @@ router.post('/trash/:type/:id/restore', authenticate, authorize('admin'), async 
   res.json({ ok: true });
 });
 
+// ---- Homepage & Website CMS ------------------------------------------------
+const DEFAULT_HOMEPAGE = {
+  header: {
+    support_email: 'support@flycentric.in',
+    support_phone: '+91 98765 43210',
+    announcement: "India's smart aviation exam prep"
+  },
+  hero: {
+    pill: "✧ India's smart aviation learning ecosystem",
+    headline_main: 'Master the skies.',
+    headline_accent: 'Clear DGCA exams.',
+    subtitle: 'Adaptive mock tests, focused flashcards, and clear study plans for CPL, ATPL, and RTR(A).',
+    primary_btn_text: 'Explore bundles →',
+    primary_btn_url: '#courses',
+    secondary_btn_text: 'How it works',
+    secondary_btn_url: '#how-it-works'
+  },
+  features_section: {
+    title: 'The smartest way to prepare',
+    subtitle: 'More than a question bank: an aviation ecosystem that helps you identify weaknesses and build knowledge.',
+    items: [
+      { id: '1', icon: '◎', title: 'Adaptive Mock Tests', text: 'Practice realistic DGCA-style questions and learn from every answer.' },
+      { id: '2', icon: '✦', title: 'Intelligent Study Plans', text: 'Turn weak topics into a focused flight plan that fits your schedule.' },
+      { id: '3', icon: '▣', title: 'RTR(A) Mock Exams', text: 'Build confidence with radio-telephony practice and exam simulations.' }
+    ]
+  },
+  courses_section: {
+    kicker: 'DGCA course bundles',
+    title: 'Choose your learning path',
+    subtitle: 'Explore published bundles, compare access, and start with the course that fits your flight plan.'
+  },
+  cta_banner: {
+    heading: 'Ready for take-off?',
+    subtitle: 'Start building a clearer path to your pilot licence today.',
+    button_text: 'Create your student account →',
+    button_url: '/register'
+  },
+  footer: {
+    about: 'FlyCentric is an advanced DGCA aviation exam preparation ecosystem helping student pilots and cadet aspirants master ground training and clear DGCA exams on their first attempt.',
+    support_email: 'support@flycentric.in',
+    support_phone: '+91 98765 43210',
+    address: 'New Delhi, India',
+    copyright: '© 2026 FlyCentric. All rights reserved.',
+    links: [
+      { label: 'Courses', url: '/courses' },
+      { label: 'Pricing', url: '/pricing' },
+      { label: 'Jobs', url: '/jobs' },
+      { label: 'Privacy Policy', url: '/privacy' },
+      { label: 'Terms of Service', url: '/terms' }
+    ]
+  }
+};
+
+router.get('/homepage', async (req, res) => {
+  const result = await pool.query(
+    "SELECT value FROM system_settings WHERE key = 'homepage_content'"
+  );
+  if (!result.rows.length) {
+    return res.json({ content: DEFAULT_HOMEPAGE });
+  }
+  res.json({ content: { ...DEFAULT_HOMEPAGE, ...result.rows[0].value } });
+});
+
+router.put('/homepage', authenticate, authorize('admin'), async (req, res) => {
+  const content = req.body;
+  if (!content || typeof content !== 'object') {
+    return res.status(400).json({ error: 'content object required' });
+  }
+  const result = await pool.query(
+    `INSERT INTO system_settings (key, value, updated_at)
+     VALUES ('homepage_content', $1::jsonb, now())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+     RETURNING value`,
+    [JSON.stringify(content)]
+  );
+  res.json({ ok: true, content: result.rows[0].value });
+});
+
 module.exports = router;
+

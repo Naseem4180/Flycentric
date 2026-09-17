@@ -120,7 +120,6 @@ export default function StudentQuizzes() {
   return (
     <div className="admin-main-inner">
       <div className="page-header">
-        <div className="eyebrow">Practice &amp; assessment</div>
         <h1>Quizzes &amp; Assignments</h1>
         <p className="muted">Every assignment and mock exam published for your course, in one place.</p>
       </div>

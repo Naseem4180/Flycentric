@@ -48,7 +48,9 @@ export function CardHead({ icon: Icon, tone = 'purple', title, subtitle, actions
   );
 }
 
-export function KpiCard({ icon: Icon, tone = 'purple', value, label, sub, trend, onClick }) {
+export function KpiCard({ icon: Icon, tone = 'purple', value, label, title, sub, subtitle, trend, onClick }) {
+  const displayLabel = label || title || '';
+  const displaySub = sub || subtitle || '';
   const accent = `var(--${
     { purple: 'primary', blue: 'info', green: 'success', orange: 'warning',
       pink: 'pink', red: 'danger', cyan: 'cyan', indigo: 'indigo', slate: 'slate' }[tone] || 'primary'
@@ -57,6 +59,7 @@ export function KpiCard({ icon: Icon, tone = 'purple', value, label, sub, trend,
     <div
       className={`kpi-card ${onClick ? 'card-clickable' : ''}`}
       style={{ '--kpi-accent': accent }}
+      data-tone={tone}
       onClick={onClick}
       role={onClick ? 'button' : undefined}
       tabIndex={onClick ? 0 : undefined}
@@ -72,8 +75,8 @@ export function KpiCard({ icon: Icon, tone = 'purple', value, label, sub, trend,
         )}
       </div>
       <div className="kpi-num">{value}</div>
-      <div className="kpi-label">{label}</div>
-      {sub && <div className="kpi-sub">{sub}</div>}
+      <div className="kpi-label">{displayLabel}</div>
+      {displaySub && <div className="kpi-sub">{displaySub}</div>}
     </div>
   );
 }
@@ -213,11 +216,14 @@ export function Pagination({ page, pageSize, total, onPage, onPageSize, pageSize
 /* -------------------------------------------------------------------------- */
 /* Row overflow menu                                                          */
 /* -------------------------------------------------------------------------- */
-export function RowMenu({ items, label = 'More actions' }) {
+export function RowMenu({ items, actions, label = 'More actions' }) {
   const [open, setOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState(null);
   const ref = useRef(null);
   const menuRef = useRef(null);
+
+  const menuItems = items || actions || [];
+  const visible = Array.isArray(menuItems) ? menuItems.filter(Boolean) : [];
 
   useEffect(() => {
     if (!open) return undefined;
@@ -248,7 +254,6 @@ export function RowMenu({ items, label = 'More actions' }) {
     setOpen((v) => !v);
   }
 
-  const visible = items.filter(Boolean);
   if (!visible.length) return null;
 
   return (
@@ -269,10 +274,10 @@ export function RowMenu({ items, label = 'More actions' }) {
             ? <div key={`s${i}`} className="menu-sep" />
             : (
               <button
-                key={item.label}
+                key={item.label || i}
                 type="button"
                 role="menuitem"
-                className={`menu-item ${item.danger ? 'menu-item-danger' : ''}`}
+                className={`menu-item ${item.danger || item.tone === 'danger' ? 'menu-item-danger' : ''}`}
                 onClick={() => { setOpen(false); item.onClick?.(); }}
               >
                 {item.icon && <item.icon size={14} />}
@@ -311,10 +316,10 @@ export function ProgressBar({ percent, color = 'var(--primary)' }) {
   );
 }
 
-export function Tabs({ tabs, value, onChange }) {
+export function Tabs({ tabs = [], value, onChange }) {
   return (
     <div className="tabs-row" role="tablist">
-      {tabs.map((t) => (
+      {(tabs || []).map((t) => (
         <button
           key={t.value}
           type="button"
@@ -332,8 +337,9 @@ export function Tabs({ tabs, value, onChange }) {
   );
 }
 
-export function FilterChips({ chips, onClear }) {
-  if (!chips.length) return null;
+export function FilterChips({ chips = [], onClear }) {
+  const safeChips = Array.isArray(chips) ? chips : [];
+  if (!safeChips.length) return null;
   return (
     <div className="chip-row">
       <span className="chip-label">Active filters:</span>

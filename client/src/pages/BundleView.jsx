@@ -17,15 +17,24 @@ export default function BundleView() {
   const [enrolling, setEnrolling] = useState(false);
 
   useEffect(() => {
-    const calls = [api.get(`/content/bundles/${id}/subjects`), api.get('/content/bundles?status=live'), api.get(`/exams/quizzes?bundle_id=${id}`)];
-    if (user?.role === 'student') calls.push(api.get('/payments/my-access'));
+    const calls = [
+      api.get(`/content/bundles/${id}/subjects`).catch(() => ({ subjects: [] })),
+      api.get('/content/bundles?status=live').catch(() => ({ bundles: [] })),
+      api.get(`/exams/quizzes?bundle_id=${id}`).catch(() => ({ quizzes: [] })),
+    ];
+    if (user?.role === 'student') {
+      calls.push(api.get('/payments/my-access').catch(() => ({ bundles: [] })));
+    }
     Promise.all(calls)
       .then(([subjectData, bundleData, quizData, accessData]) => {
-        setSubjects(subjectData.subjects);
-        setBundle(bundleData.bundles.find((item) => String(item.id) === String(id)));
-        setQuizzes(quizData.quizzes);
-        if (accessData) setHasAccess(accessData.bundles.some((b) => String(b.id) === String(id)));
-      });
+        setSubjects(subjectData?.subjects || []);
+        setBundle((bundleData?.bundles || []).find((item) => String(item.id) === String(id)));
+        setQuizzes(quizData?.quizzes || []);
+        if (accessData) {
+          setHasAccess((accessData?.bundles || []).some((b) => String(b.id) === String(id)));
+        }
+      })
+      .catch(() => {});
   }, [id, user]);
 
   // Admins/instructors always see full content; students see it once they've
@@ -55,7 +64,6 @@ export default function BundleView() {
     <div className="page">
       <div className="container">
         <div className="page-header">
-          <div className="eyebrow">Course contents</div>
           <h1>{bundle?.title || 'Course contents'}</h1>
           {bundle && <p className="muted course-intro">{bundle.description || 'Structured subject-wise preparation for your pilot examination.'}</p>}
           {!fullAccess && (
@@ -107,7 +115,7 @@ export default function BundleView() {
         </div>
         {!!quizzes.length && (
           <section className="course-tests">
-            <div className="section-heading"><div><div className="eyebrow">Question bank and practice</div><h2>Tests for this course</h2></div></div>
+            <div className="section-heading"><div><h2>Tests for this course</h2></div></div>
             <div className="stack">
               {quizzes.map((quiz) => (
                 <div className="lms-course-row" key={quiz.id}>

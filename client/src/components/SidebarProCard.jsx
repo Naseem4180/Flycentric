@@ -1,21 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Sparkles, ArrowRight } from 'lucide-react';
+import { Sparkles, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { api } from '../api';
+import useAuth from '../context/useAuth';
 
 const INR = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 });
 
-/**
- * Bottom-of-sidebar "FlyCentric Pro" card. Pulls from the same live bundle
- * data the Admin's Bundles & Pricing screen manages (GET /content/bundles) —
- * nothing here is hardcoded. Whatever bundle Admin has published most
- * recently is what shows up, so editing/publishing a bundle in Admin is
- * reflected here automatically.
- *
- * Renders nothing if there's no live bundle to promote yet, and nothing
- * while collapsed (the collapsed sidebar shows a small icon instead — see
- * `collapsed` prop / SidebarProCardMini below).
- */
 export function useFeaturedBundle() {
   const [bundle, setBundle] = useState(null);
   const [loaded, setLoaded] = useState(false);
@@ -26,8 +16,6 @@ export function useFeaturedBundle() {
       .then((d) => {
         if (cancelled) return;
         const live = (d.bundles || []).filter((b) => b.status === 'live');
-        // Most recently published live bundle — the same "first bundle"
-        // convention the Pricing page already uses as the default Pro pick.
         setBundle(live[0] || null);
       })
       .catch(() => { if (!cancelled) setBundle(null); })
@@ -40,14 +28,48 @@ export function useFeaturedBundle() {
 
 export default function SidebarProCard({ collapsed }) {
   const { bundle, loaded } = useFeaturedBundle();
+  const { user } = useAuth();
+  const [hasAccess, setHasAccess] = useState(false);
+
+  useEffect(() => {
+    if (user?.role === 'student' && bundle) {
+      api.get('/payments/my-access')
+        .then((res) => {
+          setHasAccess((res.bundles || []).some((b) => String(b.id) === String(bundle.id)));
+        })
+        .catch(() => setHasAccess(false));
+    }
+  }, [user, bundle]);
 
   if (!loaded || !bundle) return null;
 
   if (collapsed) {
     return (
-      <Link to="/pricing" className="sidebar-promo-mini" title={`FlyCentric Pro — ${bundle.title}`} aria-label="FlyCentric Pro">
-        <Sparkles size={16} />
+      <Link
+        to={hasAccess ? `/bundles/${bundle.id}` : '/explore'}
+        className="sidebar-promo-mini"
+        title={hasAccess ? `Enrolled: ${bundle.title}` : `FlyCentric Pro — ${bundle.title}`}
+        aria-label="Course Access"
+      >
+        {hasAccess ? <CheckCircle2 size={16} color="#16a34a" /> : <Sparkles size={16} />}
       </Link>
+    );
+  }
+
+  if (hasAccess) {
+    return (
+      <div className="sidebar-promo" style={{ borderColor: 'rgba(34, 197, 94, 0.3)', background: 'linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%)' }}>
+        <div className="sidebar-promo-badge" style={{ background: '#16a34a', color: '#fff' }}>
+          <CheckCircle2 size={12} /> Active Access
+        </div>
+        <strong>{bundle.title}</strong>
+        <p>
+          Full course unlocked &middot; <span className="sidebar-promo-price" style={{ color: '#16a34a', fontWeight: 700 }}>Enrolled</span>
+        </p>
+        <Link to={`/bundles/${bundle.id}`}>
+          Go to Course <ArrowRight size={13} />
+        </Link>
+      </div>
     );
   }
 

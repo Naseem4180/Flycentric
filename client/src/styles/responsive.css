@@ -72,60 +72,100 @@ img, svg, video, canvas { max-width: 100%; height: auto; }
 }
 .table-scroll > table { min-width: 640px; margin: 0; }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   /* Undo the old global rule — it is replaced by the card layout below. */
   table { display: table; overflow-x: visible; white-space: normal; }
 
   /* Tables that opt in (results, exam history) become stacked cards on a
      phone: each row is a block, each cell prefixed by its column name via
-     data-label. Far more readable than a 8-column horizontal scroll. */
-  .results-table, .eh-report-table, .eh-table {
-    display: block;
-    min-width: 0;
+     data-label. Far more readable than an 8-column horizontal scroll. */
+  .table-scroll {
+    overflow-x: visible !important;
+    width: 100% !important;
+    max-width: 100% !important;
   }
-  .results-table thead, .eh-report-table thead, .eh-table thead { display: none; }
-  .results-table tbody, .eh-report-table tbody, .eh-table tbody { display: block; }
+  .table-scroll > table.results-table,
+  .table-scroll > table.eh-report-table,
+  .table-scroll > table.eh-table,
+  .results-table, .eh-report-table, .eh-table {
+    display: block !important;
+    min-width: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  .results-table thead, .eh-report-table thead, .eh-table thead { display: none !important; }
+  .results-table tbody, .eh-report-table tbody, .eh-table tbody { display: block !important; width: 100% !important; }
   .results-table tr, .eh-report-table tr, .eh-table tr {
-    display: block;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 10px 12px;
-    margin-bottom: 10px;
-    background: var(--card-bg);
+    display: block !important;
+    width: 100% !important;
+    border: 1px solid var(--line) !important;
+    border-radius: 12px !important;
+    padding: 12px 14px !important;
+    margin-bottom: 12px !important;
+    background: var(--card-bg) !important;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04) !important;
+    box-sizing: border-box !important;
   }
   .results-table td, .eh-report-table td, .eh-table td {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
-    border: 0;
-    padding: 5px 0;
-    white-space: normal;
-    text-align: right;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    gap: 12px !important;
+    border: 0 !important;
+    border-bottom: 1px solid #f1f5f9 !important;
+    padding: 8px 0 !important;
+    white-space: normal !important;
+    text-align: right !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+  .results-table td:last-child, .eh-report-table td:last-child, .eh-table td:last-child {
+    border-bottom: 0 !important;
+    padding-top: 10px !important;
   }
   .results-table td::before, .eh-report-table td::before, .eh-table td::before {
-    content: attr(data-label);
-    font-size: .68rem;
-    font-weight: 800;
-    letter-spacing: .04em;
-    text-transform: uppercase;
-    color: var(--ink-muted);
-    text-align: left;
-    flex: 0 0 auto;
+    content: attr(data-label) !important;
+    font-size: .68rem !important;
+    font-weight: 800 !important;
+    letter-spacing: .04em !important;
+    text-transform: uppercase !important;
+    color: var(--ink-muted) !important;
+    text-align: left !important;
+    flex-shrink: 0 !important;
   }
-  .results-table td:empty, .eh-report-table td:empty, .eh-table td:empty { display: none; }
-  .results-quiz-cell { font-weight: 700; }
-  .results-row-actions { justify-content: flex-end; }
+  .results-table td[data-label="Actions"]::before {
+    display: none !important;
+    content: "" !important;
+  }
+  .results-table td[data-label="Actions"] {
+    justify-content: flex-end !important;
+  }
+  .results-row-actions {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    width: 100% !important;
+    justify-content: flex-end !important;
+  }
+  .results-table td:empty, .eh-report-table td:empty, .eh-table td:empty { display: none !important; }
+  .results-quiz-cell { font-weight: 700 !important; font-size: .92rem !important; color: var(--ink) !important; }
+  .card:has(.results-table) {
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+
   /* The stacked-card layout above replaces the horizontal-scroll table, so
      the wrapper/table must give up the fixed min-width that forced
      sideways scrolling — otherwise both behaviours fought each other and
      cells rendered cut off (see .eh-table-wrap at 720px below). */
-  .eh-table-wrap { overflow-x: visible; }
-  .eh-table { min-width: 0; width: 100%; }
-  .eh-col-lesson { min-width: 0; }
-  .eh-lesson-title, .eh-lesson-chapter { display: block; text-align: left; }
-  .eh-table td.eh-col-lesson { align-items: flex-start; flex-direction: column; gap: 2px; }
-  .eh-table td .eh-row-actions { justify-content: flex-end; }
+  .eh-table-wrap { overflow-x: visible !important; }
+  .eh-table { min-width: 0 !important; width: 100% !important; }
+  .eh-col-lesson { min-width: 0 !important; }
+  .eh-lesson-title, .eh-lesson-chapter { display: block !important; text-align: left !important; }
+  .eh-table td.eh-col-lesson { align-items: flex-start !important; flex-direction: column !important; gap: 2px !important; }
+  .eh-table td .eh-row-actions { justify-content: flex-end !important; }
 }
 
 /* --------------------------------------------------------------------------
@@ -202,8 +242,8 @@ img, svg, video, canvas { max-width: 100%; height: auto; }
 @media (max-width: 640px) {
   .quiz-catalog-filter-row .input { max-width: 100%; width: 100%; }
   .quiz-catalog-filter-row { flex-direction: column; align-items: stretch; }
-  .segmented { width: 100%; }
-  .segmented-btn { flex: 1; text-align: center; }
+  .segmented { width: 100%; display: flex; }
+  .segmented-btn { flex: 1; text-align: center; padding: 6px 4px !important; font-size: .72rem !important; }
   /* Keep the Available/Attempted/Passed trio in one compact row on phones
      instead of 2-then-1 wrapping (flex-basis 130px doesn't fit 3 across a
      narrow screen). */
@@ -513,62 +553,223 @@ img, svg, video, canvas { max-width: 100%; height: auto; }
 .cb-section-head h3 { margin: 0; font-size: .9rem; font-weight: 800; }
 .cb-section-head .cb-section-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
 
-.cb-chapter { border-bottom: 1px solid var(--line); }
-.cb-chapter:last-child { border-bottom: 0; }
-.cb-chapter-row {
-  display: flex; align-items: center; gap: 10px; padding: 11px 16px; cursor: pointer;
-  background: none; border: 0; width: 100%; text-align: left; color: inherit; font: inherit;
+/* Chapter Accordion Card */
+.cb-chapter {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  margin-bottom: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  transition: all 0.15s ease;
 }
-.cb-chapter-row:hover { background: var(--page-bg); }
+.cb-chapter:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+.cb-chapter-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  cursor: pointer;
+  background: #f8fafc;
+  border: 0;
+  width: 100%;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  border-bottom: 1px solid transparent;
+  transition: background 0.12s ease;
+}
+.cb-chapter-row:hover { background: #f1f5f9; }
 .cb-chapter-caret { transition: transform .18s ease; color: var(--ink-soft); flex-shrink: 0; }
-.cb-chapter-caret.open { transform: rotate(180deg); }
-.cb-chapter-name { font-weight: 700; font-size: .86rem; flex: 1; min-width: 0; }
-.cb-chapter-count { font-size: .7rem; color: var(--ink-muted); white-space: nowrap; }
-.cb-chapter-body { padding: 4px 16px 14px 40px; display: flex; flex-direction: column; gap: 8px; }
-@media (max-width: 560px) { .cb-chapter-body { padding-left: 16px; } }
+.cb-chapter-caret.open { transform: rotate(180deg); color: var(--blue); }
+.cb-chapter-name { font-weight: 800; font-size: .92rem; flex: 1; min-width: 0; color: #0f172a; }
+.cb-chapter-count { font-size: .74rem; font-weight: 600; color: #64748b; background: #ffffff; padding: 2px 9px; border-radius: 99px; border: 1px solid var(--line); white-space: nowrap; }
+.cb-chapter-body { padding: 14px 18px; display: flex; flex-direction: column; gap: 10px; background: #ffffff; border-top: 1px solid var(--line); }
+@media (max-width: 560px) { .cb-chapter-body { padding: 12px 14px; } }
 
+/* Color-coded Quiz / Exam rows inside chapter */
 .cb-quiz-row {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--card-bg);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  border: 1px solid #e2e8f0;
+  border-left: 4px solid #10b981;
+  border-radius: 10px;
+  padding: 12px 16px;
+  background: #fafffc;
+  transition: all 0.12s ease;
+}
+.cb-quiz-row.is-exam {
+  border-left-color: #6366f1;
+  background: #fafaff;
+}
+.cb-quiz-row:hover {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+  border-color: #cbd5e1;
 }
 .cb-quiz-row-main { flex: 1; min-width: 0; }
-.cb-quiz-row-title { font-weight: 700; font-size: .84rem; display: block; }
-.cb-quiz-row-meta { font-size: .72rem; color: var(--ink-soft); }
-.cb-quiz-row-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.cb-quiz-row-title { font-weight: 800; font-size: .88rem; color: #0f172a; display: flex; align-items: center; gap: 8px; }
+.cb-quiz-row-meta { font-size: .74rem; color: #64748b; margin-top: 3px; display: block; }
+.cb-quiz-row-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
 
 .cb-empty { padding: 20px 16px; text-align: center; color: var(--ink-muted); font-size: .84rem; }
 
-/* Chapter multi-select inside the quiz dialog */
+/* Color-coded Chapter Action Buttons */
+.cb-btn-quiz {
+  color: #047857 !important;
+  border-color: #a7f3d0 !important;
+  background: #ecfdf5 !important;
+  font-weight: 600 !important;
+}
+.cb-btn-quiz:hover {
+  background: #d1fae5 !important;
+  border-color: #6ee7b7 !important;
+}
+
+.cb-btn-exam {
+  color: #4338ca !important;
+  border-color: #c7d2fe !important;
+  background: #eef2ff !important;
+  font-weight: 600 !important;
+}
+.cb-btn-exam:hover {
+  background: #e0e7ff !important;
+  border-color: #a5b4fc !important;
+}
+
+.cb-btn-notes {
+  color: #0284c7 !important;
+  border-color: #bae6fd !important;
+  background: #f0f9ff !important;
+  font-weight: 600 !important;
+}
+.cb-btn-notes:hover {
+  background: #e0f2fe !important;
+  border-color: #7dd3fc !important;
+}
+
+.cb-btn-remove {
+  color: #dc2626 !important;
+  border-color: #fecdd3 !important;
+  background: #fff1f2 !important;
+  font-weight: 600 !important;
+}
+.cb-btn-remove:hover {
+  background: #ffe4e6 !important;
+  border-color: #fca5a5 !important;
+}
+
+/* Chapter multi-select inside the quiz dialog (Multi-column grid, no tiny squishing) */
 .cb-chapter-picker {
-  border: 1px solid var(--line); border-radius: 10px; padding: 8px;
-  max-height: 190px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 10px;
+  max-height: 280px;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 8px;
+  background: #f8fafc;
 }
 .cb-chapter-option {
-  display: flex; align-items: center; gap: 8px; padding: 7px 8px;
-  border-radius: 7px; cursor: pointer; font-size: .82rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  cursor: pointer;
+  font-size: .82rem;
+  transition: all 0.12s ease;
 }
-.cb-chapter-option:hover { background: var(--page-bg); }
+.cb-chapter-option:hover {
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
+.cb-chapter-option.is-selected {
+  background: #eff6ff;
+  border-color: #3b82f6;
+}
 .cb-chapter-option input { margin: 0; flex-shrink: 0; }
-.cb-chapter-option-count { margin-left: auto; font-size: .7rem; color: var(--ink-muted); white-space: nowrap; }
+.cb-chapter-option span { flex: 1; min-width: 0; font-weight: 600; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-chapter-option-count { margin-left: auto; font-size: .7rem; font-weight: 700; color: #64748b; background: #f1f5f9; padding: 2px 7px; border-radius: 99px; white-space: nowrap; }
 
 .cb-picker-summary {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  padding: 9px 11px; border-radius: 9px; background: var(--page-bg);
-  font-size: .78rem; color: var(--ink-soft);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border-radius: 9px;
+  background: #f1f5f9;
+  font-size: .80rem;
+  color: #334155;
 }
+
+/* Expanded Question List in Modal */
 .cb-question-list {
-  border: 1px solid var(--line); border-radius: 10px;
-  max-height: 300px; overflow-y: auto;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  max-height: 480px;
+  overflow-y: auto;
+  background: #ffffff;
 }
 .cb-question-option {
-  display: flex; align-items: flex-start; gap: 9px; padding: 9px 11px;
-  border-bottom: 1px solid var(--line); cursor: pointer; font-size: .82rem;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e2e8f0;
+  cursor: pointer;
+  font-size: .85rem;
+  transition: background 0.1s ease;
 }
 .cb-question-option:last-child { border-bottom: 0; }
-.cb-question-option:hover { background: var(--page-bg); }
-.cb-question-option input { margin-top: 3px; flex-shrink: 0; }
-.cb-question-option-text { flex: 1; min-width: 0; }
-.cb-question-option-meta { display: block; font-size: .7rem; color: var(--ink-muted); margin-top: 2px; }
+.cb-question-option:hover { background: #f8fafc; }
+.cb-question-option.is-selected { background: #f0fdf4; border-left: 3px solid #10b981; }
+.cb-question-option-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+}
+.cb-question-option-header input { margin-top: 3px; flex-shrink: 0; }
+.cb-question-option-text {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  color: #0f172a;
+  line-height: 1.45;
+}
+.cb-question-option-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  margin-left: 24px;
+}
+.cb-q-badge {
+  font-size: .68rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.cb-q-options-expand {
+  margin-top: 8px;
+  margin-left: 24px;
+  padding: 10px 14px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
 
 /* Pre-submit warning about skipped questions (exam summary modal). */
 .cbt-modal-warning {
@@ -597,4 +798,122 @@ img, svg, video, canvas { max-width: 100%; height: auto; }
   .analytics-gauge-card .gauge svg { width: 76px !important; height: 76px !important; }
   .analytics-gauge-card .gauge-value { font-size: .95rem; }
   .analytics-gauge-card .gauge-unit { font-size: .6rem; }
+}
+
+/* ==========================================================================
+   Student Dashboard mobile layout safeguards
+   ========================================================================== */
+@media (max-width: 700px) {
+  .hero-copy h1 {
+    max-width: none !important;
+    word-break: normal !important;
+    overflow-wrap: normal !important;
+    font-size: 1.75rem !important;
+    line-height: 1.18 !important;
+    margin: 8px 0 10px !important;
+  }
+  .hero-copy p {
+    max-width: none !important;
+    word-break: normal !important;
+    overflow-wrap: normal !important;
+    font-size: 0.92rem !important;
+    line-height: 1.45 !important;
+  }
+  .readiness-breakdown {
+    grid-template-columns: repeat(3, 1fr) !important;
+    margin-bottom: 18px !important;
+  }
+  .readiness-breakdown-item {
+    padding: 10px 4px !important;
+  }
+  .readiness-breakdown-item span {
+    font-size: 0.62rem !important;
+    letter-spacing: 0.02em !important;
+    line-height: 1.2 !important;
+  }
+  .readiness-breakdown-item strong {
+    font-size: 1rem !important;
+  }
+  .mission-strip {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    margin-bottom: 24px !important;
+  }
+  .mission-strip div {
+    padding: 14px 14px !important;
+    border-right: 1px solid var(--line) !important;
+    border-bottom: 0 !important;
+    word-break: normal !important;
+    hyphens: none !important;
+    overflow-wrap: normal !important;
+  }
+  .mission-strip div:nth-child(2n) {
+    border-right: 0 !important;
+  }
+  .mission-strip div:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--line) !important;
+  }
+  .mission-strip span {
+    font-size: 0.66rem !important;
+    letter-spacing: 0.06em !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    word-break: normal !important;
+  }
+  .mission-strip strong {
+    font-size: 1.15rem !important;
+    margin-top: 4px !important;
+    display: flex !important;
+    align-items: baseline !important;
+    gap: 4px !important;
+    white-space: nowrap !important;
+    word-break: normal !important;
+  }
+  .mission-strip em {
+    font-size: 0.74rem !important;
+    margin-left: 0 !important;
+    white-space: nowrap !important;
+    font-style: normal !important;
+    color: var(--ink-soft) !important;
+  }
+}
+
+.eyebrow {
+  display: none !important;
+}
+
+/* --------------------------------------------------------------------------
+   CBT Exam bottom navigation bar: balanced 3-column serial layout on mobile
+   -------------------------------------------------------------------------- */
+@media (max-width: 720px) {
+  .cbt-bottombar {
+    display: grid !important;
+    grid-template-columns: 1fr 1.35fr 1.15fr !important;
+    gap: 6px !important;
+    padding: 8px 10px !important;
+    padding-bottom: max(8px, env(safe-area-inset-bottom)) !important;
+    overflow-x: visible !important;
+    align-items: stretch !important;
+  }
+  .cbt-bottombar-actions {
+    display: contents !important;
+  }
+  .cbt-bottombar .cbt-btn {
+    width: 100% !important;
+    min-height: 42px !important;
+    padding: 6px 4px !important;
+    font-size: 0.72rem !important;
+    line-height: 1.2 !important;
+    text-align: center !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    white-space: normal !important;
+    word-break: normal !important;
+    border-radius: 6px !important;
+  }
+  .cbt-bottombar .cbt-btn-mark {
+    font-size: 0.69rem !important;
+  }
 }

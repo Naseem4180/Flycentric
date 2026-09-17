@@ -39,7 +39,6 @@ export default function InstructorDashboard() {
     <div className="page">
       <div className="container">
         <div className="page-header">
-          <div className="eyebrow">Instructor tools</div>
           <h1>Batches &amp; student progress</h1>
         </div>
 

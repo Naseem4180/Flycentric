@@ -112,7 +112,6 @@ export default function MyResults() {
   return (
     <div className="admin-main-inner">
       <div className="page-header">
-        <div className="eyebrow">Performance log</div>
         <h1>My Quiz Results</h1>
         <p className="muted">Review your scores, filter by subject or chapter, and jump straight back into a retake.</p>
       </div>

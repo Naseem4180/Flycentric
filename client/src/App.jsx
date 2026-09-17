@@ -48,6 +48,18 @@ import AdminNotifications from './pages/admin/AdminNotifications';
 import AdminEmailCampaigns from './pages/admin/AdminEmailCampaigns';
 import AdminSettings from './pages/admin/AdminSettings';
 import AdminAuditLog from './pages/admin/AdminAuditLog';
+import AdminCourses from './pages/admin/AdminCourses';
+import AdminQuizzes from './pages/admin/AdminQuizzes';
+import AdminAssignments from './pages/admin/AdminAssignments';
+import AdminExams from './pages/admin/AdminExams';
+import AdminPurchases from './pages/admin/AdminPurchases';
+import AdminTransactions from './pages/admin/AdminTransactions';
+import AdminRefunds from './pages/admin/AdminRefunds';
+import AdminCoupons from './pages/admin/AdminCoupons';
+import AdminStudents from './pages/admin/AdminStudents';
+import AdminStudentDetail from './pages/admin/AdminStudentDetail';
+import AdminEnrollments from './pages/admin/AdminEnrollments';
+import AdminStudentActivity from './pages/admin/AdminStudentActivity';
 import InstructorDashboard from './pages/InstructorDashboard';
 import InstructorShell from './pages/InstructorShell';
 import Landing from './pages/Landing';
@@ -128,11 +140,11 @@ function AppRoutes() {
         <Route path="/bundles/:id" element={<Protected><StudentAware><BundleView /></StudentAware></Protected>} />
         <Route path="/take-exam/:quizId" element={<Protected roles={['student']}><TakeExam /></Protected>} />
         <Route path="/review/:attemptId" element={<Protected><StudentAware><ExamReview /></StudentAware></Protected>} />
-        <Route path="/my-subjects" element={<Protected roles={['student']}><StudentShell><MySubjects /></StudentShell></Protected>} />
+        <Route path="/my-subjects" element={<Protected roles={['student', 'admin', 'instructor']}><StudentAware><MySubjects /></StudentAware></Protected>} />
         {/* Explore Bundles is now its own page rather than an anchor that
             scrolled the dashboard. */}
         <Route path="/explore" element={<Protected roles={['student']}><StudentShell><ExploreBundles /></StudentShell></Protected>} />
-        <Route path="/subjects/:subjectId" element={<Protected roles={['student']}><StudentShell><SubjectDetail /></StudentShell></Protected>} />
+        <Route path="/subjects/:subjectId" element={<Protected roles={['student', 'admin', 'instructor']}><StudentAware><SubjectDetail /></StudentAware></Protected>} />
         <Route path="/my-doubts" element={<Protected roles={['student']}><StudentShell><MyDoubts /></StudentShell></Protected>} />
         <Route path="/report-exam-question" element={<Protected roles={['student']}><StudentShell><ReportExamQuestion /></StudentShell></Protected>} />
         <Route path="/my-results" element={<Protected roles={['student']}><StudentShell><MyResults /></StudentShell></Protected>} />
@@ -145,10 +157,22 @@ function AppRoutes() {
           <Route index element={<AdminDashboard />} />
           <Route path="users" element={<AdminUsers />} />
           <Route path="batches" element={<AdminBatches />} />
+          <Route path="courses" element={<AdminCourses />} />
+          <Route path="quizzes" element={<AdminQuizzes />} />
+          <Route path="assignments" element={<AdminAssignments />} />
+          <Route path="exams" element={<AdminExams />} />
           <Route path="subjects-quizzes" element={<AdminSubjectsQuizzes />} />
           <Route path="bundles-pricing" element={<AdminBundlesPricing />} />
           <Route path="questions" element={<AdminQuestions />} />
           <Route path="mark-faq" element={<AdminMarkFAQ />} />
+          <Route path="purchases" element={<AdminPurchases />} />
+          <Route path="transactions" element={<AdminTransactions />} />
+          <Route path="refunds" element={<AdminRefunds />} />
+          <Route path="coupons" element={<AdminCoupons />} />
+          <Route path="students" element={<AdminStudents />} />
+          <Route path="students/:id" element={<AdminStudentDetail />} />
+          <Route path="enrollments" element={<AdminEnrollments />} />
+          <Route path="student-activity" element={<AdminStudentActivity />} />
           <Route path="reports" element={<AdminReports />} />
           <Route path="reports/:id" element={<AdminReportDetail />} />
           <Route path="instructor-doubts" element={<AdminInstructorDoubts />} />

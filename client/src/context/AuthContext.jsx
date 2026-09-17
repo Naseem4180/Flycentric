@@ -100,9 +100,13 @@ export function AuthProvider({ children }) {
     clearSession();
   }
 
+  const updateUser = useCallback((updatedUser) => {
+    setUser(updatedUser);
+  }, []);
+
   return (
     <AuthContext.Provider
-      value={{ user, loading, login, register, logout, sessionExpired, dismissExpired, authVersion }}
+      value={{ user, loading, login, register, logout, sessionExpired, dismissExpired, authVersion, updateUser }}
     >
       {children}
     </AuthContext.Provider>

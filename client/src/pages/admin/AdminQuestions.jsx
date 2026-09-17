@@ -642,7 +642,9 @@ export default function AdminQuestions() {
                       <td data-label="">
                         <input type="checkbox" checked={selected.has(q.id)} onChange={() => toggleOne(q.id)} aria-label={`Select question ${q.id}`} />
                       </td>
-                      <td data-label="Q.ID" className="td-nowrap td-strong">#{q.id}</td>
+                      <td data-label="Q.ID" className="td-nowrap">
+                        <span className="q-id-chip">#{q.id}</span>
+                      </td>
                       <td data-label="Subject">{subjectById[String(q.subject_id)]?.title || <span className="td-muted">—</span>}</td>
                       <td data-label="Chapter">{chapterById[String(q.chapter_id)]?.title || <span className="td-muted">—</span>}</td>
                       <td data-label="Subtopic">{(q.tags || [])[0] ? <Badge tone="cyan">{q.tags[0]}</Badge> : <span className="td-muted">—</span>}</td>
@@ -655,8 +657,12 @@ export default function AdminQuestions() {
                       </td>
                       <td data-label="Actions" className="td-actions">
                         <div className="btn-group">
-                          <Button size="xs" icon={Pencil} onClick={() => openEditor(q)}>Edit</Button>
-                          <Button size="xs" icon={ListPlus} onClick={() => { setQuizTarget({ ids: [q.id] }); setChosenQuiz(''); }}>Add to Quiz</Button>
+                          <button type="button" className="btn-edit-question" onClick={() => openEditor(q)}>
+                            <Pencil size={12} /> Edit
+                          </button>
+                          <button type="button" className="btn-add-to-quiz" onClick={() => { setQuizTarget({ ids: [q.id] }); setChosenQuiz(''); }}>
+                            <ListPlus size={12} /> Add to Quiz
+                          </button>
                           <RowMenu items={[
                             { label: 'Preview', icon: Eye, onClick: () => setPreviewQuestion(q) },
                             { label: 'Duplicate', icon: Copy, onClick: () => duplicateQuestion(q) },

@@ -6,7 +6,7 @@ import {
   EmptyState, ErrorState, Skeleton, Badge,
 } from '../../ui';
 
-const BLANK = { type: 'ticker', content: '', link_url: '', start_datetime: '', end_datetime: '', is_active: true };
+const BLANK = { type: 'ticker', content: '', link_url: '', start_datetime: '', end_datetime: '', is_active: true, target_audience: 'all' };
 
 function toLocalInput(iso) {
   if (!iso) return '';
@@ -55,6 +55,7 @@ export default function AdminNotifications() {
       start_datetime: toLocalInput(n.start_datetime),
       end_datetime: toLocalInput(n.end_datetime),
       is_active: n.is_active,
+      target_audience: n.target_audience || 'all',
     });
     setOpen(true);
   }
@@ -71,6 +72,7 @@ export default function AdminNotifications() {
         start_datetime: form.start_datetime ? new Date(form.start_datetime).toISOString() : null,
         end_datetime: form.end_datetime ? new Date(form.end_datetime).toISOString() : null,
         is_active: form.is_active,
+        target_audience: form.target_audience || 'all',
       };
       if (editing) {
         await api.patch(`/notifications/${editing.id}`, payload);
@@ -119,7 +121,7 @@ export default function AdminNotifications() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>Type</th><th>Content</th><th>Window</th><th>Status</th><th />
+                <th>Type</th><th>Content</th><th>Audience</th><th>Window</th><th>Status</th><th />
               </tr>
             </thead>
             <tbody>
@@ -132,7 +134,10 @@ export default function AdminNotifications() {
                         ? <Badge tone="orange"><Megaphone size={11} /> Banner</Badge>
                         : <Badge tone="blue"><Radio size={11} /> Ticker</Badge>}
                     </td>
-                    <td data-label="Content" style={{ maxWidth: 340 }}>{n.content}</td>
+                    <td data-label="Content" style={{ maxWidth: 320 }}>{n.content}</td>
+                    <td data-label="Audience" className="td-muted" style={{ textTransform: 'capitalize' }}>
+                      {n.target_audience || 'All'}
+                    </td>
                     <td data-label="Window" className="td-muted">
                       {n.start_datetime ? new Date(n.start_datetime).toLocaleString() : '—'}
                       {' → '}
@@ -163,12 +168,24 @@ export default function AdminNotifications() {
         )}
       >
         <form onSubmit={save}>
-          <div className="field">
-            <label htmlFor="n-type">Type</label>
-            <select id="n-type" value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}>
-              <option value="ticker">Ticker (soft, scrolling)</option>
-              <option value="banner">Banner (hard, prominent)</option>
-            </select>
+          <div className="form-grid">
+            <div className="field">
+              <label htmlFor="n-type">Type</label>
+              <select id="n-type" value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}>
+                <option value="ticker">Ticker (soft, scrolling)</option>
+                <option value="banner">Banner (hard, prominent)</option>
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="n-audience">Target Audience</label>
+              <select id="n-audience" value={form.target_audience} onChange={(e) => setForm((f) => ({ ...f, target_audience: e.target.value }))}>
+                <option value="all">All Users</option>
+                <option value="students">Students Only</option>
+                <option value="instructors">Instructors Only</option>
+                <option value="paid">Paid Course Students</option>
+                <option value="free">Free Students</option>
+              </select>
+            </div>
           </div>
           <div className="field">
             <label htmlFor="n-content">Content</label>

@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
@@ -16,23 +18,81 @@ function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
-router.post('/register', authLimiter, async (req, res) => {
-  const { email, password, name, role } = req.body;
-  if (!email || !password || !name) {
-    return res.status(400).json({ error: 'email, password, and name are required' });
+async function saveAvatarIfProvided(avatarData) {
+  if (!avatarData || typeof avatarData !== 'string') return null;
+  const trimmed = avatarData.trim();
+  if (!trimmed.startsWith('data:image/')) {
+    return trimmed;
   }
+  const matches = trimmed.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
+  if (!matches) return null;
+  const rawExt = matches[1].toLowerCase();
+  const ext = rawExt === 'jpeg' ? 'jpg' : rawExt;
+  const buffer = Buffer.from(matches[2], 'base64');
+  if (buffer.length > 4 * 1024 * 1024) {
+    throw new Error('Profile photo must be smaller than 4MB');
+  }
+  const uploadDir = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads', 'avatars');
+  await fs.promises.mkdir(uploadDir, { recursive: true });
+  const filename = `avatar_${Date.now()}_${crypto.randomBytes(6).toString('hex')}.${ext}`;
+  await fs.promises.writeFile(path.join(uploadDir, filename), buffer);
+  return `/uploads/avatars/${filename}`;
+}
+
+router.post('/register', authLimiter, async (req, res) => {
+  const {
+    email, password, name, phone, date_of_birth, country, city, avatar_data, avatar_url, role
+  } = req.body;
+
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: 'Full Name (as per official ID) is required' });
+  }
+  if (!email || !email.trim()) {
+    return res.status(400).json({ error: 'Email Address is required' });
+  }
+  if (!phone || !phone.trim()) {
+    return res.status(400).json({ error: 'Mobile Number is required' });
+  }
+  if (!password || password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  }
+  if (!date_of_birth) {
+    return res.status(400).json({ error: 'Date of Birth is required' });
+  }
+  if (!country || !country.trim()) {
+    return res.status(400).json({ error: 'Country is required' });
+  }
+
   const allowedSelfRoles = ['student', 'instructor', 'institution'];
   const finalRole = allowedSelfRoles.includes(role) ? role : 'student';
 
   try {
-    const existing = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+    const existing = await pool.query('SELECT id FROM users WHERE email = $1', [email.trim().toLowerCase()]);
     if (existing.rows.length) return res.status(409).json({ error: 'Email already registered' });
+
+    let savedAvatarUrl = null;
+    try {
+      savedAvatarUrl = await saveAvatarIfProvided(avatar_data || avatar_url);
+    } catch (photoErr) {
+      return res.status(400).json({ error: photoErr.message || 'Invalid profile photo' });
+    }
 
     const hash = await bcrypt.hash(password, 10);
     const result = await pool.query(
-      `INSERT INTO users (email, password_hash, name, role) VALUES ($1,$2,$3,$4)
-       RETURNING id, email, name, role, institution_id, created_at`,
-      [email, hash, name, finalRole]
+      `INSERT INTO users (email, password_hash, name, role, phone, date_of_birth, country, city, avatar_url)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       RETURNING id, email, name, role, institution_id, phone, date_of_birth, country, city, avatar_url, status, created_at`,
+      [
+        email.trim().toLowerCase(),
+        hash,
+        name.trim(),
+        finalRole,
+        phone.trim(),
+        date_of_birth,
+        country.trim(),
+        city ? city.trim() : null,
+        savedAvatarUrl,
+      ]
     );
     const user = result.rows[0];
     const accessToken = signAccessToken(user);
@@ -122,25 +182,50 @@ router.post('/refresh', async (req, res) => {
 
 router.get('/me', authenticate, async (req, res) => {
   const result = await pool.query(
-    'SELECT id, email, name, role, institution_id, status, date_of_birth, created_at FROM users WHERE id = $1',
+    'SELECT id, email, name, role, institution_id, status, phone, date_of_birth, country, city, avatar_url, created_at FROM users WHERE id = $1',
     [req.user.id]
   );
   if (!result.rows.length) return res.status(404).json({ error: 'User not found' });
   res.json({ user: result.rows[0] });
 });
 
-// Self-service profile update. Currently just name + date_of_birth — the
-// latter is what the Automated Birthday Greetings job (see jobs/scheduler.js)
-// keys off of; a user who never sets it simply never gets a birthday email.
+// Self-service profile update. Allows name, date_of_birth, phone, country, city, avatar_url.
 router.patch('/me', authenticate, async (req, res) => {
-  const { name, date_of_birth } = req.body;
+  const { name, date_of_birth, phone, country, city, avatar_data, avatar_url } = req.body;
+
+  let savedAvatarUrl = avatar_url !== undefined ? avatar_url : undefined;
+  if (avatar_data) {
+    try {
+      savedAvatarUrl = await saveAvatarIfProvided(avatar_data);
+    } catch (err) {
+      return res.status(400).json({ error: err.message || 'Invalid avatar photo' });
+    }
+  }
+
   const result = await pool.query(
     `UPDATE users SET
        name = COALESCE($1, name),
-       date_of_birth = CASE WHEN $3 THEN $2 ELSE date_of_birth END
-     WHERE id = $4
-     RETURNING id, email, name, role, institution_id, status, date_of_birth, created_at`,
-    [name || null, date_of_birth || null, date_of_birth !== undefined, req.user.id]
+       date_of_birth = CASE WHEN $3 THEN $2 ELSE date_of_birth END,
+       phone = CASE WHEN $5 THEN $4 ELSE phone END,
+       country = CASE WHEN $7 THEN $6 ELSE country END,
+       city = CASE WHEN $9 THEN $8 ELSE city END,
+       avatar_url = CASE WHEN $11 THEN $10 ELSE avatar_url END
+     WHERE id = $12
+     RETURNING id, email, name, role, institution_id, status, phone, date_of_birth, country, city, avatar_url, created_at`,
+    [
+      name || null,
+      date_of_birth || null,
+      date_of_birth !== undefined,
+      phone || null,
+      phone !== undefined,
+      country || null,
+      country !== undefined,
+      city || null,
+      city !== undefined,
+      savedAvatarUrl || null,
+      savedAvatarUrl !== undefined,
+      req.user.id,
+    ]
   );
   res.json({ user: result.rows[0] });
 });

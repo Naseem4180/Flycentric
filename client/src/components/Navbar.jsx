@@ -39,12 +39,28 @@ export default function Navbar() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [cmsHeader, setCmsHeader] = useState({
+    support_email: 'support@flycentric.in',
+    support_phone: '+91 98765 43210',
+    announcement: "India's smart aviation exam prep",
+  });
   const rootRef = useRef(null);
 
   const is = (p) => (location.pathname === p ? 'active' : '');
 
   // Close the mobile menu whenever the route changes.
   useEffect(() => { setMobileMenuOpen(false); }, [location.pathname]);
+
+  // Load CMS header utility info
+  useEffect(() => {
+    api.get('/content/homepage', { auth: false })
+      .then((d) => {
+        if (d.content?.header) {
+          setCmsHeader((prev) => ({ ...prev, ...d.content.header }));
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // The cart only ever holds the single bundle the person is about to check
   // out (see Checkout.jsx / localStorage 'fc_cart_bundle'), so the badge is
@@ -77,10 +93,13 @@ export default function Navbar() {
   function loadNotifications() {
     if (!user) return;
     if (user.role === 'admin') {
-      Promise.all([api.get('/doubts'), api.get('/questions/reports/queue')])
+      Promise.all([
+        api.get('/doubts').catch(() => ({ doubts: [] })),
+        api.get('/questions/reports/queue').catch(() => ({ reports: [] })),
+      ])
         .then(([doubts, reports]) => {
           setNotifications([
-            ...reports.reports.map((report) => ({
+            ...(reports?.reports || []).map((report) => ({
               id: `report-${report.id}`,
               type: 'report',
               targetId: report.id,
@@ -88,7 +107,7 @@ export default function Navbar() {
               message: `flagged a question: ${REASON_LABELS[report.reason] || report.reason}`,
               createdAt: report.created_at,
             })),
-            ...doubts.doubts.filter((d) => d.status === 'open').map((d) => ({
+            ...(doubts?.doubts || []).filter((d) => d.status === 'open').map((d) => ({
               id: `doubt-${d.id}`,
               type: 'doubt',
               targetId: d.id,
@@ -103,7 +122,7 @@ export default function Navbar() {
       api.get('/doubts')
         .then((doubts) => {
           setNotifications(
-            doubts.doubts.filter((d) => d.status === 'open').map((d) => ({
+            (doubts?.doubts || []).filter((d) => d.status === 'open').map((d) => ({
               id: `doubt-${d.id}`,
               type: 'doubt',
               targetId: d.id,
@@ -118,7 +137,7 @@ export default function Navbar() {
       api.get('/doubts')
         .then((doubts) => {
           setNotifications(
-            doubts.doubts.filter((d) => d.status === 'answered').map((d) => ({
+            (doubts?.doubts || []).filter((d) => d.status === 'answered').map((d) => ({
               id: `answered-${d.id}`,
               type: 'answered',
               targetId: d.id,
@@ -220,11 +239,11 @@ export default function Navbar() {
         <div className="navbar-utility">
           <div className="navbar-utility-inner">
             <div className="navbar-utility-left">
-              <span><Mail size={12} /> support@flycentric.in</span>
-              <span className="hide-sm"><Phone size={12} /> +91 98765 43210</span>
+              <span><Mail size={12} /> {cmsHeader.support_email}</span>
+              <span className="hide-sm"><Phone size={12} /> {cmsHeader.support_phone}</span>
             </div>
             <div className="navbar-utility-right">
-              <span className="navbar-utility-tag">India&apos;s smart aviation exam prep</span>
+              <span className="navbar-utility-tag">{cmsHeader.announcement}</span>
             </div>
           </div>
         </div>

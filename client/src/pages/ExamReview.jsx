@@ -48,6 +48,7 @@ export default function ExamReview() {
   const [reportFor, setReportFor] = useState(null);
   const [reportReason, setReportReason] = useState('appeared_in_exam_exact');
   const [reportNote, setReportNote] = useState('');
+  const [reportKeywords, setReportKeywords] = useState('');
   const [reportBusy, setReportBusy] = useState(false);
   const [reportError, setReportError] = useState('');
 
@@ -59,7 +60,7 @@ export default function ExamReview() {
       .catch(() => {});
   }, [attemptId]);
 
-  async function toggleBookmark(questionId) {
+  const toggleBookmark = async (questionId) => {
     const wasSaved = !!bookmarked[questionId];
     setBookmarked((prev) => ({ ...prev, [questionId]: !wasSaved }));
     try {
@@ -68,7 +69,7 @@ export default function ExamReview() {
     } catch {
       setBookmarked((prev) => ({ ...prev, [questionId]: wasSaved }));
     }
-  }
+  };
 
   // Opens the report picker. This used to be two chained window.prompt()
   // calls taking free text, which is both poor UX and now invalid — the
@@ -77,15 +78,25 @@ export default function ExamReview() {
     setReportFor(questionId);
     setReportReason('appeared_in_exam_exact');
     setReportNote('');
+    setReportKeywords('');
+    setReportError('');
   }
 
   async function submitReport() {
     if (reportFor == null) return;
+    const parts = reportKeywords.split(',').map((s) => s.trim()).filter(Boolean);
+    if (parts.length !== 2) {
+      setReportError('Please enter exactly two comma-separated keywords (e.g. wrong answer, regs 04)');
+      return;
+    }
     setReportBusy(true);
+    setReportError('');
     try {
-      await api.post(`/questions/${reportFor}/report`, {
+      await api.post('/questions/reports', {
+        question_id: reportFor,
         reason: reportReason,
         note: reportNote || undefined,
+        keywords: reportKeywords,
       });
       setReportSentFor((prev) => ({ ...prev, [reportFor]: true }));
       setReportFor(null);
@@ -129,7 +140,7 @@ export default function ExamReview() {
       <div className="container container-narrow">
         <div className="card review-summary-card">
           <div className="review-summary-main">
-            <div className="eyebrow">{quiz.title}</div>
+            <span style={{ fontSize: '.85rem', fontWeight: 600, color: 'var(--muted)' }}>{quiz.title}</span>
             <h2 className="review-summary-title">
               {attempt.score >= quiz.pass_percent ? 'Passed' : 'Not passed yet'}
             </h2>
@@ -269,7 +280,7 @@ export default function ExamReview() {
               </button>
             </div>
             <div className="doubt-panel-context">
-              <div className="eyebrow">The question you're asking about</div>
+              <strong style={{ fontSize: '.8rem', color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Question reference</strong>
               <p style={{ fontWeight: 600 }}>{doubtPanel.question_text}</p>
               <div className="stack" style={{ marginTop: 8 }}>
                 {(doubtPanel.options || []).map((opt) => (
@@ -327,6 +338,20 @@ export default function ExamReview() {
                 </select>
               </div>
               <div className="field">
+                <label htmlFor="er-keywords">Keywords (two comma-separated keywords)</label>
+                <input
+                  id="er-keywords"
+                  className="input"
+                  value={reportKeywords}
+                  onChange={(e) => setReportKeywords(e.target.value)}
+                  placeholder="e.g. wrong answer, regs 04"
+                  required
+                />
+                <small className="muted" style={{ display: 'block', marginTop: 4 }}>
+                  Enter exactly two keywords separated by a comma.
+                </small>
+              </div>
+              <div className="field">
                 <label htmlFor="er-note">Additional details (optional)</label>
                 <textarea id="er-note" rows={3} value={reportNote} onChange={(e) => setReportNote(e.target.value)} placeholder="Which exam, which centre, anything else useful…" />
               </div>
@@ -359,7 +384,7 @@ function TpqHeatmap({ review, questionTimings }) {
   return (
     <div className="card" style={{ marginBottom: 20 }}>
       <div className="flex-between">
-        <div className="eyebrow">Time per question</div>
+        <strong style={{ fontSize: '.95rem' }}>Time per question</strong>
         <div className="row" style={{ gap: 12, fontSize: '.72rem' }}>
           <span className="row" style={{ gap: 4 }}><span className="tpq-legend-dot tpq-rushed" /> Rushed (&lt;{RUSHED_SECONDS}s)</span>
           <span className="row" style={{ gap: 4 }}><span className="tpq-legend-dot tpq-ok" /> Steady</span>

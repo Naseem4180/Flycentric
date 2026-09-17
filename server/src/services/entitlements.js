@@ -21,6 +21,12 @@ async function grantBundleAccess({ userId, bundleId, grantedBy, reason, req }, c
   );
   const granted = result.rows.length > 0;
   if (granted) {
+    await db.query(
+      `INSERT INTO course_enrollments (user_id, bundle_id, enrollment_type, status)
+       VALUES ($1, $2, 'paid', 'active')
+       ON CONFLICT (user_id, bundle_id) DO UPDATE SET status = 'active'`,
+      [userId, bundleId]
+    ).catch(() => {});
     await logAudit({
       req, actorId: grantedBy, action: 'entitlement.grant', entityType: 'bundle', entityId: bundleId,
       meta: { userId, bundleId, reason: reason || 'unspecified' },
@@ -37,6 +43,10 @@ async function revokeBundleAccess({ userId, bundleId, revokedBy, reason, req }, 
   );
   const revoked = result.rows.length > 0;
   if (revoked) {
+    await db.query(
+      `UPDATE course_enrollments SET status = 'cancelled' WHERE user_id = $1 AND bundle_id = $2`,
+      [userId, bundleId]
+    ).catch(() => {});
     await logAudit({
       req, actorId: revokedBy, action: 'entitlement.revoke', entityType: 'bundle', entityId: bundleId,
       meta: { userId, bundleId, reason: reason || 'unspecified' },

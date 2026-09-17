@@ -95,18 +95,18 @@ export default function AppTopbar({ onToggleSidebar, quickLinks = [], onNotifica
         api.get('/doubts').catch(() => ({ doubts: [] })),
         api.get('/questions/reports/queue?status=open').catch(() => ({ reports: [] })),
       ]).then(([doubts, reports]) => [
-        ...reports.reports.map((r) => ({
+        ...(reports?.reports || []).map((r) => ({
           id: `report-${r.id}`, kind: 'report', tone: 'red',
           title: r.reporter_name || 'A student', message: 'flagged a question for review',
           at: r.created_at, to: `/admin/reports/${r.id}`,
         })),
-        ...doubts.doubts.filter((d) => d.status === 'open').map((d) => ({
+        ...(doubts?.doubts || []).filter((d) => d.status === 'open').map((d) => ({
           id: `doubt-${d.id}`, kind: 'doubt', tone: 'orange',
           title: d.student_name || 'A student', message: d.message || 'asked a question',
           at: d.created_at, to: '/admin/instructor-doubts',
         })),
       ])
-      : api.get('/doubts').then((doubts) => doubts.doubts
+      : api.get('/doubts').then((doubts) => (doubts?.doubts || [])
         .filter((d) => (user.role === 'student' ? d.status === 'answered' : d.status === 'open'))
         .map((d) => ({
           id: `${user.role}-${d.id}`, kind: 'doubt', tone: 'green',
@@ -115,8 +115,8 @@ export default function AppTopbar({ onToggleSidebar, quickLinks = [], onNotifica
           to: user.role === 'student' ? '/my-doubts' : '/instructor',
         }))).catch(() => []);
 
-    request.then((list) => setNotifications(list)).catch(() => setNotifications([]));
-    api.get('/notifications/reads').then((d) => setReadKeys(new Set(d.keys))).catch(() => {});
+    request.then((list) => setNotifications(list || [])).catch(() => setNotifications([]));
+    api.get('/notifications/reads').then((d) => setReadKeys(new Set(d?.keys || []))).catch(() => {});
   }, [user, isAdmin]);
 
   useEffect(() => { loadNotifications(); }, [loadNotifications]);
@@ -146,18 +146,18 @@ export default function AppTopbar({ onToggleSidebar, quickLinks = [], onNotifica
       const groups = [];
       if (isAdmin) {
         const [users, questions, batches, subjects] = await Promise.all([
-          api.get(`/admin/users?q=${encodeURIComponent(term)}&limit=4`).then((d) => d.users).catch(() => []),
-          api.get(`/questions?keywords=${encodeURIComponent(term)}&limit=4`).then((d) => d.questions).catch(() => []),
-          api.get('/batches').then((d) => d.batches.filter((b) => b.name?.toLowerCase().includes(term.toLowerCase())).slice(0, 4)).catch(() => []),
-          api.get(`/content/subjects?q=${encodeURIComponent(term)}`).then((d) => d.subjects.slice(0, 4)).catch(() => []),
+          api.get(`/admin/users?q=${encodeURIComponent(term)}&limit=4`).then((d) => d?.users || []).catch(() => []),
+          api.get(`/questions?keywords=${encodeURIComponent(term)}&limit=4`).then((d) => d?.questions || []).catch(() => []),
+          api.get('/batches').then((d) => (d?.batches || []).filter((b) => b.name?.toLowerCase().includes(term.toLowerCase())).slice(0, 4)).catch(() => []),
+          api.get(`/content/subjects?q=${encodeURIComponent(term)}`).then((d) => (d?.subjects || []).slice(0, 4)).catch(() => []),
         ]);
-        if (users.length) groups.push({ label: 'Users', items: users.map((u) => ({ key: `u${u.id}`, title: u.name, meta: u.email, to: `/admin/users?q=${encodeURIComponent(u.email)}` })) });
-        if (questions.length) groups.push({ label: 'Questions', items: questions.map((q) => ({ key: `q${q.id}`, title: q.question_text, meta: `#${q.id}`, to: `/admin/questions?q=${encodeURIComponent(String(q.id))}` })) });
-        if (batches.length) groups.push({ label: 'Batches', items: batches.map((b) => ({ key: `b${b.id}`, title: b.name, meta: `${b.student_count || 0} students`, to: '/admin/batches' })) });
-        if (subjects.length) groups.push({ label: 'Subjects', items: subjects.map((s) => ({ key: `s${s.id}`, title: s.title, meta: `${s.quiz_count || 0} quizzes`, to: '/admin/subjects-quizzes' })) });
+        if (users?.length) groups.push({ label: 'Users', items: users.map((u) => ({ key: `u${u.id}`, title: u.name, meta: u.email, to: `/admin/users?q=${encodeURIComponent(u.email)}` })) });
+        if (questions?.length) groups.push({ label: 'Questions', items: questions.map((q) => ({ key: `q${q.id}`, title: q.question_text, meta: `#${q.id}`, to: `/admin/questions?q=${encodeURIComponent(String(q.id))}` })) });
+        if (batches?.length) groups.push({ label: 'Batches', items: batches.map((b) => ({ key: `b${b.id}`, title: b.name, meta: `${b.student_count || 0} students`, to: '/admin/batches' })) });
+        if (subjects?.length) groups.push({ label: 'Subjects', items: subjects.map((s) => ({ key: `s${s.id}`, title: s.title, meta: `${s.quiz_count || 0} quizzes`, to: '/admin/subjects-quizzes' })) });
       } else {
-        const subjects = await api.get(`/content/subjects?q=${encodeURIComponent(term)}`).then((d) => d.subjects.slice(0, 6)).catch(() => []);
-        if (subjects.length) groups.push({ label: 'Subjects', items: subjects.map((s) => ({ key: `s${s.id}`, title: s.title, meta: '', to: '/my-subjects' })) });
+        const subjects = await api.get(`/content/subjects?q=${encodeURIComponent(term)}`).then((d) => (d?.subjects || []).slice(0, 6)).catch(() => []);
+        if (subjects?.length) groups.push({ label: 'Subjects', items: subjects.map((s) => ({ key: `s${s.id}`, title: s.title, meta: '', to: '/my-subjects' })) });
       }
       if (seq === searchSeq.current) { setSearchGroups(groups); setActiveIndex(0); setSearchOpen(true); }
     }, 240);
@@ -342,7 +342,13 @@ export default function AppTopbar({ onToggleSidebar, quickLinks = [], onNotifica
             aria-expanded={openPanel === 'avatar'}
             aria-label="Account menu"
           >
-            <span className="fc-avatar-circle">{initials}</span>
+            <span className="fc-avatar-circle" style={{ overflow: 'hidden' }}>
+              {user?.avatar_url ? (
+                <img src={user.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+              ) : (
+                initials
+              )}
+            </span>
             <span className="fc-avatar-meta">
               <strong>{user?.name}</strong>
               <span>{user?.role}</span>

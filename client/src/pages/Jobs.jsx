@@ -24,7 +24,6 @@ export default function Jobs() {
     <div className="page">
       <div className="container">
         <div className="page-header">
-          <div className="eyebrow">Careers</div>
           <h1>Aviation job board</h1>
         </div>
         <div className="grid grid-2">

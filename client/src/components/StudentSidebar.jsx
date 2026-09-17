@@ -1,30 +1,34 @@
-import { NavLink } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
 import SidebarBrand from './SidebarBrand';
 import SidebarProCard from './SidebarProCard';
 import {
   LayoutDashboard, BookOpen, MessageCircle, CalendarClock, History, Brain, LineChart, Compass,
-  Home, ListChecks,
+  Home, ListChecks, ChevronDown
 } from 'lucide-react';
 
-const NAV_GROUPS = [
+const STUDENT_NAV = [
   {
-    label: null,
-    items: [
-      // Home sits above Dashboard and shows the public marketing/updates page
-      // inside the app shell, so a logged-in student can read announcements
-      // and new bundles without signing out or leaving the product.
-      { to: '/home', icon: Home, label: 'Home' },
-      { to: '/', end: true, icon: LayoutDashboard, label: 'Dashboard' },
-    ],
+    type: 'link',
+    to: '/home',
+    icon: Home,
+    label: 'Home',
   },
   {
+    type: 'link',
+    to: '/',
+    end: true,
+    icon: LayoutDashboard,
+    label: 'Dashboard',
+  },
+  {
+    type: 'accordion',
+    id: 'learning',
     label: 'Learning',
-    items: [
+    icon: BookOpen,
+    children: [
       { to: '/explore', icon: Compass, label: 'Explore Bundles' },
       { to: '/my-subjects', icon: BookOpen, label: 'My Subjects' },
-      // Every published quiz an admin creates is reachable here. Without it a
-      // quiz filed under a subject (rather than a single chapter) had no route
-      // a student could actually reach.
       { to: '/quizzes', icon: ListChecks, label: 'Quizzes' },
       { to: '/my-results', icon: History, label: 'My Results' },
       { to: '/exam-history', icon: LineChart, label: 'Exam History' },
@@ -33,8 +37,11 @@ const NAV_GROUPS = [
     ],
   },
   {
+    type: 'accordion',
+    id: 'support',
     label: 'Support',
-    items: [
+    icon: MessageCircle,
+    children: [
       { to: '/my-doubts', icon: MessageCircle, label: 'My Doubts' },
       { to: '/report-exam-question', icon: CalendarClock, label: 'Report Exam Question' },
     ],
@@ -42,33 +49,103 @@ const NAV_GROUPS = [
 ];
 
 export default function StudentSidebar({ collapsed, onNavigate }) {
+  const location = useLocation();
+
+  const getActiveGroupId = (pathname) => {
+    for (const item of STUDENT_NAV) {
+      if (item.type === 'accordion' && item.children) {
+        if (item.children.some(child => pathname === child.to || pathname.startsWith(child.to + '/'))) {
+          return item.id;
+        }
+      }
+    }
+    return null;
+  };
+
+  const [openGroups, setOpenGroups] = useState(() => {
+    const active = getActiveGroupId(location.pathname);
+    const defaultGroup = active || 'learning';
+    return { [defaultGroup]: true };
+  });
+
+  useEffect(() => {
+    const active = getActiveGroupId(location.pathname);
+    if (active) {
+      setOpenGroups({ [active]: true });
+    }
+  }, [location.pathname]);
+
+  const toggleGroup = (id) => {
+    setOpenGroups(prev => (prev[id] ? {} : { [id]: true }));
+  };
+
   return (
     <aside className={`admin-sidebar student-sidebar ${collapsed ? 'collapsed' : ''}`}>
       <SidebarBrand collapsed={collapsed} />
       <nav className="admin-sidebar-nav">
-        {NAV_GROUPS.map((group, i) => (
-          <div className="admin-nav-group" key={group.label || `g${i}`}>
-            {group.label && !collapsed && <div className="sidebar-group-label">{group.label}</div>}
-            {group.items.map(({ to, end, icon: Icon, label }) => (
+        {STUDENT_NAV.map((item) => {
+          if (item.type === 'link') {
+            const Icon = item.icon;
+            return (
               <NavLink
-                key={to}
-                to={to}
-                end={end}
+                key={item.to}
+                to={item.to}
+                end={item.end}
                 onClick={onNavigate}
                 className={({ isActive }) => `admin-nav-link ${isActive ? 'active' : ''}`}
-                title={collapsed ? label : undefined}
+                title={collapsed ? item.label : undefined}
               >
-                <Icon size={18} strokeWidth={2.4} />
-                {!collapsed && <span>{label}</span>}
+                <Icon size={18} strokeWidth={2.2} />
+                {!collapsed && <span>{item.label}</span>}
               </NavLink>
-            ))}
-          </div>
-        ))}
+            );
+          }
+
+          if (item.type === 'accordion') {
+            const Icon = item.icon;
+            const isOpen = !!openGroups[item.id];
+            const isParentActive = item.children.some(
+              c => location.pathname === c.to || location.pathname.startsWith(c.to + '/')
+            );
+
+            return (
+              <div className="admin-accordion" key={item.id}>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(item.id)}
+                  className={`admin-accordion-header ${isOpen ? 'expanded' : ''} ${isParentActive ? 'is-active-parent' : ''}`}
+                  title={collapsed ? item.label : undefined}
+                  aria-expanded={isOpen}
+                >
+                  <Icon size={18} strokeWidth={2.2} className="header-icon" />
+                  {!collapsed && <span className="accordion-label">{item.label}</span>}
+                  {!collapsed && (
+                    <ChevronDown size={15} strokeWidth={2.5} className="accordion-chevron" />
+                  )}
+                </button>
+
+                {isOpen && !collapsed && (
+                  <div className="admin-accordion-body" role="group" aria-label={item.label}>
+                    {item.children.map(({ to, label }) => (
+                      <NavLink
+                        key={to}
+                        to={to}
+                        onClick={onNavigate}
+                        className={({ isActive }) => `admin-subnav-link ${isActive ? 'active' : ''}`}
+                      >
+                        <span className="admin-subnav-label">{label}</span>
+                      </NavLink>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          return null;
+        })}
       </nav>
 
-      {/* Dynamic — reflects whatever bundle Admin has published live in
-          Bundles & Pricing. Renders nothing if there's no live bundle yet,
-          and collapses to a small icon when the sidebar is collapsed. */}
       <SidebarProCard collapsed={collapsed} />
     </aside>
   );

@@ -65,7 +65,7 @@ export default function Support() {
   return (
     <div className="page">
       <div className="container support-layout">
-        <div className="page-header"><div className="eyebrow">Student support</div><h1>Questions, reports, and help</h1><p className="muted">Send a question to the FlyCentric review team and track the response here.</p></div>
+        <div className="page-header"><h1>Questions, reports, and help</h1><p className="muted">Send a question to the FlyCentric review team and track the response here.</p></div>
         {error && <div className="error-banner">{error}</div>}
 
         <div className="card support-compose">

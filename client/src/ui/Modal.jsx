@@ -22,10 +22,11 @@ function useDismiss(open, onClose) {
  * what the longer create/edit forms (Add User, New Batch, Add Question,
  * Import CSV) use.
  */
-export function Modal({ open, onClose, title, description, icon, size = '', variant = 'modal', footer, children }) {
-  useDismiss(open, onClose);
+export function Modal({ open = true, onClose, title, description, icon, size = '', variant = 'modal', footer, children }) {
+  const isOpen = open ?? true;
+  useDismiss(isOpen, onClose);
   const panelRef = useRef(null);
-  if (!open) return null;
+  if (!isOpen) return null;
 
   const isDrawer = variant === 'drawer';
   return createPortal(
@@ -63,6 +64,8 @@ const CONFIRM_TONES = {
   warning: { cls: 'tone-orange', Icon: AlertTriangle, btn: 'warning' },
   success: { cls: 'tone-green', Icon: ShieldAlert, btn: 'success' },
   primary: { cls: 'tone-purple', Icon: ShieldAlert, btn: 'primary' },
+  slate: { cls: 'tone-slate', Icon: AlertTriangle, btn: 'outline' },
+  secondary: { cls: 'tone-slate', Icon: AlertTriangle, btn: 'outline' },
 };
 
 /**
@@ -71,10 +74,11 @@ const CONFIRM_TONES = {
  * and cannot be double-clicked.
  */
 export function ConfirmModal({
-  open, onClose, onConfirm, title, message, warning,
+  open = true, onClose, onCancel, onConfirm, title, message, warning,
   confirmLabel = 'Confirm', cancelLabel = 'Cancel', tone = 'danger',
 }) {
   const [busy, setBusy] = useState(false);
+  const handleClose = onClose || onCancel;
   const { cls, Icon, btn } = CONFIRM_TONES[tone] || CONFIRM_TONES.danger;
 
   async function run() {
@@ -84,14 +88,14 @@ export function ConfirmModal({
 
   return (
     <Modal
-      open={open}
-      onClose={busy ? undefined : onClose}
+      open={open ?? true}
+      onClose={busy ? undefined : handleClose}
       size="sm"
       title={title}
       icon={<div className={`confirm-icon ${cls}`}><Icon size={20} /></div>}
       footer={(
         <>
-          <Button variant="outline" onClick={onClose} disabled={busy}>{cancelLabel}</Button>
+          <Button variant="outline" onClick={handleClose} disabled={busy}>{cancelLabel}</Button>
           <Button variant={btn} onClick={run} loading={busy} loadingLabel="Working…">{confirmLabel}</Button>
         </>
       )}

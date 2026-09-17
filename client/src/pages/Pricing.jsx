@@ -31,17 +31,25 @@ export default function Pricing() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [bundles, setBundles] = useState([]);
+  const [hasAccess, setHasAccess] = useState(false);
 
   useEffect(() => {
     api.get('/content/bundles?status=live').then((d) => setBundles(d.bundles)).catch(() => {});
-  }, []);
+    if (user?.role === 'student') {
+      api.get('/payments/my-access')
+        .then((res) => {
+          setHasAccess((res.bundles || []).length > 0);
+        })
+        .catch(() => setHasAccess(false));
+    }
+  }, [user]);
 
   function choosePro() {
+    if (hasAccess) {
+      navigate('/my-subjects');
+      return;
+    }
     if (!bundles.length) { navigate(user ? '/' : '/register'); return; }
-    // Reuses the existing single-bundle checkout flow — "Pro" maps to
-    // unlocking your first live course bundle rather than a separate
-    // subscription product, since that's the purchase path the platform
-    // already has wired up end to end.
     addToCart(bundles[0]);
     navigate(user?.role === 'student' ? '/checkout' : '/register');
   }
@@ -84,8 +92,8 @@ export default function Pricing() {
                   </li>
                 ))}
               </ul>
-              <button className="btn btn-hero full" onClick={choosePro}>
-                {user?.role === 'student' ? 'Upgrade to Pro' : 'Start with Pro'}
+              <button className="btn btn-hero full" onClick={choosePro} style={hasAccess ? { background: '#16a34a', borderColor: '#16a34a' } : undefined}>
+                {user?.role === 'student' ? (hasAccess ? 'Already Enrolled — Go to Courses →' : 'Upgrade to Pro') : 'Start with Pro'}
               </button>
             </article>
           </div>

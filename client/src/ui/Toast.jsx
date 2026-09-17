@@ -76,6 +76,9 @@ export function ToastProvider({ children }) {
 // Safe outside a provider (returns no-ops) so no page can crash on a toast.
 const NOOP = { success() {}, error() {}, warning() {}, info() {}, dismiss() {} };
 
-export default function useToast() {
+export function useToast() {
   return useContext(ToastContext) || NOOP;
 }
+
+export default useToast;
+

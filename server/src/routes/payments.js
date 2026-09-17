@@ -104,6 +104,14 @@ router.post('/webhook', async (req, res) => {
       { userId: payment.user_id, bundleId: payment.bundle_id, reason: 'payment.webhook', req },
       client
     );
+    // Sync the transactions table — this is what the Commerce admin screens
+    // read. Guard with NOT EXISTS so redelivered webhooks are harmless.
+    await client.query(
+      `INSERT INTO transactions (purchase_id, user_id, bundle_id, amount_inr, gateway, gateway_ref, status, payment_method)
+       SELECT $1, $2, $3, $4, 'razorpay', $5, 'successful', 'online'
+       WHERE NOT EXISTS (SELECT 1 FROM transactions WHERE purchase_id = $1)`,
+      [payment.id, payment.user_id, payment.bundle_id, payment.amount_inr, razorpay_payment_id || null]
+    );
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK');
@@ -126,7 +134,12 @@ router.post('/webhook', async (req, res) => {
 
 router.get('/my-access', authenticate, async (req, res) => {
   const result = await pool.query(
-    `SELECT b.* FROM bundle_access ba JOIN bundles b ON b.id = ba.bundle_id WHERE ba.user_id = $1`,
+    `SELECT DISTINCT b.* FROM bundles b
+     WHERE b.id IN (
+       SELECT bundle_id FROM bundle_access WHERE user_id = $1
+       UNION
+       SELECT bundle_id FROM course_enrollments WHERE user_id = $1 AND status = 'active'
+     )`,
     [req.user.id]
   );
   res.json({ bundles: result.rows });

@@ -481,7 +481,7 @@ export default function TakeExam() {
         <div className="page" style={{ background: 'var(--paper)' }}>
           <div className="container" style={{ maxWidth: 480, paddingTop: 40 }}>
             <div className="card exam-confirm-card">
-              <div className="eyebrow">Before you begin</div>
+              <span style={{ fontSize: '.8rem', color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 6 }}>Before you begin</span>
               <h2>Proceed with the exam?</h2>
               <p className="muted">
                 This is a timed attempt. Once you proceed, the exam opens in full-screen mode and the
@@ -744,15 +744,38 @@ export default function TakeExam() {
                 )}
               </div>
               <div className="cbt-bottombar">
-                <div className="cbt-bottombar-left">
-                  <button className="cbt-btn cbt-btn-mark" onClick={markForReviewAndNext}>Mark for Review &amp; Next</button>
-                </div>
-                <div className="cbt-bottombar-right">
-                  <button className="cbt-btn cbt-btn-nav" disabled={current === 0} onClick={() => goTo(current - 1)}>← Previous</button>
+                <button
+                  type="button"
+                  className="cbt-btn cbt-btn-nav"
+                  disabled={current === 0}
+                  onClick={() => goTo(current - 1)}
+                >
+                  ← Previous
+                </button>
+                <div className="cbt-bottombar-actions">
+                  <button
+                    type="button"
+                    className="cbt-btn cbt-btn-mark"
+                    onClick={markForReviewAndNext}
+                  >
+                    Mark for Review &amp; Next
+                  </button>
                   {current < questions.length - 1 ? (
-                    <button className="cbt-btn cbt-btn-save" onClick={saveAndNext}>Save &amp; Next</button>
+                    <button
+                      type="button"
+                      className="cbt-btn cbt-btn-save"
+                      onClick={saveAndNext}
+                    >
+                      Save &amp; Next
+                    </button>
                   ) : (
-                    <button className="cbt-btn cbt-btn-save" onClick={() => { flushTiming(); commitDraft(); setShowSummary(true); }}>Save &amp; Review</button>
+                    <button
+                      type="button"
+                      className="cbt-btn cbt-btn-save"
+                      onClick={() => { flushTiming(); commitDraft(); setShowSummary(true); }}
+                    >
+                      Save &amp; Review
+                    </button>
                   )}
                 </div>
               </div>
@@ -802,7 +825,7 @@ export default function TakeExam() {
           {reportOpen && (
             <div className="cbt-modal-overlay" role="dialog" aria-modal="true" onClick={() => setReportOpen(false)}>
               <div className="cbt-modal cbt-report-modal" onClick={(e) => e.stopPropagation()}>
-                <div className="eyebrow">Question No. {current + 1}</div>
+                <span style={{ fontSize: '.8rem', color: 'var(--muted)', fontWeight: 600, display: 'block', marginBottom: 4 }}>Question {current + 1}</span>
                 <h2>Report an issue</h2>
                 {reportSent ? (
                   <>
@@ -841,7 +864,7 @@ export default function TakeExam() {
           {showSummary && (
             <div className="cbt-modal-overlay" role="dialog" aria-modal="true">
               <div className="cbt-modal">
-                <div className="eyebrow">Exam summary</div>
+                <span style={{ fontSize: '.8rem', color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 6 }}>Exam summary</span>
                 <h2>Ready to submit?</h2>
                 <p className="muted">Review your progress before the final submission. This action cannot be undone.</p>
                 <div className="cbt-modal-stats">

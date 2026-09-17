@@ -34,14 +34,12 @@ export default function ResetPassword() {
     <div className="page login-page">
       <div className="container login-layout">
         <aside className="login-story">
-          <div className="eyebrow">FlyCentric / Account recovery</div>
           <h1>Choose a new password.</h1>
           <p>This link is single-use and expires an hour after it was requested. Signing in again elsewhere will require your new password.</p>
         </aside>
         <main className="card login-card">
           <div className="auth-logo-row"><BrandLogo size={36} to={null} /></div>
           <div className="page-header">
-            <div className="eyebrow">Reset password</div>
             <h2>Set a new password</h2>
           </div>
           {!token && <div className="error-banner">This reset link is missing its token. Request a new one from the forgot-password page.</div>}

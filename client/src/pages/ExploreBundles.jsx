@@ -22,6 +22,8 @@ export default function ExploreBundles() {
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState(null);
 
+  const [myAccessBundles, setMyAccessBundles] = useState([]);
+
   const load = useCallback(() => {
     setLoading(true);
     Promise.all([
@@ -30,7 +32,9 @@ export default function ExploreBundles() {
     ])
       .then(([b, access]) => {
         setBundles(b.bundles || []);
-        setAccessIds(new Set((access.bundles || []).map((x) => String(x.id))));
+        const accList = access.bundles || [];
+        setMyAccessBundles(accList);
+        setAccessIds(new Set(accList.map((x) => String(x.id))));
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -38,17 +42,23 @@ export default function ExploreBundles() {
 
   useEffect(() => { load(); }, [load, authVersion]);
 
+  // If a student purchases a paid course, hide corresponding free courses
+  const hasPaidCourse = useMemo(() => {
+    return myAccessBundles.some((b) => !b.is_free && Number(b.price_inr) > 0);
+  }, [myAccessBundles]);
+
   const visible = useMemo(() => {
     const term = search.trim().toLowerCase();
     return bundles.filter((b) => {
       const free = b.is_free || !Number(b.price_inr);
+      if (hasPaidCourse && free) return false;
       if (priceFilter === 'free' && !free) return false;
       if (priceFilter === 'paid' && free) return false;
       if (priceFilter === 'enrolled' && !accessIds.has(String(b.id))) return false;
       if (!term) return true;
       return `${b.title} ${b.description || ''} ${b.exam_type || ''}`.toLowerCase().includes(term);
     });
-  }, [bundles, search, priceFilter, accessIds]);
+  }, [bundles, search, priceFilter, accessIds, hasPaidCourse]);
 
   async function enrollFree(bundle) {
     setBusyId(bundle.id);
@@ -70,7 +80,6 @@ export default function ExploreBundles() {
   return (
     <div className="admin-main-inner">
       <div className="page-header">
-        <div className="eyebrow">Course catalogue</div>
         <h1>Explore bundles</h1>
         <p className="muted">Choose a free learning path or add a paid bundle to your cart.</p>
       </div>

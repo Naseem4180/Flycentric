@@ -27,14 +27,12 @@ export default function ForgotPassword() {
     <div className="page login-page">
       <div className="container login-layout">
         <aside className="login-story">
-          <div className="eyebrow">FlyCentric / Account recovery</div>
           <h1>Lost access? Let's get you back in.</h1>
           <p>We'll generate a secure, one-time reset link for your account. It expires in an hour and can only be used once.</p>
         </aside>
         <main className="card login-card">
           <div className="auth-logo-row"><BrandLogo size={36} to={null} /></div>
           <div className="page-header">
-            <div className="eyebrow">Reset password</div>
             <h2>Forgot your password?</h2>
             <p className="muted">Enter the email on your account and we'll send you a reset link.</p>
           </div>

@@ -131,7 +131,6 @@ export default function ExamHistory() {
   return (
     <div className="admin-main-inner exam-history">
       <div className="page-header">
-        <div className="eyebrow">Your progress</div>
         <h1>Exam History</h1>
         <p className="muted">
           Every lesson you can take, with each attempt scored separately — best, latest and your first three tries.
@@ -168,7 +167,7 @@ export default function ExamHistory() {
             </span>
           </div>
 
-          <div className="eyebrow eh-section-label">Subjects ({subjects.length})</div>
+          <div className="eh-section-label">Subjects ({subjects.length})</div>
           <div className="eh-subject-grid">
             {subjects.map((s) => {
               const key = String(s.subject_id ?? 'none');

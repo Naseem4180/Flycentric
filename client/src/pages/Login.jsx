@@ -36,7 +36,6 @@ export default function Login() {
           </div>
 
           <div className="auth-header">
-            <div className="auth-eyebrow">Secure sign in</div>
             <h1 id="login-title">Welcome aboard.</h1>
             <p>Continue your personalised flight plan.</p>
           </div>
@@ -67,9 +66,35 @@ export default function Login() {
             No account? <Link to="/register">Register as a student</Link>
           </p>
 
-          <p className="auth-demo-text">
-            Demo logins (password: Password123!): admin@flycentric.in · instructor@flycentric.in · student@flycentric.in
-          </p>
+          <div className="auth-demo-box">
+            <div className="auth-demo-header">
+              <span>Quick test logins</span>
+              <span>pwd: <code>Password123!</code></span>
+            </div>
+            <div className="auth-demo-actions">
+              <button
+                type="button"
+                className={`auth-demo-btn ${email === 'student@flycentric.in' ? 'active' : ''}`}
+                onClick={() => { setEmail('student@flycentric.in'); setPassword('Password123!'); }}
+              >
+                Student
+              </button>
+              <button
+                type="button"
+                className={`auth-demo-btn ${email === 'instructor@flycentric.in' ? 'active' : ''}`}
+                onClick={() => { setEmail('instructor@flycentric.in'); setPassword('Password123!'); }}
+              >
+                Instructor
+              </button>
+              <button
+                type="button"
+                className={`auth-demo-btn ${email === 'admin@flycentric.in' ? 'active' : ''}`}
+                onClick={() => { setEmail('admin@flycentric.in'); setPassword('Password123!'); }}
+              >
+                Admin
+              </button>
+            </div>
+          </div>
         </main>
       </div>
     </div>

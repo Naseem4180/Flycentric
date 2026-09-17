@@ -13,21 +13,26 @@ export default function MySubjects() {
   useEffect(() => {
     const fullAccess = user && user.role !== 'student';
     const load = fullAccess
-      ? api.get('/content/subjects')
+      ? api.get('/content/subjects').catch(() => ({ subjects: [] }))
       : api.get('/payments/my-access').then(async (access) => {
-          const bundleIds = access.bundles.map((b) => b.id);
-          const results = await Promise.all(bundleIds.map((id) => api.get(`/content/bundles/${id}/subjects`)));
+          const bundleIds = (access?.bundles || []).map((b) => b.id);
+          const results = await Promise.all(
+            bundleIds.map((id) => api.get(`/content/bundles/${id}/subjects`).catch(() => ({ subjects: [] })))
+          );
           const seen = new Map();
-          results.forEach((r) => r.subjects.forEach((s) => seen.set(s.id, s)));
+          results.forEach((r) => (r?.subjects || []).forEach((s) => seen.set(s.id, s)));
           return { subjects: Array.from(seen.values()) };
-        });
-    load.then((d) => setSubjects(d.subjects)).finally(() => setLoading(false));
+        }).catch(() => ({ subjects: [] }));
+    load
+      .then((d) => setSubjects(d?.subjects || []))
+      .catch(() => setSubjects([]))
+      .finally(() => setLoading(false));
   }, [user]);
 
 
   return (
     <div className="admin-main-inner">
-      <div className="page-header"><div className="eyebrow">Learning library</div><h1>My Subjects</h1><p className="muted">Open a subject to see its chapters, assignments and progress.</p></div>
+      <div className="page-header"><h1>My Subjects</h1><p className="muted">Open a subject to see its chapters, assignments and progress.</p></div>
       {loading ? (
         <PageSkeleton label="Loading subjects" />
       ) : subjects.length ? (
@@ -37,7 +42,9 @@ export default function MySubjects() {
               <span className="icon-box icon-box-sm tone-purple"><BookOpen size={16} /></span>
               <div className="subject-card-body">
                 <h3>{s.title}</h3>
-                <p className="muted">{s.description || 'Open to see chapters, assignments and your progress.'}</p>
+                <p className="muted" style={{ fontSize: '.84rem', lineHeight: 1.45, marginTop: 4 }}>
+                  {s.description ? s.description.replace(/<[^>]*>?/gm, '').trim() : 'Open to see chapters, assignments and your progress.'}
+                </p>
               </div>
               <Badge tone="purple">Open</Badge>
               <ChevronRight size={17} className="muted" />

@@ -97,7 +97,6 @@ export default function StudentAnalytics() {
     <div className="page">
       <div className="container">
         <div className="page-header">
-          <div className="eyebrow">Your progress</div>
           <h1>Exam History</h1>
           <div className="field" style={{ maxWidth: 300, marginTop: 14 }}>
             <label>Filter by subject</label>
@@ -130,7 +129,7 @@ export default function StudentAnalytics() {
 
         <div className="card" style={{ marginTop: 18 }}>
           <div className="flex-between">
-            <div className="eyebrow">Activity history</div>
+            <strong style={{ fontSize: '1rem' }}>Activity history</strong>
             <div className="row" style={{ gap: 6 }}>
               {RANGES.map((r) => (
                 <button
@@ -173,7 +172,7 @@ export default function StudentAnalytics() {
             of only as one flat overall percentage. */}
         {radarData.length >= 3 && (
           <div className="card" style={{ marginTop: 18 }}>
-            <div className="eyebrow">Domain mastery — you vs batch average</div>
+            <strong style={{ fontSize: '1rem' }}>Domain mastery — you vs batch average</strong>
             <div style={{ height: 320, marginTop: 10 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <RadarChart data={radarData} outerRadius="72%">

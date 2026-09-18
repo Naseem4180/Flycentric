@@ -136,11 +136,7 @@ export default function AdminQuestions() {
   /* ------------------------------------------------------------------ */
   /* Data loading                                                        */
   /* ------------------------------------------------------------------ */
-  // Filters are applied SERVER-SIDE. Previously this fetched a flat
-  // `?limit=500` and filtered in the browser, so as soon as the bank grew past
-  // 500 questions any filter silently missed everything outside the newest
-  // 500 rows — which is why filtering "didn't work". The backend already
-  // supported these query params; they just were never sent.
+  // Server-side filtered query for question bank retrieval
   const loadQuestions = useCallback(() => {
     setError('');
     setLoadingQuestions(true);

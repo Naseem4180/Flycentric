@@ -1,13 +1,5 @@
-// Automated Email Engine + Inactivity Timeout safety net.
-//
-// This process has no external cron/OS scheduler available (see README —
-// the sandbox this was built in can't provision one), so each "Cron job"
-// described in the BRD is implemented as a setInterval loop that wakes up
-// periodically and checks whether it's due, guarded by a per-user/per-row
-// timestamp so it is safe to run more than once a day without double-sending.
-// In a real deployment these checks are equally happy to be triggered by an
-// actual system cron hitting a `run()` call instead of the interval below —
-// swapping that in is a one-line change (see start() at the bottom).
+// Automated Email Engine and Inactivity Timeout Sweeper
+// Periodic background worker that manages notifications, reports, and idle sessions.
 
 const pool = require('../db/pool');
 const { enqueueMail } = require('../utils/mailQueue');

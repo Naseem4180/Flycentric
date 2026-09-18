@@ -41,16 +41,7 @@ router.post('/enroll-free', authenticate, authorize('student'), async (req, res)
   res.status(201).json({ ok: true, granted });
 });
 
-// Server-side webhook — the source of truth for payment confirmation, per BRD
-// Phase 5 requirement (not client-side verification alone).
-//
-// Signature verification: when RAZORPAY_WEBHOOK_SECRET is configured, the
-// request is rejected unless `x-razorpay-signature` is a valid HMAC-SHA256
-// of the *raw* request body under that secret — this is what makes the
-// webhook trustworthy as a source of truth rather than an open endpoint
-// anyone could POST to. Without a secret configured (local/dev), signature
-// checking is skipped so the flow can still be exercised end-to-end, but a
-// warning is logged so this is never silently the case in production.
+// Server-side payment webhook handler with HMAC-SHA256 signature verification.
 router.post('/webhook', async (req, res) => {
   const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
   if (webhookSecret) {

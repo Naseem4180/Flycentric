@@ -102,11 +102,7 @@ export default function TakeExam() {
   const entryTimeRef = useRef(Date.now());
   const { user } = useAuth();
 
-  // Request fullscreen synchronously inside the click handler (required for the
-  // browser to honor it as a genuine user gesture), THEN kick off the async
-  // fetch. The container div is always mounted (see render below) so the ref
-  // is guaranteed to exist at click time — this fixes the earlier bug where
-  // fullscreen silently no-op'd because the target div hadn't rendered yet.
+  // Request fullscreen and initialize exam attempt
   function beginExam() {
     containerRef.current?.requestFullscreen?.().catch(() => {});
     setConfirmed(true);
@@ -146,10 +142,7 @@ export default function TakeExam() {
     return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
   }, [confirmed]);
 
-  // Exam Stress Mode — tab-switch / app-switch detection. This can't (and
-  // shouldn't) block the OS from letting someone switch away, but it does
-  // give a visible, persistent warning banner + running count, the same way
-  // real proctoring software flags — rather than silently allowing it.
+  // Exam Proctoring: track window focus and tab switches
   useEffect(() => {
     function onVisibilityChange() {
       if (document.hidden && confirmed && !submittedRef.current) {
@@ -160,9 +153,7 @@ export default function TakeExam() {
     return () => document.removeEventListener('visibilitychange', onVisibilityChange);
   }, [confirmed]);
 
-  // Exam Stress Mode — disable copy/paste/right-click on the question
-  // content itself (not on text-answer inputs, which still need normal
-  // typing/paste for legitimate use) while an attempt is live.
+  // Exam Proctoring: prevent unauthorized copy/cut/context menu on question text
   useEffect(() => {
     if (!confirmed) return undefined;
     function block(e) {
@@ -180,10 +171,7 @@ export default function TakeExam() {
     };
   }, [confirmed]);
 
-  // Exam Stress Mode — disable pausing: block the browser back/forward
-  // navigation from silently leaving a live attempt. A real exit still goes
-  // through the explicit Exit button (which itself doesn't submit either —
-  // it just leaves fullscreen — but at least this isn't a silent back-swipe).
+  // Exam Proctoring: prevent accidental back/forward browser navigation during live attempt
   useEffect(() => {
     if (!confirmed) return undefined;
     function onPopState() {

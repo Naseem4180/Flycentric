@@ -1,10 +1,4 @@
 require('dotenv').config();
-// MUST be required before any route files are imported: it monkey-patches
-// Express's router methods so that a rejected promise inside an
-// `async (req, res) => {...}` handler is forwarded to the error-handling
-// middleware below instead of leaving the HTTP request hanging forever
-// with no response (which is what a missing/failed DB migration looked
-// like from the browser — requests stuck at "(pending)" in devtools).
 require('express-async-errors');
 const express = require('express');
 const nodePath = require('path');
@@ -26,9 +20,7 @@ const paymentRoutes = require('./routes/payments');
 const notificationRoutes = require('./routes/notifications');
 const uploadRoutes = require('./routes/uploads');
 
-// Safety net: an unhandled rejection in a route (e.g. a bad query) should
-// not take the whole API down. Log it; the request that triggered it will
-// simply hang/timeout rather than crashing every other in-flight request.
+// Process error listeners
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled rejection:', reason);
 });
@@ -38,10 +30,7 @@ process.on('uncaughtException', (err) => {
 
 const app = express();
 
-// CORS: restricted to an explicit allowlist (CORS_ORIGINS, comma-separated)
-// in production. Falls back to permissive-with-a-warning in development so
-// local/LAN dev setups (see api.js's hostname-based BASE_URL) keep working
-// without every developer having to set the env var.
+// Allowed CORS origins
 const allowedOrigins = (process.env.CORS_ORIGINS || '')
   .split(',')
   .map((o) => o.trim())

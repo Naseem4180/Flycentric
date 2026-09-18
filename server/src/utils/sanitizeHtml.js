@@ -1,11 +1,5 @@
-// Minimal allowlist HTML sanitizer — used for the one rich-text field in the
-// app (Subject Description). Intentionally NOT a general-purpose sanitizer:
-// it strips to a small, safe tag/attribute allowlist suitable for a short
-// marketing-style blurb (bold/italic/underline, links, paragraphs, lists),
-// and removes everything else (script/style/iframe/on*-handlers/etc)
-// entirely. A real dependency (e.g. `sanitize-html`) would be preferable in
-// a live deploy with network access to install it; this keeps the sandbox
-// build dependency-free while still closing the obvious XSS holes.
+// HTML sanitizer for rich-text descriptions
+// Strips unsafe tags and attributes to ensure clean formatting.
 
 const ALLOWED_TAGS = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'A', 'P', 'BR', 'UL', 'OL', 'LI', 'SPAN']);
 const ALLOWED_ATTRS = { A: ['href'] };

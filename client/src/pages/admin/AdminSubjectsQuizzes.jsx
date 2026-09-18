@@ -113,9 +113,7 @@ export default function AdminSubjectsQuizzes() {
     }
   }, []);
 
-  // The picker always has the FULL bank available: a freshly-imported question
-  // often has no subject yet, and fetching only one page silently hid every
-  // question past the first 500 from the quiz builder.
+  // Load complete question bank for quiz assignment picker
   const loadQuestions = useCallback(async () => {
     const pageSize = 500;
     const collected = [];

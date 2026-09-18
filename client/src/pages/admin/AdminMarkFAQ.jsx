@@ -63,8 +63,7 @@ export default function AdminMarkFAQ() {
     loadAppearances();
   }, [loadTotals, loadAppearances]);
 
-  // The search now always sends a bounded query and reports what it found, so
-  // an empty form no longer silently dumps the whole bank with no feedback.
+  // Search questions with filters and bounded limit
   const runSearch = useCallback(async (e) => {
     e?.preventDefault();
     setSearching(true);

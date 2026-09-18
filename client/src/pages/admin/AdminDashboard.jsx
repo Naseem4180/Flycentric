@@ -241,7 +241,7 @@ export default function AdminDashboard() {
                 <div className="kpi-label">This Month</div>
               </div>
             </div>
-            <div className="row row-between" style={{ padding: '8px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid var(--border)' }}>
+            <div className="row row-between" style={{ padding: '8px 12px', background: 'var(--surface-alt)', borderRadius: 8, border: '1px solid var(--border)' }}>
               <span className="td-muted" style={{ fontSize: '0.82rem' }}>Settled Refunds:</span>
               <Badge tone="orange">{overview.refundsCount || 0} refunds</Badge>
             </div>

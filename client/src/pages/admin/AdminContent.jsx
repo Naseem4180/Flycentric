@@ -535,9 +535,10 @@ export default function AdminContent() {
       />
 
       {/* Mode Switcher Tabs */}
+      {/* Mode Switcher Tabs */}
       <div style={{
         display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 22,
-        background: '#f1f5f9', padding: 4, borderRadius: 10, border: '1px solid #e2e8f0'
+        background: 'var(--surface-alt)', padding: 4, borderRadius: 10, border: '1px solid var(--border)'
       }}>
         <button
           type="button"
@@ -545,10 +546,10 @@ export default function AdminContent() {
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 8,
             padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer',
-            background: managerMode === 'homepage' ? '#ffffff' : 'transparent',
-            color: managerMode === 'homepage' ? '#1d4ed8' : '#64748b',
+            background: managerMode === 'homepage' ? 'var(--surface)' : 'transparent',
+            color: managerMode === 'homepage' ? 'var(--primary)' : 'var(--muted)',
             fontWeight: 700, fontSize: '.88rem',
-            boxShadow: managerMode === 'homepage' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+            boxShadow: managerMode === 'homepage' ? 'var(--shadow-sm)' : 'none',
             transition: 'all .15s ease'
           }}
         >
@@ -562,10 +563,10 @@ export default function AdminContent() {
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 8,
             padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer',
-            background: managerMode === 'curriculum' ? '#ffffff' : 'transparent',
-            color: managerMode === 'curriculum' ? '#1d4ed8' : '#64748b',
+            background: managerMode === 'curriculum' ? 'var(--surface)' : 'transparent',
+            color: managerMode === 'curriculum' ? 'var(--primary)' : 'var(--muted)',
             fontWeight: 700, fontSize: '.88rem',
-            boxShadow: managerMode === 'curriculum' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+            boxShadow: managerMode === 'curriculum' ? 'var(--shadow-sm)' : 'none',
             transition: 'all .15s ease'
           }}
         >
@@ -597,14 +598,14 @@ export default function AdminContent() {
                     style={{
                       display: 'inline-flex', alignItems: 'center', gap: 6,
                       padding: '7px 13px', borderRadius: 8, border: 'none',
-                      background: isActive ? '#eff6ff' : 'transparent',
-                      color: isActive ? '#1d4ed8' : '#475569',
+                      background: isActive ? 'var(--primary-light)' : 'transparent',
+                      color: isActive ? 'var(--primary)' : 'var(--muted)',
                       fontWeight: isActive ? 700 : 600, fontSize: '.84rem',
-                      boxShadow: isActive ? 'inset 0 0 0 1px #bfdbfe' : 'none',
+                      boxShadow: isActive ? 'inset 0 0 0 1px var(--primary)' : 'none',
                       cursor: 'pointer', transition: 'all .12s ease'
                     }}
                   >
-                    <Icon size={14} style={{ color: isActive ? '#2563eb' : '#64748b' }} />
+                    <Icon size={14} style={{ color: isActive ? 'var(--primary)' : 'var(--muted)' }} />
                     <span>{sec.label}</span>
                   </button>
                 );
@@ -633,7 +634,7 @@ export default function AdminContent() {
               <Card>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18, borderBottom: '1px solid var(--border)', paddingBottom: 14 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{ width: 34, height: 34, borderRadius: 8, background: '#eff6ff', color: '#2563eb', display: 'grid', placeItems: 'center' }}>
+                    <div style={{ width: 34, height: 34, borderRadius: 8, background: 'var(--primary-light)', color: 'var(--primary)', display: 'grid', placeItems: 'center' }}>
                       <Sparkles size={18} />
                     </div>
                     <div>
@@ -740,22 +741,22 @@ export default function AdminContent() {
                     <span style={{ fontSize: '.72rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)', letterSpacing: '.06em', display: 'block', marginBottom: 10 }}>
                       Live Preview
                     </span>
-                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 24, textAlign: 'center' }}>
-                      <span style={{ display: 'inline-block', fontSize: '.75rem', fontWeight: 700, padding: '4px 12px', borderRadius: 999, background: '#eff6ff', color: '#1d4ed8', marginBottom: 12 }}>
+                    <div style={{ background: 'var(--surface-alt)', border: '1px solid var(--border)', borderRadius: 12, padding: 24, textAlign: 'center' }}>
+                      <span style={{ display: 'inline-block', fontSize: '.75rem', fontWeight: 700, padding: '4px 12px', borderRadius: 999, background: 'var(--primary-light)', color: 'var(--primary)', marginBottom: 12 }}>
                         {cms.hero.pill || 'Badge Pill'}
                       </span>
-                      <h2 style={{ fontSize: '1.6rem', fontWeight: 800, margin: '0 0 8px 0', color: '#0f172a' }}>
+                      <h2 style={{ fontSize: '1.6rem', fontWeight: 800, margin: '0 0 8px 0', color: 'var(--text)' }}>
                         {cms.hero.headline_main || 'Master the skies.'}{' '}
-                        <span style={{ color: '#2563eb' }}>{cms.hero.headline_accent || 'Clear DGCA exams.'}</span>
+                        <span style={{ color: 'var(--primary)' }}>{cms.hero.headline_accent || 'Clear DGCA exams.'}</span>
                       </h2>
-                      <p style={{ maxWidth: 540, margin: '0 auto 16px auto', fontSize: '.88rem', color: '#64748b' }}>
+                      <p style={{ maxWidth: 540, margin: '0 auto 16px auto', fontSize: '.88rem', color: 'var(--muted)' }}>
                         {cms.hero.subtitle || 'Adaptive mock tests and study plans.'}
                       </p>
                       <div style={{ display: 'flex', justifyContent: 'center', gap: 10 }}>
-                        <span style={{ background: '#2563eb', color: '#fff', padding: '8px 18px', borderRadius: 8, fontSize: '.84rem', fontWeight: 600 }}>
+                        <span style={{ background: 'var(--primary)', color: '#fff', padding: '8px 18px', borderRadius: 8, fontSize: '.84rem', fontWeight: 600 }}>
                           {cms.hero.primary_btn_text}
                         </span>
-                        <span style={{ background: '#fff', color: '#334155', border: '1px solid #cbd5e1', padding: '8px 18px', borderRadius: 8, fontSize: '.84rem', fontWeight: 600 }}>
+                        <span style={{ background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', padding: '8px 18px', borderRadius: 8, fontSize: '.84rem', fontWeight: 600 }}>
                           {cms.hero.secondary_btn_text}
                         </span>
                       </div>
@@ -770,7 +771,7 @@ export default function AdminContent() {
               <Card>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18, borderBottom: '1px solid var(--border)', paddingBottom: 14 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{ width: 34, height: 34, borderRadius: 8, background: '#ecfdf5', color: '#059669', display: 'grid', placeItems: 'center' }}>
+                    <div style={{ width: 34, height: 34, borderRadius: 8, background: 'var(--success-light)', color: 'var(--success)', display: 'grid', placeItems: 'center' }}>
                       <CheckCircle2 size={18} />
                     </div>
                     <div>
@@ -870,19 +871,19 @@ export default function AdminContent() {
                     <span style={{ fontSize: '.72rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)', letterSpacing: '.06em', display: 'block', marginBottom: 10 }}>
                       Live Preview
                     </span>
-                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20 }}>
-                      <h3 style={{ margin: '0 0 6px 0', fontSize: '1.15rem', color: '#0f172a', textAlign: 'center' }}>
+                    <div style={{ background: 'var(--surface-alt)', border: '1px solid var(--border)', borderRadius: 12, padding: 20 }}>
+                      <h3 style={{ margin: '0 0 6px 0', fontSize: '1.15rem', color: 'var(--text)', textAlign: 'center' }}>
                         {cms.features_section.title}
                       </h3>
-                      <p style={{ margin: '0 auto 16px auto', fontSize: '.84rem', color: '#64748b', textAlign: 'center', maxWidth: 480 }}>
+                      <p style={{ margin: '0 auto 16px auto', fontSize: '.84rem', color: 'var(--muted)', textAlign: 'center', maxWidth: 480 }}>
                         {cms.features_section.subtitle}
                       </p>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
                         {(cms.features_section.items || []).map((feat, idx) => (
-                          <div key={idx} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12 }}>
+                          <div key={idx} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
                             <div style={{ fontSize: '1.2rem', marginBottom: 6 }}>{feat.icon || '✦'}</div>
-                            <strong style={{ display: 'block', fontSize: '.88rem', color: '#0f172a', marginBottom: 4 }}>{feat.title}</strong>
-                            <p style={{ margin: 0, fontSize: '.78rem', color: '#64748b', lineHeight: 1.4 }}>{feat.text}</p>
+                            <strong style={{ display: 'block', fontSize: '.88rem', color: 'var(--text)', marginBottom: 4 }}>{feat.title}</strong>
+                            <p style={{ margin: 0, fontSize: '.78rem', color: 'var(--muted)', lineHeight: 1.4 }}>{feat.text}</p>
                           </div>
                         ))}
                       </div>
@@ -897,7 +898,7 @@ export default function AdminContent() {
               <Card>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18, borderBottom: '1px solid var(--border)', paddingBottom: 14 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{ width: 34, height: 34, borderRadius: 8, background: '#e0f2fe', color: '#0284c7', display: 'grid', placeItems: 'center' }}>
+                    <div style={{ width: 34, height: 34, borderRadius: 8, background: 'var(--primary-light)', color: 'var(--primary)', display: 'grid', placeItems: 'center' }}>
                       <PackageSearch size={18} />
                     </div>
                     <div>
@@ -949,14 +950,14 @@ export default function AdminContent() {
                     <span style={{ fontSize: '.72rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)', letterSpacing: '.06em', display: 'block', marginBottom: 10 }}>
                       Live Preview
                     </span>
-                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20, textAlign: 'center' }}>
-                      <span style={{ fontSize: '.74rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', color: '#0284c7', display: 'block', marginBottom: 6 }}>
+                    <div style={{ background: 'var(--surface-alt)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, textAlign: 'center' }}>
+                      <span style={{ fontSize: '.74rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--primary)', display: 'block', marginBottom: 6 }}>
                         {cms.courses_section.kicker}
                       </span>
-                      <h3 style={{ margin: '0 0 6px 0', fontSize: '1.25rem', color: '#0f172a' }}>
+                      <h3 style={{ margin: '0 0 6px 0', fontSize: '1.25rem', color: 'var(--text)' }}>
                         {cms.courses_section.title}
                       </h3>
-                      <p style={{ margin: '0 auto', fontSize: '.84rem', color: '#64748b', maxWidth: 460 }}>
+                      <p style={{ margin: '0 auto', fontSize: '.84rem', color: 'var(--muted)', maxWidth: 460 }}>
                         {cms.courses_section.subtitle}
                       </p>
                     </div>
@@ -970,7 +971,7 @@ export default function AdminContent() {
               <Card>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18, borderBottom: '1px solid var(--border)', paddingBottom: 14 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{ width: 34, height: 34, borderRadius: 8, background: '#fef3c7', color: '#d97706', display: 'grid', placeItems: 'center' }}>
+                    <div style={{ width: 34, height: 34, borderRadius: 8, background: 'var(--warning-light)', color: 'var(--warning)', display: 'grid', placeItems: 'center' }}>
                       <Send size={18} />
                     </div>
                     <div>
@@ -1056,7 +1057,7 @@ export default function AdminContent() {
               <Card>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18, borderBottom: '1px solid var(--border)', paddingBottom: 14 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{ width: 34, height: 34, borderRadius: 8, background: '#f1f5f9', color: '#334155', display: 'grid', placeItems: 'center' }}>
+                    <div style={{ width: 34, height: 34, borderRadius: 8, background: 'var(--surface-alt)', color: 'var(--primary)', display: 'grid', placeItems: 'center' }}>
                       <MapPin size={18} />
                     </div>
                     <div>
@@ -1132,7 +1133,7 @@ export default function AdminContent() {
               <Card>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18, borderBottom: '1px solid var(--border)', paddingBottom: 14 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{ width: 34, height: 34, borderRadius: 8, background: '#f5f3ff', color: '#7c3aed', display: 'grid', placeItems: 'center' }}>
+                    <div style={{ width: 34, height: 34, borderRadius: 8, background: 'var(--secondary-light)', color: 'var(--secondary)', display: 'grid', placeItems: 'center' }}>
                       <Globe size={18} />
                     </div>
                     <div>
@@ -1188,7 +1189,7 @@ export default function AdminContent() {
               <Card>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18, borderBottom: '1px solid var(--border)', paddingBottom: 14 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{ width: 34, height: 34, borderRadius: 8, background: '#eff6ff', color: '#2563eb', display: 'grid', placeItems: 'center' }}>
+                    <div style={{ width: 34, height: 34, borderRadius: 8, background: 'var(--primary-light)', color: 'var(--primary)', display: 'grid', placeItems: 'center' }}>
                       <Phone size={18} />
                     </div>
                     <div>
@@ -1329,8 +1330,8 @@ export default function AdminContent() {
                   <button
                     type="button"
                     style={{
-                      border: 'none', background: statusFilter === 'all' ? '#fff' : 'transparent',
-                      color: statusFilter === 'all' ? '#0f172a' : '#64748b',
+                      border: 'none', background: statusFilter === 'all' ? 'var(--surface)' : 'transparent',
+                      color: statusFilter === 'all' ? 'var(--text)' : 'var(--muted)',
                       fontWeight: 600, fontSize: '.75rem', padding: '3px 9px', borderRadius: 6, cursor: 'pointer',
                     }}
                     onClick={() => setStatusFilter('all')}
@@ -1340,8 +1341,8 @@ export default function AdminContent() {
                   <button
                     type="button"
                     style={{
-                      border: 'none', background: statusFilter === 'live' ? '#fff' : 'transparent',
-                      color: statusFilter === 'live' ? '#059669' : '#64748b',
+                      border: 'none', background: statusFilter === 'live' ? 'var(--surface)' : 'transparent',
+                      color: statusFilter === 'live' ? 'var(--good, #10b981)' : 'var(--muted)',
                       fontWeight: 600, fontSize: '.75rem', padding: '3px 9px', borderRadius: 6, cursor: 'pointer',
                     }}
                     onClick={() => setStatusFilter('live')}
@@ -1351,8 +1352,8 @@ export default function AdminContent() {
                   <button
                     type="button"
                     style={{
-                      border: 'none', background: statusFilter === 'draft' ? '#fff' : 'transparent',
-                      color: statusFilter === 'draft' ? '#d97706' : '#64748b',
+                      border: 'none', background: statusFilter === 'draft' ? 'var(--surface)' : 'transparent',
+                      color: statusFilter === 'draft' ? 'var(--warning, #f59e0b)' : 'var(--muted)',
                       fontWeight: 600, fontSize: '.75rem', padding: '3px 9px', borderRadius: 6, cursor: 'pointer',
                     }}
                     onClick={() => setStatusFilter('draft')}
@@ -1366,7 +1367,7 @@ export default function AdminContent() {
                     type="button"
                     title="Grid View"
                     style={{
-                      border: 'none', background: viewMode === 'grid' ? '#fff' : 'transparent',
+                      border: 'none', background: viewMode === 'grid' ? 'var(--surface)' : 'transparent',
                       color: viewMode === 'grid' ? 'var(--primary)' : 'var(--muted)',
                       padding: '4px 7px', borderRadius: 6, cursor: 'pointer', display: 'grid', placeItems: 'center'
                     }}
@@ -1378,7 +1379,7 @@ export default function AdminContent() {
                     type="button"
                     title="Table View"
                     style={{
-                      border: 'none', background: viewMode === 'table' ? '#fff' : 'transparent',
+                      border: 'none', background: viewMode === 'table' ? 'var(--surface)' : 'transparent',
                       color: viewMode === 'table' ? 'var(--primary)' : 'var(--muted)',
                       padding: '4px 7px', borderRadius: 6, cursor: 'pointer', display: 'grid', placeItems: 'center'
                     }}

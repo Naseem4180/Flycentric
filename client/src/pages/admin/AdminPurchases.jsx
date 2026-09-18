@@ -223,7 +223,7 @@ export default function AdminPurchases() {
           onClose={() => setSelectedOrder(null)}
         >
           <div className="stack" style={{ gap: 16 }}>
-            <div style={{ background: '#f8fafc', padding: 14, borderRadius: 8, border: '1px solid var(--border)' }}>
+            <div style={{ background: 'var(--surface-alt)', padding: 14, borderRadius: 8, border: '1px solid var(--border)' }}>
               <div className="row row-between" style={{ marginBottom: 8 }}>
                 <span className="td-muted">Invoice Reference:</span>
                 <strong>{selectedOrder.invoice_number || `FC-INV-${selectedOrder.id}`}</strong>
@@ -254,7 +254,7 @@ export default function AdminPurchases() {
 
             <div>
               <h4 style={{ margin: '0 0 8px', fontSize: '0.9rem' }}>Purchased Item</h4>
-              <div className="row row-between" style={{ padding: '8px 12px', background: '#ffffff', border: '1px solid var(--border)', borderRadius: 6 }}>
+              <div className="row row-between" style={{ padding: '8px 12px', background: 'var(--surface-alt)', border: '1px solid var(--border)', borderRadius: 6 }}>
                 <span>{selectedOrder.bundle_title || `Course #${selectedOrder.bundle_id}`}</span>
                 <strong>₹{Number(selectedOrder.amount_inr).toLocaleString('en-IN')}</strong>
               </div>

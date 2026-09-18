@@ -136,15 +136,15 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
       {/* ---- Subject Curriculum Details & Overview (Always prominently at top) ----------------- */}
       {subject?.description && (
         <div style={{
-          background: '#ffffff',
-          border: '1px solid #e2e8f0',
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
           borderRadius: 14,
           padding: '20px 24px',
           marginBottom: 20,
           boxShadow: '0 1px 3px rgba(15, 23, 42, 0.04)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
-            <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 700, color: '#0f172a' }}>
+            <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 700, color: 'var(--text)' }}>
               {subject.title}
             </h1>
             <span className="badge badge-role" style={{ fontSize: '.74rem', padding: '4px 10px', fontWeight: 600, borderRadius: 999 }}>
@@ -153,7 +153,7 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
           </div>
           <div
             className="subject-description-rich"
-            style={{ color: '#334155', fontSize: '.92rem', lineHeight: 1.65 }}
+            style={{ color: 'var(--muted)', fontSize: '.92rem', lineHeight: 1.65 }}
             dangerouslySetInnerHTML={{ __html: withBlankTargetLinks(subject.description) }}
           />
         </div>
@@ -208,8 +208,8 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
       {/* ---- Active Selected Chapter Details & Notes Banner (Shows when chapter is clicked) ---- */}
       {selectedChapter && (
         <div style={{
-          background: '#f8fafc',
-          border: '1px solid #cbd5e1',
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
           borderRadius: 14,
           padding: '16px 20px',
           marginBottom: 20,
@@ -218,18 +218,18 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span className="badge badge-role">#{selectedChapter.order_index}</span>
-              <strong style={{ fontSize: '1.05rem', color: '#0f172a' }}>{selectedChapter.title}</strong>
+              <strong style={{ fontSize: '1.05rem', color: 'var(--text)' }}>{selectedChapter.title}</strong>
             </div>
             <button
               onClick={() => setSelectedChapter(null)}
-              style={{ background: 'none', border: 'none', fontSize: '.8rem', color: '#64748b', cursor: 'pointer', padding: '4px 8px' }}
+              style={{ background: 'none', border: 'none', fontSize: '.8rem', color: 'var(--muted)', cursor: 'pointer', padding: '4px 8px' }}
             >
               ✕ Close
             </button>
           </div>
           {selectedChapter.notes ? (
             <div
-              style={{ color: '#334155', fontSize: '.88rem', lineHeight: 1.55, marginTop: 8 }}
+              style={{ color: 'var(--text)', fontSize: '.88rem', lineHeight: 1.55, marginTop: 8 }}
               dangerouslySetInnerHTML={{ __html: withBlankTargetLinks(selectedChapter.notes) }}
             />
           ) : (
@@ -316,10 +316,6 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
               <div
                 className={`fc-test-card ${isPractice ? 'is-practice' : ''}`}
                 key={`test-${t.id}`}
-                style={{
-                  background: isPractice ? '#f0fdf4' : '#fffdf0',
-                  borderColor: isPractice ? '#bbf7d0' : '#fef08a',
-                }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: '1 1 auto', minWidth: 0 }}>
                   <div className="fc-status-icon-box">
@@ -337,19 +333,13 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
                   </div>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      <strong style={{ fontSize: '.94rem', color: '#1e293b' }}>{t.title}</strong>
+                      <strong style={{ fontSize: '.94rem', color: 'var(--text)' }}>{t.title}</strong>
                       {coverageText && (
-                        <span style={{ fontSize: '0.80rem', color: isPractice ? '#15803d' : '#854d0e', fontWeight: 600 }}>
+                        <span style={{ fontSize: '0.80rem', color: isPractice ? 'var(--success)' : 'var(--warning)', fontWeight: 600 }}>
                           {coverageText}
                         </span>
                       )}
-                      <span
-                        className="fc-test-badge"
-                        style={{
-                          background: isPractice ? '#dcfce7' : '#fef08a',
-                          color: isPractice ? '#15803d' : '#854d0e',
-                        }}
-                      >
+                      <span className="fc-test-badge">
                         {isPractice ? 'ASSIGNMENT' : 'TEST'}
                       </span>
                     </div>
@@ -499,8 +489,8 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
               {selectedChapter?.id === c.id && (c.notes || c.notes_url) && (
                 <div className="chapter-inline-drawer" onClick={(e) => e.stopPropagation()}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
-                    <strong style={{ fontSize: '.92rem', color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <FileText size={15} style={{ color: '#4f46e5' }} />
+                    <strong style={{ fontSize: '.92rem', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <FileText size={15} style={{ color: 'var(--primary)' }} />
                       Chapter Study Highlights &amp; Notes
                     </strong>
                     <div style={{ display: 'flex', gap: 6 }}>
@@ -525,7 +515,7 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
 
                   {c.notes ? (
                     <div
-                      style={{ color: '#334155', fontSize: '.90rem', lineHeight: 1.65, whiteSpace: 'pre-wrap', background: '#ffffff', padding: '14px 18px', borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 8 }}
+                      style={{ color: 'var(--text)', fontSize: '.90rem', lineHeight: 1.65, whiteSpace: 'pre-wrap', background: 'var(--surface-alt)', padding: '14px 18px', borderRadius: 8, border: '1px solid var(--border)', marginBottom: 8 }}
                       dangerouslySetInnerHTML={{ __html: withBlankTargetLinks(c.notes) }}
                     />
                   ) : null}
@@ -573,12 +563,12 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
         <div style={{ padding: '8px 0' }}>
           {viewingCheatSheet?.notes ? (
             <div
-              style={{ color: '#1e293b', fontSize: '0.94rem', lineHeight: 1.65, whiteSpace: 'pre-wrap', background: '#fffef0', border: '1px solid #fef08a', padding: '16px', borderRadius: 8 }}
+              style={{ color: 'var(--text)', fontSize: '0.94rem', lineHeight: 1.65, whiteSpace: 'pre-wrap', background: 'var(--surface-alt)', border: '1px solid var(--border)', padding: '16px', borderRadius: 8 }}
               dangerouslySetInnerHTML={{ __html: withBlankTargetLinks(viewingCheatSheet.notes) }}
             />
           ) : (
-            <div style={{ padding: '16px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0', color: '#64748b', fontSize: '0.9rem' }}>
-              <p style={{ margin: 0, fontWeight: 600, color: '#334155' }}>⚡ Key Highlights &amp; Formula Cheat Sheet</p>
+            <div style={{ padding: '16px', background: 'var(--surface-alt)', borderRadius: 8, border: '1px solid var(--border)', color: 'var(--muted)', fontSize: '0.9rem' }}>
+              <p style={{ margin: 0, fontWeight: 600, color: 'var(--text)' }}>⚡ Key Highlights &amp; Formula Cheat Sheet</p>
               <p style={{ margin: '6px 0 0' }}>Key formulas and review notes will appear here once published by the instructor.</p>
             </div>
           )}

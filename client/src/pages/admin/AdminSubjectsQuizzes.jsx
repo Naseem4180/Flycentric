@@ -895,23 +895,23 @@ export default function AdminSubjectsQuizzes() {
         <form onSubmit={saveSubject}>
           {/* Card 1: Subject Identity & Sequence */}
           <div style={{
-            background: '#f8faff',
-            border: '1px solid #bfdbfe',
+            background: 'var(--surface-alt)',
+            border: '1px solid var(--border)',
             borderRadius: 12,
             padding: '16px 18px',
             marginBottom: 16,
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#1e40af', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 6 }}>
                 <BookOpen size={14} /> Subject Identity &amp; Sequence
               </span>
-              <span className="badge" style={{ background: '#dbeafe', color: '#1e40af', fontWeight: 700, fontSize: '0.72rem' }}>
+              <span className="badge" style={{ background: 'var(--primary-light)', color: 'var(--primary)', fontWeight: 700, fontSize: '0.72rem' }}>
                 Sequence #{subjectForm.order_index || 1}
               </span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2.2fr) minmax(110px, 1fr)', gap: 12 }}>
               <div>
-                <label style={{ display: 'block', fontSize: '0.80rem', fontWeight: 700, color: '#1e293b', marginBottom: 5 }}>
+                <label style={{ display: 'block', fontSize: '0.80rem', fontWeight: 700, color: 'var(--text)', marginBottom: 5 }}>
                   Subject Name <span style={{ color: '#ef4444' }}>*</span>
                 </label>
                 <input
@@ -921,15 +921,15 @@ export default function AdminSubjectsQuizzes() {
                   onChange={(e) => setSubjectForm((f) => ({ ...f, title: e.target.value }))}
                   placeholder="e.g. Air Regulation, Meteorology..."
                   autoFocus
-                  style={{ background: '#ffffff', borderColor: '#93c5fd', fontWeight: 600 }}
+                  style={{ fontWeight: 600 }}
                   required
                 />
-                <small style={{ color: '#64748b', fontSize: '0.73rem', display: 'block', marginTop: 4 }}>
+                <small style={{ color: 'var(--muted)', fontSize: '0.73rem', display: 'block', marginTop: 4 }}>
                   Primary title displayed in student curriculum &amp; bundles.
                 </small>
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: '0.80rem', fontWeight: 700, color: '#1e293b', marginBottom: 5 }}>
+                <label style={{ display: 'block', fontSize: '0.80rem', fontWeight: 700, color: 'var(--text)', marginBottom: 5 }}>
                   Order ID (Sequence)
                 </label>
                 <input
@@ -939,9 +939,9 @@ export default function AdminSubjectsQuizzes() {
                   className="input"
                   value={subjectForm.order_index}
                   onChange={(e) => setSubjectForm((f) => ({ ...f, order_index: Number(e.target.value) || 1 }))}
-                  style={{ background: '#ffffff', borderColor: '#93c5fd', fontWeight: 700 }}
+                  style={{ fontWeight: 700 }}
                 />
-                <small style={{ color: '#64748b', fontSize: '0.73rem', display: 'block', marginTop: 4 }}>
+                <small style={{ color: 'var(--muted)', fontSize: '0.73rem', display: 'block', marginTop: 4 }}>
                   Controls sequence priority.
                 </small>
               </div>
@@ -950,39 +950,39 @@ export default function AdminSubjectsQuizzes() {
 
           {/* Card 2: Course / Bundle Assignment */}
           <div style={{
-            background: '#f0fdf4',
-            border: '1px solid #bbf7d0',
+            background: 'var(--surface-alt)',
+            border: '1px solid var(--border)',
             borderRadius: 12,
             padding: '16px 18px',
             marginBottom: 16,
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#166534', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--good, #10b981)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 6 }}>
                 <Layers size={14} /> Course Bundle Access
               </span>
               {subjectForm.bundleId ? (
-                <span className="badge" style={{ background: '#dcfce7', color: '#15803d', fontWeight: 700, fontSize: '0.72rem' }}>
+                <span className="badge" style={{ background: 'var(--good-light, rgba(16,185,129,0.15))', color: 'var(--good, #10b981)', fontWeight: 700, fontSize: '0.72rem' }}>
                   ✓ Bundle Linked
                 </span>
               ) : (
-                <span className="badge" style={{ background: '#fef3c7', color: '#92400e', fontWeight: 600, fontSize: '0.72rem' }}>
+                <span className="badge" style={{ background: 'var(--warning-light, rgba(245,158,11,0.15))', color: 'var(--warning, #f59e0b)', fontWeight: 600, fontSize: '0.72rem' }}>
                   Standalone
                 </span>
               )}
             </div>
-            <label style={{ display: 'block', fontSize: '0.80rem', fontWeight: 700, color: '#14532d', marginBottom: 5 }}>
+            <label style={{ display: 'block', fontSize: '0.80rem', fontWeight: 700, color: 'var(--text)', marginBottom: 5 }}>
               Include in Course Bundle
             </label>
             <select
               id="cb-subject-bundle"
               value={subjectForm.bundleId}
               onChange={(e) => setSubjectForm((f) => ({ ...f, bundleId: e.target.value }))}
-              style={{ background: '#ffffff', borderColor: '#86efac', fontWeight: 600, width: '100%' }}
+              style={{ fontWeight: 600, width: '100%' }}
             >
               <option value="">-- Standalone (Assign to bundles later) --</option>
               {courses.map((c) => <option key={c.id} value={c.id}>📦 {c.title}</option>)}
             </select>
-            <small style={{ color: '#166534', fontSize: '0.74rem', display: 'block', marginTop: 6, fontWeight: 500 }}>
+            <small style={{ color: 'var(--muted)', fontSize: '0.74rem', display: 'block', marginTop: 6, fontWeight: 500 }}>
               {subjectForm.bundleId
                 ? 'Enrolled students in this course will immediately see this subject in My Subjects.'
                 : 'You can link this subject to commercial bundles at any time from Bundles & Pricing.'}
@@ -991,25 +991,25 @@ export default function AdminSubjectsQuizzes() {
 
           {/* Card 3: Curriculum Syllabus & Description */}
           <div style={{
-            background: '#faf5ff',
-            border: '1px solid #e9d5ff',
+            background: 'var(--surface-alt)',
+            border: '1px solid var(--border)',
             borderRadius: 12,
             padding: '16px 18px',
             marginBottom: 6,
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-              <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#6b21a8', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 6 }}>
                 <FileText size={14} /> Syllabus Overview &amp; Learning Objectives
               </span>
             </div>
-            <div style={{ background: '#ffffff', borderRadius: 8, overflow: 'hidden', border: '1px solid #d8b4fe' }}>
+            <div style={{ background: 'var(--surface)', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border)' }}>
               <RichTextEditor
                 value={subjectForm.description}
                 onChange={(html) => setSubjectForm((f) => ({ ...f, description: html }))}
                 placeholder="What this subject covers, learning objectives, topics..."
               />
             </div>
-            <small style={{ color: '#7e22ce', fontSize: '0.73rem', display: 'block', marginTop: 6 }}>
+            <small style={{ color: 'var(--muted)', fontSize: '0.73rem', display: 'block', marginTop: 6 }}>
               Rendered at the top of the student's curriculum syllabus as the subject overview.
             </small>
           </div>
@@ -1058,23 +1058,23 @@ export default function AdminSubjectsQuizzes() {
         <form onSubmit={saveChapter}>
           {/* Card 1: Chapter Name & Sequence */}
           <div style={{
-            background: '#f0f9ff',
-            border: '1px solid #bae6fd',
+            background: 'var(--surface-alt)',
+            border: '1px solid var(--border)',
             borderRadius: 12,
             padding: '16px 18px',
             marginBottom: 16,
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#0369a1', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 6 }}>
                 <FileText size={14} /> Chapter Identification &amp; Order
               </span>
-              <span className="badge" style={{ background: '#e0f2fe', color: '#0369a1', fontWeight: 700, fontSize: '0.72rem' }}>
+              <span className="badge" style={{ background: 'var(--primary-light)', color: 'var(--primary)', fontWeight: 700, fontSize: '0.72rem' }}>
                 Order #{chapterOrderId || 1}
               </span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2.2fr) minmax(110px, 1fr)', gap: 12 }}>
               <div>
-                <label style={{ display: 'block', fontSize: '0.80rem', fontWeight: 700, color: '#0f172a', marginBottom: 5 }}>
+                <label style={{ display: 'block', fontSize: '0.80rem', fontWeight: 700, color: 'var(--text)', marginBottom: 5 }}>
                   Chapter Title <span style={{ color: '#ef4444' }}>*</span>
                 </label>
                 <input
@@ -1084,15 +1084,15 @@ export default function AdminSubjectsQuizzes() {
                   onChange={(e) => setChapterTitle(e.target.value)}
                   placeholder="e.g. Regs 01 - International Organisation"
                   autoFocus
-                  style={{ background: '#ffffff', borderColor: '#7dd3fc', fontWeight: 600 }}
+                  style={{ fontWeight: 600 }}
                   required
                 />
-                <small style={{ color: '#64748b', fontSize: '0.73rem', display: 'block', marginTop: 4 }}>
+                <small style={{ color: 'var(--muted)', fontSize: '0.73rem', display: 'block', marginTop: 4 }}>
                   Chapter names are unique across the platform.
                 </small>
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: '0.80rem', fontWeight: 700, color: '#0f172a', marginBottom: 5 }}>
+                <label style={{ display: 'block', fontSize: '0.80rem', fontWeight: 700, color: 'var(--text)', marginBottom: 5 }}>
                   Sequence Order
                 </label>
                 <input
@@ -1102,10 +1102,10 @@ export default function AdminSubjectsQuizzes() {
                   className="input"
                   value={chapterOrderId}
                   onChange={(e) => setChapterOrderId(e.target.value)}
-                  style={{ background: '#ffffff', borderColor: '#7dd3fc', fontWeight: 700 }}
+                  style={{ fontWeight: 700 }}
                   required
                 />
-                <small style={{ color: '#64748b', fontSize: '0.73rem', display: 'block', marginTop: 4 }}>
+                <small style={{ color: 'var(--muted)', fontSize: '0.73rem', display: 'block', marginTop: 4 }}>
                   Sequence in syllabus.
                 </small>
               </div>
@@ -1114,24 +1114,24 @@ export default function AdminSubjectsQuizzes() {
 
           {/* Card 2: Study Notes & External Resource */}
           <div style={{
-            background: '#f8f9ff',
-            border: '1px solid #c7d2fe',
+            background: 'var(--surface-alt)',
+            border: '1px solid var(--border)',
             borderRadius: 12,
             padding: '16px 18px',
             marginBottom: 16,
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#3730a3', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 6 }}>
                 <BookOpen size={14} /> Study Material &amp; Handouts
               </span>
               {(chapterNotes || chapterNotesUrl) && (
-                <span className="badge" style={{ background: '#e0e7ff', color: '#4338ca', fontWeight: 700, fontSize: '0.72rem' }}>
+                <span className="badge" style={{ background: 'var(--primary-light)', color: 'var(--primary)', fontWeight: 700, fontSize: '0.72rem' }}>
                   ✓ Notes Attached
                 </span>
               )}
             </div>
             <div className="field">
-              <label htmlFor="cb-chapter-notes-body" style={{ fontSize: '0.80rem', fontWeight: 700, color: '#1e293b', marginBottom: 5 }}>
+              <label htmlFor="cb-chapter-notes-body" style={{ fontSize: '0.80rem', fontWeight: 700, color: 'var(--text)', marginBottom: 5 }}>
                 Written Chapter Study Notes <span className="muted" style={{ fontWeight: 400 }}>(optional)</span>
               </label>
               <textarea
@@ -1141,28 +1141,27 @@ export default function AdminSubjectsQuizzes() {
                 value={chapterNotes}
                 onChange={(e) => setChapterNotes(e.target.value)}
                 placeholder="Enter study highlights, formulas, key definitions..."
-                style={{ background: '#ffffff', borderColor: '#a5b4fc', fontSize: '0.84rem' }}
+                style={{ fontSize: '0.84rem' }}
               />
-              <small style={{ color: '#4338ca', fontSize: '0.73rem', display: 'block', marginTop: 4 }}>
+              <small style={{ color: 'var(--muted)', fontSize: '0.73rem', display: 'block', marginTop: 4 }}>
                 Students can read these notes directly inline or in the reader modal.
               </small>
             </div>
             <div className="field" style={{ marginTop: 10 }}>
-              <label htmlFor="cb-chapter-notes" style={{ fontSize: '0.80rem', fontWeight: 700, color: '#1e293b', marginBottom: 5 }}>
+              <label htmlFor="cb-chapter-notes" style={{ fontSize: '0.80rem', fontWeight: 700, color: 'var(--text)', marginBottom: 5 }}>
                 Resource / Document URL <span className="muted" style={{ fontWeight: 400 }}>(optional PDF or download)</span>
               </label>
               <div className="input-with-icon">
-                <ExternalLink size={14} style={{ color: '#6366f1' }} />
+                <ExternalLink size={14} style={{ color: 'var(--primary)' }} />
                 <input
                   id="cb-chapter-notes"
                   className="input"
                   value={chapterNotesUrl}
                   onChange={(e) => setChapterNotesUrl(e.target.value)}
                   placeholder="https://..."
-                  style={{ background: '#ffffff', borderColor: '#a5b4fc' }}
                 />
               </div>
-              <small style={{ color: '#64748b', fontSize: '0.73rem', display: 'block', marginTop: 4 }}>
+              <small style={{ color: 'var(--muted)', fontSize: '0.73rem', display: 'block', marginTop: 4 }}>
                 Direct link to online PDF or lesson handouts.
               </small>
             </div>
@@ -1170,8 +1169,8 @@ export default function AdminSubjectsQuizzes() {
 
           {/* Card 3: Milestone Examination Option */}
           <div style={{
-            background: '#fffdf0',
-            border: '1px solid #fde68a',
+            background: 'var(--surface-alt)',
+            border: '1px solid var(--border)',
             borderRadius: 12,
             padding: '14px 18px',
             marginBottom: 6,
@@ -1562,24 +1561,24 @@ export default function AdminSubjectsQuizzes() {
                     </div>
 
                     <div className="cb-question-option-meta">
-                      <span className="cb-q-badge" style={{ background: '#f1f5f9', color: '#475569' }}>
+                      <span className="cb-q-badge" style={{ background: 'var(--surface-alt)', color: 'var(--muted)' }}>
                         #{q.id}
                       </span>
                       {q.chapter_id && (
-                        <span className="cb-q-badge" style={{ background: '#e0f2fe', color: '#0369a1' }}>
+                        <span className="cb-q-badge" style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}>
                           {chapterTitleById[String(q.chapter_id)] || `Chapter #${q.chapter_id}`}
                         </span>
                       )}
                       {q.difficulty && (
                         <span className="cb-q-badge" style={{
-                          background: q.difficulty === 'easy' ? '#dcfce7' : q.difficulty === 'medium' ? '#fef3c7' : '#fee2e2',
-                          color: q.difficulty === 'easy' ? '#15803d' : q.difficulty === 'medium' ? '#b45309' : '#b91c1c',
+                          background: q.difficulty === 'easy' ? 'var(--good-light, rgba(16,185,129,0.15))' : q.difficulty === 'medium' ? 'var(--warning-light, rgba(245,158,11,0.15))' : 'var(--danger-light, rgba(239,68,68,0.15))',
+                          color: q.difficulty === 'easy' ? 'var(--good, #10b981)' : q.difficulty === 'medium' ? 'var(--warning, #f59e0b)' : 'var(--danger, #ef4444)',
                         }}>
                           {q.difficulty.toUpperCase()}
                         </span>
                       )}
                       {(q.question_type || q.type) && (
-                        <span className="cb-q-badge" style={{ background: '#f3e8ff', color: '#7e22ce' }}>
+                        <span className="cb-q-badge" style={{ background: 'var(--surface-alt)', color: 'var(--primary)' }}>
                           {q.question_type || q.type}
                         </span>
                       )}
@@ -1587,7 +1586,7 @@ export default function AdminSubjectsQuizzes() {
 
                     {isDetailsOpen && (
                       <div className="cb-q-options-expand" onClick={(e) => e.stopPropagation()}>
-                        <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#475569', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        <div style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                           Answer Options &amp; Explanation:
                         </div>
                         {rawOptions.length > 0 ? (
@@ -1607,9 +1606,9 @@ export default function AdminSubjectsQuizzes() {
                                     gap: 8,
                                     padding: '5px 10px',
                                     borderRadius: 6,
-                                    background: isCorrect ? '#ecfdf5' : '#f8fafc',
-                                    border: isCorrect ? '1px solid #10b981' : '1px solid #e2e8f0',
-                                    color: isCorrect ? '#065f46' : '#334155',
+                                    background: isCorrect ? 'var(--good-light, rgba(16,185,129,0.15))' : 'var(--surface)',
+                                    border: isCorrect ? '1px solid var(--good, #10b981)' : '1px solid var(--border)',
+                                    color: isCorrect ? 'var(--good, #10b981)' : 'var(--text)',
                                     fontSize: '0.82rem',
                                     fontWeight: isCorrect ? 700 : 500,
                                   }}
@@ -1621,8 +1620,8 @@ export default function AdminSubjectsQuizzes() {
                                     width: 18,
                                     height: 18,
                                     borderRadius: '50%',
-                                    background: isCorrect ? '#10b981' : '#e2e8f0',
-                                    color: isCorrect ? '#ffffff' : '#475569',
+                                    background: isCorrect ? 'var(--good, #10b981)' : 'var(--surface-alt)',
+                                    color: isCorrect ? '#ffffff' : 'var(--muted)',
                                     fontSize: '0.7rem',
                                     fontWeight: 700,
                                   }}>

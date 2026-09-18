@@ -917,3 +917,268 @@ img, svg, video, canvas { max-width: 100%; height: auto; }
     font-size: 0.69rem !important;
   }
 }
+
+/* ==========================================================================
+   DARK MODE OVERRIDES FOR RESPONSIVE COMPONENTS
+   Ensures no hardcoded light rules in responsive.css override dark mode
+   ========================================================================== */
+[data-theme='dark'] .cb-chapter {
+  background: #121c32 !important;
+  border-color: #223250 !important;
+}
+
+[data-theme='dark'] .cb-chapter-row {
+  background: #10192e !important;
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .cb-chapter-row:hover {
+  background: #17243e !important;
+}
+
+[data-theme='dark'] .cb-chapter-name {
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .cb-chapter-count {
+  background: #162238 !important;
+  border-color: #243553 !important;
+  color: #cbd5e1 !important;
+}
+
+[data-theme='dark'] .cb-chapter-body {
+  background: #121c32 !important;
+  border-top-color: #223250 !important;
+}
+
+[data-theme='dark'] .cb-quiz-row {
+  background: #10192e !important;
+  border-color: #223250 !important;
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .cb-quiz-title {
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .cb-chapter-option {
+  background: #10192e !important;
+  border-color: #243553 !important;
+}
+
+[data-theme='dark'] .cb-chapter-option:hover {
+  background: #17243e !important;
+  border-color: #3b82f6 !important;
+}
+
+[data-theme='dark'] .cb-chapter-option.is-selected {
+  background: rgba(37, 99, 235, 0.2) !important;
+  border-color: #3b82f6 !important;
+}
+
+[data-theme='dark'] .cb-chapter-option span {
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .cb-chapter-option-count {
+  background: #162238 !important;
+  color: #cbd5e1 !important;
+}
+
+[data-theme='dark'] .cb-picker-summary {
+  background: #10192e !important;
+  color: #cbd5e1 !important;
+}
+
+[data-theme='dark'] .cb-question-list {
+  background: #0f182b !important;
+  border-color: #243553 !important;
+}
+
+[data-theme='dark'] .cb-question-option {
+  border-bottom-color: #1a273e !important;
+}
+
+[data-theme='dark'] .cb-question-option:hover {
+  background: #141f36 !important;
+}
+
+[data-theme='dark'] .cb-question-option.is-selected {
+  background: rgba(16, 185, 129, 0.15) !important;
+}
+
+[data-theme='dark'] .cb-question-option-text {
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .cb-q-options-expand {
+  background: #10192e !important;
+  border-color: #243553 !important;
+  color: #cbd5e1 !important;
+}
+
+[data-theme='dark'] .fc-chapter-card {
+  background: #121c32 !important;
+  border-color: #223250 !important;
+}
+
+[data-theme='dark'] .fc-chapter-card:hover {
+  background: #17243e !important;
+  border-color: #3b82f6 !important;
+}
+
+[data-theme='dark'] .fc-chapter-title {
+  color: #f8fafc !important;
+}
+
+/* ==========================================================================
+   CBT Assessment & Simulator Dark Mode Overrides (Responsive)
+   ========================================================================== */
+[data-theme='dark'] .cbt-shell,
+[data-theme='dark'] .cbt-body,
+[data-theme='dark'] .cbt-main,
+[data-theme='dark'] .cbt-question-area {
+  background: #0b1120 !important;
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .cbt-question-text {
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .cbt-topbar,
+[data-theme='dark'] .cbt-sections,
+[data-theme='dark'] .cbt-question-meta,
+[data-theme='dark'] .cbt-sidebar,
+[data-theme='dark'] .cbt-bottombar {
+  background: #0d1527 !important;
+  border-color: #1e2a42 !important;
+}
+
+[data-theme='dark'] .cbt-candidate {
+  background: #0e1628 !important;
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .cbt-candidate strong {
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .cbt-candidate span {
+  color: #94a3b8 !important;
+}
+
+[data-theme='dark'] .cbt-summary-strip div {
+  background: #10192e !important;
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .cbt-palette-btn {
+  background: #10192e !important;
+  border-color: #243553 !important;
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .cbt-palette-btn.unanswered {
+  background: #141f36 !important;
+  border-color: #243553 !important;
+  color: #94a3b8 !important;
+}
+
+[data-theme='dark'] .cbt-legend {
+  background: #0e1628 !important;
+  border-color: #1e2a42 !important;
+  color: #94a3b8 !important;
+}
+
+[data-theme='dark'] .cbt-option {
+  background: #111a2e !important;
+  border-color: #243553 !important;
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .cbt-option:hover {
+  background: #17243e !important;
+  border-color: #3b82f6 !important;
+}
+
+[data-theme='dark'] .cbt-option.selected {
+  background: rgba(37, 99, 235, 0.22) !important;
+  border-color: #3b82f6 !important;
+}
+
+[data-theme='dark'] .cbt-option-key {
+  color: #cbd5e1 !important;
+}
+
+[data-theme='dark'] .cbt-option-text {
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .cbt-btn {
+  background: #141f36 !important;
+  border-color: #243553 !important;
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .cbt-bottombar .cbt-btn {
+  background: #141f36 !important;
+  border-color: #243553 !important;
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .cbt-bottombar .cbt-btn:hover {
+  border-color: #3b82f6 !important;
+  color: #ffffff !important;
+}
+
+[data-theme='dark'] .cbt-btn-mark,
+[data-theme='dark'] .cbt-bottombar .cbt-btn-mark {
+  background: rgba(245, 158, 11, 0.15) !important;
+  border-color: rgba(245, 158, 11, 0.35) !important;
+  color: #fbbf24 !important;
+}
+
+[data-theme='dark'] .cbt-modal {
+  background: #121c32 !important;
+  border-color: #223250 !important;
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .cbt-modal-stats div {
+  background: #0e1628 !important;
+  border-color: #1e2a42 !important;
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .doubt-panel {
+  background: #121c32 !important;
+  border-color: #223250 !important;
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .swipe-card {
+  background: #121c32 !important;
+  border-color: #223250 !important;
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .review-summary-card,
+[data-theme='dark'] .review-question-card {
+  background: #121c32 !important;
+  border-color: #223250 !important;
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .admin-sidebar,
+[data-theme='dark'] .admin-sidebar-head {
+  background: #0d1527 !important;
+  border-color: #1e2a42 !important;
+}
+
+[data-theme='dark'] .admin-sidebar-head .fc-brand-word,
+[data-theme='dark'] .fc-brand-word--light {
+  color: #f8fafc !important;
+}
+
+

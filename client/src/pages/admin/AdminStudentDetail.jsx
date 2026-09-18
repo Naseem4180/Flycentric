@@ -496,7 +496,7 @@ export default function AdminStudentDetail() {
       {activeTab === 'devices' && (
         <Card>
           <h3 style={{ margin: '0 0 16px', fontSize: '1.05rem' }}>Authorized Devices & Login Sessions</h3>
-          <div className="row row-between" style={{ padding: 12, border: '1px solid var(--border)', borderRadius: 8, background: '#f8fafc' }}>
+          <div className="row row-between" style={{ padding: 12, border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface-alt)' }}>
             <div>
               <strong>Primary Desktop Session</strong>
               <div className="td-muted" style={{ fontSize: '0.78rem' }}>Last login: {student.last_login_at ? new Date(student.last_login_at).toLocaleString() : 'Recent'}</div>

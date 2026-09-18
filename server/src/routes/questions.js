@@ -34,17 +34,25 @@ function normalizeAppearances(value) {
   return normalized;
 }
 
-// Duplicate Detection: a normalized content hash so trivial whitespace/case
-// differences don't hide an obvious duplicate, but a genuinely different
-// question never collides. Options are sorted by key so re-ordering the
-// same options doesn't change the hash.
-function contentHash(questionText, options) {
+// Duplicate Detection: a normalized content hash combining question text,
+// options, correct option(s), and explanation/description (if available).
+function contentHash(questionText, options, correctOption, explanation) {
   const normalizedText = String(questionText || '').trim().toLowerCase().replace(/\s+/g, ' ');
   const normalizedOptions = (options || [])
     .map((o) => `${String(o.key || '').trim().toUpperCase()}:${String(o.text || '').trim().toLowerCase().replace(/\s+/g, ' ')}`)
     .sort()
     .join('|');
-  return crypto.createHash('sha256').update(`${normalizedText}::${normalizedOptions}`).digest('hex');
+  const normalizedCorrect = String(correctOption || '')
+    .split(',')
+    .map((k) => k.trim().toUpperCase())
+    .filter(Boolean)
+    .sort()
+    .join(',');
+  const normalizedDesc = String(explanation || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  return crypto
+    .createHash('sha256')
+    .update(`${normalizedText}::${normalizedOptions}::${normalizedCorrect}::${normalizedDesc}`)
+    .digest('hex');
 }
 
 // Metadata Validation: friendly 400s for bad enum values / non-existent
@@ -177,7 +185,7 @@ router.post('/', authenticate, authorize('admin', 'instructor'), async (req, res
   const appearanceYears = normalizeAppearances(appearances);
   if (appearanceYears === null) return res.status(400).json({ error: 'appearances must contain four-digit years separated by commas' });
 
-  const hash = contentHash(question_text, options);
+  const hash = contentHash(question_text, options, correct_option, explanation);
   if (!allow_duplicate) {
     const dup = await pool.query(
       'SELECT id, question_text FROM questions WHERE content_hash = $1 AND deleted_at IS NULL AND is_latest = true LIMIT 1',
@@ -185,7 +193,7 @@ router.post('/', authenticate, authorize('admin', 'instructor'), async (req, res
     );
     if (dup.rows.length) {
       return res.status(409).json({
-        error: 'A question with the same text and options already exists.',
+        error: 'A question with the same text, options, correct option, and explanation already exists.',
         duplicateOf: dup.rows[0],
         hint: 'Resubmit with allow_duplicate: true to create it anyway.',
       });
@@ -268,7 +276,7 @@ router.patch('/:id', authenticate, authorize('admin', 'instructor'), async (req,
   let created;
   try {
     await client.query('BEGIN');
-    const hash = contentHash(merged.question_text, merged.options);
+    const hash = contentHash(merged.question_text, merged.options, merged.correct_option, merged.explanation);
     const inserted = await client.query(
       `INSERT INTO questions
         (chapter_id, subject_id, question_text, question_type, options, correct_option, explanation, difficulty, tags, image_url, appearances,
@@ -324,6 +332,87 @@ router.delete('/:id', authenticate, authorize('admin', 'instructor'), async (req
 router.get('/trash/list', authenticate, authorize('admin'), async (req, res) => {
   const result = await pool.query('SELECT * FROM questions WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC');
   res.json({ questions: result.rows });
+});
+
+// Pre-flight duplicate check: inspects a CSV/Excel file in memory and checks
+// against existing bank hashes so the UI can display duplicates before importing.
+router.post('/bulk/check-duplicates', authenticate, authorize('admin'), upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'A .csv, .xlsx or .xls file is required (field name "file")' });
+  let parsed;
+  try {
+    parsed = parseQuestionUpload(req.file.buffer, req.file.originalname);
+  } catch (err) {
+    return res.status(400).json({ error: 'Could not read that file', detail: err.message });
+  }
+
+  const { records, totalRows, blankRowsRemoved } = parsed;
+  const seenHashesThisFile = new Map();
+  const duplicatesInFile = [];
+  const validItems = [];
+
+  for (const row of records) {
+    const fileRow = row.__row;
+    const options = ['a', 'b', 'c', 'd']
+      .filter((k) => row[`option_${k}`])
+      .map((k) => ({ key: k.toUpperCase(), text: row[`option_${k}`] }));
+    const correct = row.correct_option || row.correct_answer || row.answer || '';
+    const desc = row.explanation || row.description || row.solution || row.rationale || '';
+    const hash = contentHash(row.question_text, options, correct, desc);
+    if (seenHashesThisFile.has(hash)) {
+      duplicatesInFile.push({
+        row: fileRow,
+        question_text: row.question_text,
+        scope: 'file',
+        duplicate_of_row: seenHashesThisFile.get(hash),
+      });
+      continue;
+    }
+    seenHashesThisFile.set(hash, fileRow);
+    validItems.push({ fileRow, question_text: row.question_text, hash });
+  }
+
+  const hashesToCheck = validItems.map((item) => item.hash);
+  const duplicatesInBank = [];
+
+  if (hashesToCheck.length > 0) {
+    const dbResult = await pool.query(
+      `SELECT id, content_hash
+       FROM questions
+       WHERE content_hash = ANY($1)
+         AND deleted_at IS NULL
+         AND is_latest = true`,
+      [hashesToCheck]
+    );
+
+    const dupHashMap = new Map();
+    for (const r of dbResult.rows) {
+      dupHashMap.set(r.content_hash, r.id);
+    }
+
+    for (const item of validItems) {
+      if (dupHashMap.has(item.hash)) {
+        duplicatesInBank.push({
+          row: item.fileRow,
+          question_text: item.question_text,
+          scope: 'bank',
+          duplicate_of_id: dupHashMap.get(item.hash),
+        });
+      }
+    }
+  }
+
+  const totalDuplicates = duplicatesInFile.length + duplicatesInBank.length;
+  const newCount = Math.max(0, records.length - totalDuplicates);
+
+  res.json({
+    totalRows,
+    dataRows: records.length,
+    blankRowsRemoved,
+    duplicatesInFile,
+    duplicatesInBank,
+    totalDuplicates,
+    newCount,
+  });
 });
 
 // CSV bulk import — columns: question_text,question_type,option_a,option_b,option_c,option_d,correct_option,explanation,difficulty,subject_title,chapter_title,tags
@@ -480,7 +569,9 @@ router.post('/bulk/import', authenticate, authorize('admin'), upload.single('fil
         continue;
       }
 
-      const hash = contentHash(row.question_text, options);
+      const correct = row.correct_option || row.correct_answer || row.answer || '';
+      const desc = row.explanation || row.description || row.solution || row.rationale || '';
+      const hash = contentHash(row.question_text, options, correct, desc);
       if (seenHashesThisFile.has(hash)) {
         duplicatesInFile += 1;
         duplicates.push({ row: fileRow, question_text: row.question_text, scope: 'file', duplicate_of_row: seenHashesThisFile.get(hash) });

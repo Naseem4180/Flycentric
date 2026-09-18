@@ -130,19 +130,22 @@ router.get('/quizzes', authenticate, async (req, res) => {
           -- after every chaptered one in its subject.
           (SELECT MIN(ch.order_index) FROM chapters ch
              WHERE ch.deleted_at IS NULL AND (ch.id = ANY(q.chapter_ids) OR ch.id = q.chapter_id)) AS anchor_order_index,
-          (SELECT COUNT(*)::int FROM attempts a
-             WHERE a.quiz_id = q.id AND a.user_id = ${meParam} AND a.status = 'submitted') AS my_attempt_count,
-          (SELECT MAX(a.score) FROM attempts a
-             WHERE a.quiz_id = q.id AND a.user_id = ${meParam} AND a.status = 'submitted') AS my_best_score,
-          (SELECT a.score FROM attempts a
-             WHERE a.quiz_id = q.id AND a.user_id = ${meParam} AND a.status = 'submitted'
-             ORDER BY a.submitted_at DESC LIMIT 1) AS my_last_score,
-          (SELECT a.id FROM attempts a
-             WHERE a.quiz_id = q.id AND a.user_id = ${meParam} AND a.status = 'submitted'
-             ORDER BY a.submitted_at DESC LIMIT 1) AS my_last_attempt_id
+          COALESCE(att.my_attempt_count, 0) AS my_attempt_count,
+          att.my_best_score AS my_best_score,
+          att.my_last_score AS my_last_score,
+          att.my_last_attempt_id AS my_last_attempt_id
      FROM quizzes q
      LEFT JOIN subjects s ON s.id = q.subject_id AND s.deleted_at IS NULL
      LEFT JOIN chapters c ON c.id = q.chapter_id AND c.deleted_at IS NULL
+     LEFT JOIN LATERAL (
+       SELECT
+         COUNT(*)::int AS my_attempt_count,
+         MAX(a.score) AS my_best_score,
+         (ARRAY_AGG(a.score ORDER BY a.submitted_at DESC))[1] AS my_last_score,
+         (ARRAY_AGG(a.id ORDER BY a.submitted_at DESC))[1] AS my_last_attempt_id
+       FROM attempts a
+       WHERE a.quiz_id = q.id AND a.user_id = ${meParam} AND a.status = 'submitted'
+     ) att ON true
      WHERE ${clauses.join(' AND ')}
      ORDER BY s.order_index NULLS LAST, s.title NULLS LAST, anchor_order_index NULLS LAST, q.created_at ASC`,
     params

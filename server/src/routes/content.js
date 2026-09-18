@@ -6,6 +6,43 @@ const { sanitizeHtml } = require('../utils/sanitizeHtml');
 
 const router = express.Router();
 
+// Lightweight in-memory cache for high-frequency taxonomy endpoints
+const taxonomyCache = new Map();
+const TAXONOMY_CACHE_TTL_MS = 30000; // 30 seconds
+
+function getCachedTaxonomy(key) {
+  const item = taxonomyCache.get(key);
+  if (!item) return null;
+  if (Date.now() > item.expiresAt) {
+    taxonomyCache.delete(key);
+    return null;
+  }
+  return item.data;
+}
+
+function setCachedTaxonomy(key, data) {
+  taxonomyCache.set(key, {
+    data,
+    expiresAt: Date.now() + TAXONOMY_CACHE_TTL_MS,
+  });
+}
+
+function invalidateTaxonomyCache() {
+  taxonomyCache.clear();
+}
+
+// Auto-invalidate taxonomy cache on any content modification
+router.use((req, res, next) => {
+  if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method)) {
+    res.on('finish', () => {
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        invalidateTaxonomyCache();
+      }
+    });
+  }
+  next();
+});
+
 // True when the student holds access to a bundle that includes this subject.
 // The quiz join preserves access for legacy content where the quiz was linked
 // directly to a bundle before its subject was added to bundle_subjects.
@@ -146,6 +183,11 @@ router.get('/overview', authenticate, authorize('admin'), async (req, res) => {
 router.get('/bundles', async (req, res) => {
   const { status } = req.query;
   const includeDrafts = req.query.include_drafts === 'true';
+  const cacheKey = `bundles:${status || ''}:${includeDrafts}`;
+  const cached = getCachedTaxonomy(cacheKey);
+  if (cached) {
+    return res.json(cached);
+  }
   let query = 'SELECT * FROM bundles WHERE deleted_at IS NULL';
   const params = [];
   if (status) {
@@ -156,7 +198,9 @@ router.get('/bundles', async (req, res) => {
   }
   query += ' ORDER BY created_at DESC';
   const result = await pool.query(query, params);
-  res.json({ bundles: await attachIncludedSubjects(result.rows) });
+  const responseData = { bundles: await attachIncludedSubjects(result.rows) };
+  setCachedTaxonomy(cacheKey, responseData);
+  res.json(responseData);
 });
 
 router.post('/bundles', authenticate, authorize('admin'), async (req, res) => {
@@ -253,6 +297,11 @@ router.delete('/bundles/:id', authenticate, authorize('admin'), async (req, res)
 // "Included Subjects" checklist on Bundles & Pricing.
 router.get('/subjects', async (req, res) => {
   const { q } = req.query;
+  const cacheKey = `subjects:${q || ''}`;
+  const cached = getCachedTaxonomy(cacheKey);
+  if (cached) {
+    return res.json(cached);
+  }
   const clauses = ['s.deleted_at IS NULL'];
   const params = [];
   if (q) { params.push(`%${q}%`); clauses.push(`s.title ILIKE $${params.length}`); }
@@ -264,7 +313,9 @@ router.get('/subjects', async (req, res) => {
      GROUP BY s.id ORDER BY s.order_index, s.title`,
     params
   );
-  res.json({ subjects: result.rows });
+  const responseData = { subjects: result.rows };
+  setCachedTaxonomy(cacheKey, responseData);
+  res.json(responseData);
 });
 
 router.post('/subjects', authenticate, authorize('admin'), async (req, res) => {
@@ -916,5 +967,7 @@ router.put('/homepage', authenticate, authorize('admin'), async (req, res) => {
   res.json({ ok: true, content: result.rows[0].value });
 });
 
+router.invalidateTaxonomyCache = invalidateTaxonomyCache;
 module.exports = router;
+
 

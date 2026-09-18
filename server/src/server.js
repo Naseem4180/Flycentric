@@ -9,6 +9,7 @@ require('express-async-errors');
 const express = require('express');
 const nodePath = require('path');
 const cors = require('cors');
+const compression = require('compression');
 const pool = require('./db/pool');
 
 const authRoutes = require('./routes/auth');
@@ -61,6 +62,16 @@ app.use(cors({
   },
   credentials: true,
 }));
+
+// Performance: gzip/deflate response compression for all responses > 1KB
+app.use(compression({
+  threshold: 1024,
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) return false;
+    return compression.filter(req, res);
+  },
+}));
+
 // Capture the raw request body alongside the parsed JSON: the Razorpay
 // webhook signature (see routes/payments.js) is an HMAC over the exact raw
 // bytes Razorpay sent, which is lost once JSON.parse has re-serialized it.

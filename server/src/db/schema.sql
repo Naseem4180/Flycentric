@@ -761,3 +761,31 @@ CREATE TABLE IF NOT EXISTS assignments (
 ALTER TABLE attempts ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMPTZ DEFAULT now();
 ALTER TABLE attempts ADD COLUMN IF NOT EXISTS inactivity_timeout_at TIMESTAMPTZ;
 
+-- Production Performance Indexes ----------------------------------------------
+CREATE INDEX IF NOT EXISTS idx_questions_subject ON questions(subject_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_questions_chapter ON questions(chapter_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_questions_active_latest ON questions(is_latest, deleted_at, id DESC);
+CREATE INDEX IF NOT EXISTS idx_chapters_subject_order ON chapters(subject_id, order_index) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_sections_chapter ON sections(chapter_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_bundle_subjects_subject ON bundle_subjects(subject_id);
+CREATE INDEX IF NOT EXISTS idx_bundle_subjects_bundle ON bundle_subjects(bundle_id);
+CREATE INDEX IF NOT EXISTS idx_quizzes_created ON quizzes(created_at DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_quizzes_bundle ON quizzes(bundle_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_quizzes_subject ON quizzes(subject_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_quizzes_chapter_ids_gin ON quizzes USING GIN (chapter_ids);
+CREATE INDEX IF NOT EXISTS idx_attempts_perf_stats ON attempts(quiz_id, user_id, status, submitted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_attempts_user_started ON attempts(user_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_attempts_status ON attempts(status);
+CREATE INDEX IF NOT EXISTS idx_enrollments_user_active ON course_enrollments(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_enrollments_bundle ON course_enrollments(bundle_id);
+CREATE INDEX IF NOT EXISTS idx_bundle_access_user ON bundle_access(user_id);
+CREATE INDEX IF NOT EXISTS idx_bundle_access_bundle ON bundle_access(bundle_id);
+CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_payments_created ON payments(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_users_role_status ON users(role, status);
+CREATE INDEX IF NOT EXISTS idx_users_created_desc ON users(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_doubts_student_status ON doubts(student_id, status);
+CREATE INDEX IF NOT EXISTS idx_doubts_created_desc ON doubts(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notification_reads_user ON notification_reads(user_id);
+
+

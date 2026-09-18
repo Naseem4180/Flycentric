@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { UploadCloud, FileText, Trash2, Download, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { UploadCloud, FileText, Trash2, Download, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
 import { Modal } from './Modal';
 import Button from './Button';
 import useToast from './Toast';
@@ -15,6 +15,10 @@ const HEADER_ALIASES = {
   question_title: 'question_text',
   type: 'question_type',
   solution: 'explanation',
+  rationale: 'explanation',
+  description: 'explanation',
+  desc: 'explanation',
+  explanations: 'explanation',
   level: 'difficulty',
   correct_answer: 'correct_option',
   answer: 'correct_option',
@@ -117,6 +121,7 @@ export default function ImportCsvModal({
   requiredColumns = [],
   dedupeKey,
   validateRow,
+  onPrevalidate,
   onImport,
   onDownloadTemplate,
   onDone,
@@ -128,10 +133,11 @@ export default function ImportCsvModal({
   const [analysis, setAnalysis] = useState(null);
   const [step, setStep] = useState(1);
   const [busy, setBusy] = useState(false);
+  const [validating, setValidating] = useState(false);
   const [progress, setProgress] = useState(0);
 
   const reset = useCallback(() => {
-    setFile(null); setAnalysis(null); setStep(1); setBusy(false); setProgress(0); setDragging(false);
+    setFile(null); setAnalysis(null); setStep(1); setBusy(false); setValidating(false); setProgress(0); setDragging(false);
     if (inputRef.current) inputRef.current.value = '';
   }, []);
 
@@ -139,11 +145,12 @@ export default function ImportCsvModal({
 
   async function acceptFile(f) {
     if (!f) return;
-    if (!/\.csv$/i.test(f.name)) {
-      toast.error('Unsupported file', 'Please choose a .csv file.');
+    if (!/\.csv$/i.test(f.name) && !/\.xlsx?$/i.test(f.name)) {
+      toast.error('Unsupported file', 'Please choose a .csv or .xlsx file.');
       return;
     }
     setFile(f);
+    setValidating(true);
     try {
       const text = await f.text();
       const { headers, records } = parseCsv(text);
@@ -169,10 +176,11 @@ export default function ImportCsvModal({
           return;
         }
         if (dedupeKey) {
-          const k = String(rec[dedupeKey] || '').toLowerCase();
+          const k = typeof dedupeKey === 'function' ? dedupeKey(rec) : String(rec[dedupeKey] || '').toLowerCase();
           if (k && seen.has(k)) {
             duplicates += 1;
-            errors.push({ row: rec.__row, field: dedupeKey, problem: 'Duplicate in file', value: rec[dedupeKey] });
+            const fieldLabel = typeof dedupeKey === 'function' ? 'Duplicate in file' : dedupeKey;
+            errors.push({ row: rec.__row, field: fieldLabel, problem: 'Duplicate in file', value: rec.question_text || rec[dedupeKey] || '' });
             return;
           }
           if (k) seen.add(k);
@@ -181,11 +189,38 @@ export default function ImportCsvModal({
         importableRecords.push(rec);
       });
 
+      // Server pre-validation: check database for existing duplicates before user clicks Import
+      if (onPrevalidate && !missing.length && importableRecords.length > 0) {
+        try {
+          const pre = await onPrevalidate(f);
+          if (pre?.duplicatesInBank?.length) {
+            const bankDupRows = new Set(pre.duplicatesInBank.map((d) => d.row));
+            pre.duplicatesInBank.forEach((d) => {
+              duplicates += 1;
+              errors.push({
+                row: d.row,
+                field: 'Question Bank',
+                problem: `Already exists in Question Bank (ID #${d.duplicate_of_id})`,
+                value: d.question_text || '',
+              });
+            });
+            const filteredImportable = importableRecords.filter((r) => !bankDupRows.has(r.__row));
+            importableRecords.length = 0;
+            importableRecords.push(...filteredImportable);
+            valid = importableRecords.length;
+          }
+        } catch (preErr) {
+          console.warn('Pre-validation check failed or bypassed:', preErr);
+        }
+      }
+
       setAnalysis({ headers, records, importableRecords, missing, errors, valid, duplicates, total: records.length });
       setStep(2);
     } catch {
       toast.error('Could not read file', 'The CSV could not be parsed. Check the file and try again.');
       setFile(null);
+    } finally {
+      setValidating(false);
     }
   }
 
@@ -262,10 +297,12 @@ export default function ImportCsvModal({
         <>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button variant="primary" onClick={runImport} disabled={!canImport} icon={UploadCloud}>
-            Import {analysis?.valid ?? 0} {entityLabel}
+            {analysis?.valid > 0
+              ? `Import ${analysis.valid} new ${entityLabel}`
+              : `Import 0 new ${entityLabel}`}
           </Button>
         </>
-      ) : step === 1 ? (
+      ) : step === 1 && !validating ? (
         <>
           {onDownloadTemplate && <Button variant="outline" icon={Download} onClick={onDownloadTemplate}>Download Template</Button>}
           <span className="spacer" />
@@ -281,7 +318,13 @@ export default function ImportCsvModal({
         <div className={`step ${step === 3 ? 'active' : ''}`}><span className="step-num">3</span> Import</div>
       </div>
 
-      {step === 1 && (
+      {validating ? (
+        <div style={{ padding: '48px 0', textAlign: 'center' }}>
+          <Loader2 size={32} className="spin" style={{ margin: '0 auto 12px', color: 'var(--primary)' }} />
+          <p style={{ fontWeight: 600, fontSize: '.95rem', margin: 0 }}>Analyzing file &amp; checking Question Bank…</p>
+          <p style={{ color: 'var(--muted-2)', fontSize: '.8rem', marginTop: 4 }}>Checking for duplicates before import.</p>
+        </div>
+      ) : step === 1 ? (
         <>
           <div
             className={`dropzone ${dragging ? 'dragging' : ''}`}
@@ -309,9 +352,9 @@ export default function ImportCsvModal({
             </p>
           )}
         </>
-      )}
+      ) : null}
 
-      {step === 2 && analysis && (
+      {step === 2 && analysis && !validating && (
         <>
           <div className="file-pill" style={{ marginBottom: 18 }}>
             <div className="icon-box icon-box-sm tone-purple"><FileText size={15} /></div>
@@ -321,6 +364,13 @@ export default function ImportCsvModal({
             </div>
             <Button variant="ghost" size="xs" icon={Trash2} onClick={reset} aria-label="Remove file" />
           </div>
+
+          {analysis.valid === 0 && analysis.duplicates > 0 && (
+            <div className="error-banner" style={{ marginBottom: 14 }}>
+              <AlertTriangle size={16} />
+              <span>All {analysis.total} questions in this file already exist in the Question Bank. No new questions to import.</span>
+            </div>
+          )}
 
           {analysis.missing.length ? (
             <div className="error-banner">

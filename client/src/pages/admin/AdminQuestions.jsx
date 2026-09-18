@@ -1142,7 +1142,30 @@ export default function AdminQuestions() {
           }
           return null;
         }}
-        dedupeKey="question_text"
+        dedupeKey={(row) => {
+          const opts = ['a', 'b', 'c', 'd']
+            .filter((k) => row[`option_${k}`])
+            .map((k) => `${k}:${String(row[`option_${k}`] || '').trim().toLowerCase().replace(/\s+/g, ' ')}`)
+            .sort()
+            .join('|');
+          const corr = String(row.correct_option || row.correct_answer || row.answer || '')
+            .split(',')
+            .map((k) => k.trim().toUpperCase())
+            .filter(Boolean)
+            .sort()
+            .join(',');
+          const desc = String(row.explanation || row.description || row.solution || row.rationale || '')
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, ' ');
+          const text = String(row.question_text || '').trim().toLowerCase().replace(/\s+/g, ' ');
+          return `${text}::${opts}::${corr}::${desc}`;
+        }}
+        onPrevalidate={(file) => {
+          const fd = new FormData();
+          fd.append('file', file);
+          return api.postForm('/questions/bulk/check-duplicates', fd);
+        }}
         onImport={(file) => {
           const fd = new FormData();
           fd.append('file', file);

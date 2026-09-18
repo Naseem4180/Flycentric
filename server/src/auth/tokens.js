@@ -1,8 +1,9 @@
 const jwt = require('jsonwebtoken');
 
-function signAccessToken(user) {
+function signAccessToken(user, sessionId = null) {
+  const sid = sessionId || user?.sid || null;
   return jwt.sign(
-    { sub: user.id, role: user.role, institution_id: user.institution_id },
+    { sub: user.id, role: user.role, institution_id: user.institution_id, sid },
     process.env.JWT_ACCESS_SECRET,
     { expiresIn: process.env.ACCESS_TOKEN_TTL || '15m' }
   );

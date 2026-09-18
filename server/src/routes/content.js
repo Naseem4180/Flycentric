@@ -319,7 +319,7 @@ router.get('/subjects', async (req, res) => {
 });
 
 router.post('/subjects', authenticate, authorize('admin'), async (req, res) => {
-  const { title, description, order_index, bundle_ids } = req.body;
+  const { title, description, order_index, bundle_ids, chapters: initialChapters } = req.body;
   if (!title) return res.status(400).json({ error: 'title required' });
   let finalOrder = Number(order_index);
   if (!Number.isFinite(finalOrder) || finalOrder <= 0) {
@@ -330,15 +330,58 @@ router.post('/subjects', authenticate, authorize('admin'), async (req, res) => {
     'INSERT INTO subjects (title, description, order_index) VALUES ($1,$2,$3) RETURNING *',
     [title, description ? sanitizeHtml(description) : null, finalOrder]
   );
+  const subjectId = result.rows[0].id;
+
   const bundleIds = Array.isArray(bundle_ids) ? bundle_ids.map(Number).filter(Number.isInteger) : [];
   if (bundleIds.length) {
     await pool.query(
       `INSERT INTO bundle_subjects (bundle_id, subject_id)
        SELECT unnest($1::int[]), $2 ON CONFLICT DO NOTHING`,
-      [bundleIds, result.rows[0].id]
+      [bundleIds, subjectId]
     );
   }
-  res.status(201).json({ subject: result.rows[0] });
+
+  // Create or copy initial chapters if provided
+  const createdChapters = [];
+  if (Array.isArray(initialChapters) && initialChapters.length) {
+    for (let idx = 0; idx < initialChapters.length; idx++) {
+      const item = initialChapters[idx];
+      const chTitle = typeof item === 'string' ? item.trim() : String(item?.title || '').trim();
+      if (!chTitle) continue;
+      const chOrder = idx + 1;
+
+      if (typeof item === 'object' && item.source_chapter_id) {
+        try {
+          const srcRes = await pool.query('SELECT * FROM chapters WHERE id = $1 AND deleted_at IS NULL', [item.source_chapter_id]);
+          if (srcRes.rows.length) {
+            const src = srcRes.rows[0];
+            const ins = await pool.query(
+              `INSERT INTO chapters (subject_id, title, order_index, is_free, notes_url, has_exam, notes)
+               VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+              [subjectId, chTitle || src.title, chOrder, src.is_free, src.notes_url, src.has_exam, src.notes]
+            );
+            createdChapters.push(ins.rows[0]);
+            continue;
+          }
+        } catch (err) {
+          console.error('Error cloning chapter in subject creation:', err);
+        }
+      }
+
+      try {
+        const ins = await pool.query(
+          `INSERT INTO chapters (subject_id, title, order_index, is_free, notes_url, has_exam, notes)
+           VALUES ($1, $2, $3, false, null, false, $4) RETURNING *`,
+          [subjectId, chTitle, chOrder, item?.notes || null]
+        );
+        createdChapters.push(ins.rows[0]);
+      } catch (err) {
+        // Ignore duplicate within same batch
+      }
+    }
+  }
+
+  res.status(201).json({ subject: result.rows[0], chapters: createdChapters });
 });
 
 // Legacy/nested route kept for back-compat — creates a global subject and
@@ -701,39 +744,54 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
 });
 
 router.post('/subjects/:subjectId/chapters', authenticate, authorize('admin'), async (req, res) => {
-  const { title, order_index, is_free, notes_url, has_exam, notes } = req.body;
+  const { title, order_index, is_free, notes_url, has_exam, notes, source_chapter_id } = req.body;
   const cleanTitle = String(title || '').trim();
   if (!cleanTitle) return res.status(400).json({ error: 'title required' });
   const existing = await pool.query(
     `SELECT c.id, c.subject_id, s.title AS subject_title
      FROM chapters c
      JOIN subjects s ON s.id = c.subject_id
-     WHERE lower(trim(c.title)) = lower($1) AND c.deleted_at IS NULL AND s.deleted_at IS NULL
+     WHERE lower(trim(c.title)) = lower($1) AND c.subject_id = $2 AND c.deleted_at IS NULL AND s.deleted_at IS NULL
      LIMIT 1`,
-    [cleanTitle]
+    [cleanTitle, req.params.subjectId]
   );
   if (existing.rows.length) {
-    const chapter = existing.rows[0];
     return res.status(409).json({
-      error: `This chapter already belongs to the subject “${chapter.subject_title}”. Select that subject instead of creating a duplicate.`,
-      chapter_id: chapter.id,
-      subject_id: chapter.subject_id,
+      error: `A chapter named “${cleanTitle}” already exists in this subject.`,
+      chapter_id: existing.rows[0].id,
+      subject_id: existing.rows[0].subject_id,
     });
   }
+
+  let finalNotesUrl = notes_url || null;
+  let finalNotes = notes || null;
+  let finalHasExam = !!has_exam;
+  let finalIsFree = !!is_free;
+
+  if (source_chapter_id) {
+    const src = await pool.query('SELECT * FROM chapters WHERE id = $1 AND deleted_at IS NULL', [source_chapter_id]);
+    if (src.rows.length) {
+      finalNotesUrl = finalNotesUrl || src.rows[0].notes_url;
+      finalNotes = finalNotes || src.rows[0].notes;
+      finalHasExam = finalHasExam || src.rows[0].has_exam;
+      finalIsFree = finalIsFree || src.rows[0].is_free;
+    }
+  }
+
   try {
     // Custom Chapter Sequencing: strictly append to the end of the admin's
     // existing manual order unless a specific position was requested.
     const resolvedOrder = order_index == null ? await nextOrderIndex(req.params.subjectId) : Number(order_index);
     const result = await pool.query(
       'INSERT INTO chapters (subject_id, title, order_index, is_free, notes_url, has_exam, notes) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
-      [req.params.subjectId, cleanTitle, resolvedOrder, !!is_free, notes_url || null, !!has_exam, notes || null]
+      [req.params.subjectId, cleanTitle, resolvedOrder, finalIsFree, finalNotesUrl, finalHasExam, finalNotes]
     );
     const fresh = await pool.query('SELECT * FROM chapters WHERE id = $1', [result.rows[0].id]);
     res.status(201).json({ chapter: fresh.rows[0] });
   } catch (err) {
-    if (err.code === '23505' && err.constraint === 'chapters_unique_active_title') {
+    if (err.code === '23505') {
       return res.status(409).json({
-        error: 'This chapter already exists. Select the subject that already contains it instead of creating a duplicate.',
+        error: `A chapter named “${cleanTitle}” already exists in this subject.`,
       });
     }
     throw err;

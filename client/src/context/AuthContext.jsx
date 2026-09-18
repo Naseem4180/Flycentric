@@ -22,9 +22,9 @@ export function AuthProvider({ children }) {
   useEffect(() => { userRef.current = user; }, [user]);
 
   const logout = useCallback(() => {
-    const { refreshToken } = loadTokens();
-    if (refreshToken) {
-      api.post('/auth/logout', { refreshToken }, { auth: false }).catch(() => {});
+    const { accessToken, refreshToken } = loadTokens();
+    if (refreshToken || accessToken) {
+      api.post('/auth/logout', { refreshToken, accessToken }, { auth: true }).catch(() => {});
     }
     setTokens(null, null);
     setUser(null);
@@ -74,8 +74,12 @@ export function AuthProvider({ children }) {
     return () => { active = false; };
   }, [clearSession]);
 
-  async function login(email, password) {
-    const data = await api.post('/auth/login', { email, password }, { auth: false });
+  async function login(email, password, options = {}) {
+    const data = await api.post('/auth/login', {
+      email,
+      password,
+      forceLogout: options.forceLogout || false,
+    }, { auth: false });
     // Tokens are set BEFORE user state, so any effect reacting to the user
     // becoming non-null already has a usable Authorization header.
     setTokens(data.accessToken, data.refreshToken);

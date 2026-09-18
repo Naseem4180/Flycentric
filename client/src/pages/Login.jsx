@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { ShieldAlert, AlertTriangle } from 'lucide-react';
 import useAuth from '../context/useAuth';
 import BrandLogo from '../components/BrandLogo';
+import { Modal, Button } from '../ui';
 
 export default function Login() {
   const { login } = useAuth();
@@ -10,6 +12,7 @@ export default function Login() {
   const [password, setPassword] = useState('Password123!');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [dualLoginPrompt, setDualLoginPrompt] = useState(null);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -17,6 +20,29 @@ export default function Login() {
     setBusy(true);
     try {
       const user = await login(email, password);
+      if (user.role === 'admin') navigate('/admin');
+      else if (user.role === 'instructor') navigate('/instructor');
+      else navigate('/');
+    } catch (err) {
+      if (err.requires_confirmation) {
+        setDualLoginPrompt({
+          reason: err.reason,
+          active_assessment: err.active_assessment,
+        });
+      } else {
+        setError(err.message);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleForceLogoutAndContinue() {
+    setBusy(true);
+    setError('');
+    try {
+      const user = await login(email, password, { forceLogout: true });
+      setDualLoginPrompt(null);
       if (user.role === 'admin') navigate('/admin');
       else if (user.role === 'instructor') navigate('/instructor');
       else navigate('/');
@@ -97,6 +123,68 @@ export default function Login() {
           </div>
         </main>
       </div>
+
+      {/* Dual Login Restriction Modal (Requirements 10, 11, 12, 13) */}
+      {dualLoginPrompt && (
+        <Modal
+          open={Boolean(dualLoginPrompt)}
+          onClose={() => setDualLoginPrompt(null)}
+          size="md"
+          title={dualLoginPrompt.reason === 'exam_in_progress' ? 'Exam/Assignment In Progress' : 'Already Logged In'}
+          footer={(
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, width: '100%' }}>
+              <Button variant="outline" onClick={() => setDualLoginPrompt(null)} disabled={busy}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleForceLogoutAndContinue}
+                loading={busy}
+                style={dualLoginPrompt.reason === 'exam_in_progress' ? { background: '#dc2626', borderColor: '#b91c1c' } : undefined}
+              >
+                {dualLoginPrompt.reason === 'exam_in_progress' ? 'Logout All & Continue' : 'Logout All Devices & Continue'}
+              </Button>
+            </div>
+          )}
+        >
+          <div style={{ padding: '8px 0' }}>
+            {dualLoginPrompt.reason === 'exam_in_progress' ? (
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: '#fee2e2', borderRadius: 8, color: '#991b1b', marginBottom: 14 }}>
+                  <AlertTriangle size={20} style={{ flexShrink: 0 }} />
+                  <span style={{ fontSize: '0.86rem', fontWeight: 600 }}>
+                    Active assessment in progress: {dualLoginPrompt.active_assessment?.title || 'Exam / Assignment'}
+                  </span>
+                </div>
+                <p style={{ fontSize: '0.92rem', lineHeight: 1.6, color: '#334155', margin: '0 0 12px' }}>
+                  You are currently working on an exam or assignment on another device/browser.
+                </p>
+                <p style={{ fontSize: '0.92rem', lineHeight: 1.6, color: '#334155', margin: '0 0 12px' }}>
+                  If you continue, all existing login sessions will be logged out and the current exam/assignment will be automatically submitted.
+                </p>
+                <p style={{ fontSize: '0.92rem', lineHeight: 1.6, color: '#334155', margin: '0 0 12px' }}>
+                  Your current session will then continue on this browser.
+                </p>
+                <p style={{ fontSize: '0.88rem', fontWeight: 800, color: '#dc2626', margin: 0 }}>
+                  This action cannot be undone.
+                </p>
+              </div>
+            ) : (
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: '#eff6ff', borderRadius: 8, color: '#1e40af', marginBottom: 14 }}>
+                  <ShieldAlert size={20} style={{ flexShrink: 0 }} />
+                  <span style={{ fontSize: '0.86rem', fontWeight: 600 }}>
+                    Active Session Detected
+                  </span>
+                </div>
+                <p style={{ fontSize: '0.92rem', lineHeight: 1.6, color: '#334155', margin: 0 }}>
+                  Your account is already logged in on another device or browser.
+                </p>
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

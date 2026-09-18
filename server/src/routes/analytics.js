@@ -84,6 +84,14 @@ router.get('/exam-history', authenticate, async (req, res) => {
     ? req.query.student_id
     : req.user.id;
 
+  const mode = req.query.mode;
+  let modeClause = "AND q.type = 'exam'";
+  if (mode === 'practice') {
+    modeClause = "AND q.type = 'practice'";
+  } else if (mode === 'all') {
+    modeClause = '';
+  }
+
   // Every published lesson the student can reach, with its subject/chapter.
   const lessonsResult = await pool.query(
     `SELECT q.id AS quiz_id, q.title AS quiz_title, q.type, q.pass_percent,
@@ -95,6 +103,7 @@ router.get('/exam-history', authenticate, async (req, res) => {
      LEFT JOIN chapters c ON c.id = q.chapter_id AND c.deleted_at IS NULL
      WHERE q.deleted_at IS NULL AND q.status = 'published'
        AND q.source IS DISTINCT FROM 'memory_bank'
+       ${modeClause}
        AND ($2::boolean OR EXISTS (
          SELECT 1 FROM bundle_access ba
          WHERE ba.user_id = $1
@@ -111,6 +120,7 @@ router.get('/exam-history', authenticate, async (req, res) => {
      FROM attempts a
      JOIN quizzes q ON q.id = a.quiz_id
      WHERE a.user_id = $1 AND a.status = 'submitted' AND q.source IS DISTINCT FROM 'memory_bank'
+       ${modeClause}
      ORDER BY a.submitted_at ASC`,
     [studentId]
   );
@@ -237,6 +247,8 @@ router.get('/exam-history/attempts/:attemptId', authenticate, async (req, res) =
 router.get('/me', authenticate, async (req, res) => {
   const { subject_id } = req.query;
   const subjectParams = subject_id ? [req.user.id, subject_id] : [req.user.id];
+
+  // 1. EXAM MODE DATA (Requirements 1 & 4): Strict isolation — only q.type = 'exam'
   const overall = await pool.query(
     `WITH scoped AS (
        SELECT a.quiz_id, a.score
@@ -244,6 +256,7 @@ router.get('/me', authenticate, async (req, res) => {
        JOIN quizzes q ON q.id = a.quiz_id
        WHERE a.user_id = $1 AND a.status = 'submitted'
          AND q.source IS DISTINCT FROM 'memory_bank'
+         AND q.type = 'exam'
          ${subject_id ? 'AND q.subject_id = $2' : ''}
      )
      SELECT
@@ -251,15 +264,75 @@ router.get('/me', authenticate, async (req, res) => {
        COUNT(DISTINCT quiz_id)::int AS quizzes_attempted,
        ROUND(AVG(score)::numeric, 2) AS avg_score,
        MAX(score) AS best_score,
-       -- Average of each quiz's BEST attempt. A student who retook a quiz and
-       -- improved should not be permanently averaged down by their own first
-       -- failed try, which is what a flat AVG over every attempt does.
+       -- Average of each quiz's BEST attempt for exams
        (SELECT ROUND(AVG(best)::numeric, 2) FROM (
           SELECT MAX(score) AS best FROM scoped GROUP BY quiz_id
         ) b) AS avg_best_score
      FROM scoped`,
     subjectParams
   );
+
+  // 2. PRACTICE / ASSESSMENT DATA (Requirements 1, 2, 3): Strict isolation — only q.type = 'practice'
+  const practiceOverall = await pool.query(
+    `WITH practice_scoped AS (
+       SELECT a.quiz_id, a.score
+       FROM attempts a
+       JOIN quizzes q ON q.id = a.quiz_id
+       WHERE a.user_id = $1 AND a.status = 'submitted'
+         AND q.source IS DISTINCT FROM 'memory_bank'
+         AND q.type = 'practice'
+         ${subject_id ? 'AND q.subject_id = $2' : ''}
+     )
+     SELECT
+       COUNT(*)::int AS total_attempts,
+       COUNT(DISTINCT quiz_id)::int AS completed_count,
+       ROUND(AVG(score)::numeric, 2) AS cumulative_avg_score,
+       (SELECT ROUND(AVG(best)::numeric, 2) FROM (
+          SELECT MAX(score) AS best FROM practice_scoped GROUP BY quiz_id
+        ) b) AS avg_best_score
+     FROM practice_scoped`,
+    subjectParams
+  );
+
+  // Total eligible practice assignments/assessments available to the candidate
+  const totalPracticeResult = await pool.query(
+    `SELECT COUNT(DISTINCT q.id)::int AS total_count
+     FROM quizzes q
+     WHERE q.deleted_at IS NULL AND q.status = 'published'
+       AND q.source IS DISTINCT FROM 'memory_bank'
+       AND q.type = 'practice'
+       ${subject_id ? 'AND q.subject_id = $2' : ''}
+       AND (
+         $1::int IN (SELECT id FROM users WHERE role IN ('admin', 'instructor'))
+         OR EXISTS (
+           SELECT 1 FROM bundle_access ba
+           WHERE ba.user_id = $1
+             AND (ba.bundle_id = q.bundle_id
+                  OR q.subject_id IN (SELECT subject_id FROM bundle_subjects WHERE bundle_id = ba.bundle_id))
+         )
+       )`,
+    subjectParams
+  );
+
+  const pRow = practiceOverall.rows[0] || {};
+  const totalPracticeAssignments = Math.max(Number(totalPracticeResult.rows[0]?.total_count || 0), Number(pRow.completed_count || 0));
+  const completedAssignments = Number(pRow.completed_count || 0);
+
+  const learningMatrix = {
+    cumulative_avg_assignment_score: pRow.cumulative_avg_score != null ? Number(pRow.cumulative_avg_score) : null,
+    avg_best_assignment_score: pRow.avg_best_score != null ? Number(pRow.avg_best_score) : null,
+    completed_assignments: completedAssignments,
+    total_assignments: totalPracticeAssignments,
+    assignment_completion: `${completedAssignments} / ${totalPracticeAssignments}`,
+    assignment_completion_ratio: totalPracticeAssignments > 0 ? Math.round((completedAssignments / totalPracticeAssignments) * 100) : 0,
+  };
+
+  const performanceIndicator = {
+    cumulative_avg_test_score: pRow.cumulative_avg_score != null ? Number(pRow.cumulative_avg_score) : null,
+    avg_best_test_score: pRow.avg_best_score != null ? Number(pRow.avg_best_score) : null,
+    tests_completed: completedAssignments,
+  };
+
   const byQuiz = await pool.query(
     `SELECT a.id AS attempt_id, a.quiz_id, q.title, q.type, a.score, a.correct_count, a.total_questions, a.submitted_at
      FROM attempts a JOIN quizzes q ON q.id = a.quiz_id
@@ -381,8 +454,16 @@ router.get('/me', authenticate, async (req, res) => {
   };
 
   res.json({
-    overall: overall.rows[0], recentAttempts: byQuiz.rows, weakTopics, masteryBySubtopic: subtopicMastery,
-    masteryBySubject: subjectMastery, batchAverageBySubject: batchAverage, readiness,
+    overall: overall.rows[0] || { attempts: 0, quizzes_attempted: 0, avg_score: null, best_score: null, avg_best_score: null },
+    examMode: overall.rows[0] || { attempts: 0, quizzes_attempted: 0, avg_score: null, best_score: null, avg_best_score: null },
+    learningMatrix,
+    performanceIndicator,
+    recentAttempts: byQuiz.rows,
+    weakTopics,
+    masteryBySubtopic: subtopicMastery,
+    masteryBySubject: subjectMastery,
+    batchAverageBySubject: batchAverage,
+    readiness,
   });
 });
 

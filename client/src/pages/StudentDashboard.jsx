@@ -33,6 +33,8 @@ export default function StudentDashboard() {
   const [weakTopics, setWeakTopics] = useState([]);
   const [masteryTopics, setMasteryTopics] = useState([]);
   const [readiness, setReadiness] = useState(null);
+  const [learningMatrix, setLearningMatrix] = useState(null);
+  const [performanceIndicator, setPerformanceIndicator] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const { user, authVersion } = useAuth();
@@ -45,6 +47,8 @@ export default function StudentDashboard() {
         setAccessIds(new Set((access.bundles || []).map((bundle) => String(bundle.id))));
         setQuizzes(q.quizzes);
         setAttempts(a.attempts);
+        setLearningMatrix(m.learningMatrix || null);
+        setPerformanceIndicator(m.performanceIndicator || null);
         // Students only ever get their OWN weak topics here — this is the
         // "limited view" version of Topic Mastery: no strong/average
         // breakdown, no other students' data, just what to focus on next.
@@ -68,15 +72,13 @@ export default function StudentDashboard() {
 
   // "Completed" means submitted AND actually answered something — a student
   // who opened a quiz and submitted it blank shouldn't drag their average
-  // down. The attempts endpoint now returns a precomputed `answered_count`
-  // rather than shipping the whole answers blob to the browser; the
-  // `answers` fallback keeps this working against an older API build.
+  // down. Practice attempts are strictly separated from Exam calculations.
   const answeredCount = (attempt) => (
     attempt.answered_count != null
       ? Number(attempt.answered_count)
       : Object.keys(attempt.answers || {}).length
   );
-  const completed = attempts.filter((attempt) => attempt.status === 'submitted' && answeredCount(attempt) > 0);
+  const completed = attempts.filter((attempt) => attempt.status === 'submitted' && attempt.quiz_type !== 'practice' && answeredCount(attempt) > 0);
   const visibleAttempts = completed;
   const average = completed.length ? Math.round(completed.reduce((sum, attempt) => sum + Number(attempt.score || 0), 0) / completed.length) : 0;
   const totalCorrect = completed.reduce((sum, attempt) => sum + Number(attempt.correct_count || 0), 0);
@@ -183,8 +185,43 @@ export default function StudentDashboard() {
           <div><span>Study streak</span><strong>{studyStreak} <em>{studyStreak === 1 ? 'day' : 'days'}</em></strong></div>
           <div><span>Exam average</span><strong style={completed.length ? { color: readinessBand.color } : undefined}>{completed.length ? average : '—'} <em>{completed.length ? '%' : 'start a mock'}</em></strong></div>
           <div><span>Flight XP</span><strong>{flightXp} <em>points</em></strong></div>
-          <div><span>Completed tests</span><strong>{completed.length} <em>submitted</em></strong></div>
+          <div><span>Official exams</span><strong>{completed.length} <em>submitted</em></strong></div>
         </section>
+
+        {/* Learning Matrix & Performance Indicator Strip (Requirements 2 & 3) */}
+        {learningMatrix && (
+          <section className="card" style={{ marginTop: 18, padding: '16px 20px', borderRadius: 12, border: '1px solid var(--line)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
+              <div>
+                <strong style={{ fontSize: '1rem', fontWeight: 800 }}>Practice Learning Matrix &amp; Performance Indicator</strong>
+                <p className="muted" style={{ fontSize: '0.8rem', margin: '2px 0 0' }}>Practice and assessment analytics strictly separated from official exam data.</p>
+              </div>
+              <Link to="/analytics" className="btn btn-outline btn-xs" style={{ fontSize: '0.78rem' }}>View analytics →</Link>
+            </div>
+            <div className="grid grid-4" style={{ gap: 12 }}>
+              <div style={{ padding: '10px 14px', background: 'var(--surface-sunken)', borderRadius: 8, border: '1px solid var(--line)' }}>
+                <span className="muted" style={{ fontSize: '0.75rem', display: 'block' }}>Assignment Avg</span>
+                <strong style={{ fontSize: '1.15rem', color: '#16a34a' }}>{learningMatrix.cumulative_avg_assignment_score != null ? `${learningMatrix.cumulative_avg_assignment_score}%` : '—'}</strong>
+                <small className="muted" style={{ display: 'block', fontSize: '0.7rem', marginTop: 2 }}>Cumulative average</small>
+              </div>
+              <div style={{ padding: '10px 14px', background: 'var(--surface-sunken)', borderRadius: 8, border: '1px solid var(--line)' }}>
+                <span className="muted" style={{ fontSize: '0.75rem', display: 'block' }}>Best Assignment Avg</span>
+                <strong style={{ fontSize: '1.15rem', color: '#0284c7' }}>{learningMatrix.avg_best_assignment_score != null ? `${learningMatrix.avg_best_assignment_score}%` : '—'}</strong>
+                <small className="muted" style={{ display: 'block', fontSize: '0.7rem', marginTop: 2 }}>Avg of best scores</small>
+              </div>
+              <div style={{ padding: '10px 14px', background: 'var(--surface-sunken)', borderRadius: 8, border: '1px solid var(--line)' }}>
+                <span className="muted" style={{ fontSize: '0.75rem', display: 'block' }}>Assignment Completion</span>
+                <strong style={{ fontSize: '1.15rem', color: '#d97706' }}>{learningMatrix.assignment_completion || '0 / 0'}</strong>
+                <small className="muted" style={{ display: 'block', fontSize: '0.7rem', marginTop: 2 }}>Completed / Total</small>
+              </div>
+              <div style={{ padding: '10px 14px', background: 'var(--surface-sunken)', borderRadius: 8, border: '1px solid var(--line)' }}>
+                <span className="muted" style={{ fontSize: '0.75rem', display: 'block' }}>Test Performance</span>
+                <strong style={{ fontSize: '1.15rem', color: '#8b5cf6' }}>{performanceIndicator?.avg_best_test_score != null ? `${performanceIndicator.avg_best_test_score}%` : '—'}</strong>
+                <small className="muted" style={{ display: 'block', fontSize: '0.7rem', marginTop: 2 }}>Avg best test score</small>
+              </div>
+            </div>
+          </section>
+        )}
 
         <section className="mastery-overview">
           <div className="section-heading mastery-overview-heading">

@@ -77,7 +77,7 @@ export default function StudentAnalytics() {
 
   if (loading) return <div className="page"><div className="container"><PageSkeleton label="Loading analytics" /></div></div>;
   if (!data || !attempts) return <div className="page"><div className="container"><div className="error-banner">Unable to load analytics: {error || 'Please try again.'}</div></div></div>;
-  const { overall, weakTopics, masteryBySubtopic = [], masteryBySubject = [], batchAverageBySubject = [] } = data;
+  const { overall, learningMatrix, performanceIndicator, weakTopics, masteryBySubtopic = [], masteryBySubject = [], batchAverageBySubject = [] } = data;
 
   // Subtopic Mastery Radar Chart: student mastery vs the batch/platform
   // average for the same subjects — merged into one row-per-subject dataset
@@ -97,7 +97,10 @@ export default function StudentAnalytics() {
     <div className="page">
       <div className="container">
         <div className="page-header">
-          <h1>Exam History</h1>
+          <div>
+            <h1>Performance &amp; Analytics</h1>
+            <p className="muted" style={{ margin: '4px 0 0' }}>Authoritative performance metrics with strict separation of Exam Mode and Practice/Assessment data.</p>
+          </div>
           <div className="field" style={{ maxWidth: 300, marginTop: 14 }}>
             <label>Filter by subject</label>
             <select className="input" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
@@ -109,17 +112,88 @@ export default function StudentAnalytics() {
 
         {error && <div className="error-banner">{error}</div>}
 
+        {/* EXAM MODE ANALYTICS */}
+        <div style={{ marginTop: 24, marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0 }}>Exam Mode Analytics</h2>
+            <p className="muted" style={{ fontSize: '0.82rem', margin: '2px 0 0' }}>Official exam mode scores only. Practice attempts are completely excluded.</p>
+          </div>
+          <span className="badge badge-accent">Exam Mode Only</span>
+        </div>
+
         <div className="grid grid-3 analytics-stat-row">
           <div className="card stat-tile">
             <div className="stat-num">{overall.attempts}</div>
-            <div className="stat-label">Exams taken</div>
+            <div className="stat-label">Official exams taken</div>
           </div>
           <div className="card analytics-gauge-card" style={{ display: 'flex', justifyContent: 'center' }}>
             <Gauge value={overall.avg_score ? parseFloat(overall.avg_score) : 0} />
           </div>
           <div className="card stat-tile">
             <div className="stat-num">{overall.best_score ?? '—'}%</div>
-            <div className="stat-label">Best score</div>
+            <div className="stat-label">Best exam score</div>
+          </div>
+        </div>
+
+        {/* LEARNING MATRIX — ASSIGNMENT ANALYTICS (Requirement 2) */}
+        <div style={{ marginTop: 32, marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0 }}>Learning Matrix</h2>
+            <p className="muted" style={{ fontSize: '0.82rem', margin: '2px 0 0' }}>Calculated strictly using Practice/Assessment assignment data.</p>
+          </div>
+          <span className="badge" style={{ background: '#dcfce7', color: '#15803d', fontWeight: 700 }}>Practice Assignments</span>
+        </div>
+
+        <div className="grid grid-3 analytics-stat-row">
+          <div className="card stat-tile">
+            <div className="stat-num" style={{ color: '#16a34a' }}>
+              {learningMatrix?.cumulative_avg_assignment_score != null ? `${learningMatrix.cumulative_avg_assignment_score}%` : '—'}
+            </div>
+            <div className="stat-label">Cumulative Average Assignment Score</div>
+            <small className="muted" style={{ fontSize: '0.75rem', marginTop: 4 }}>All eligible practice attempts</small>
+          </div>
+
+          <div className="card stat-tile">
+            <div className="stat-num" style={{ color: '#0284c7' }}>
+              {learningMatrix?.avg_best_assignment_score != null ? `${learningMatrix.avg_best_assignment_score}%` : '—'}
+            </div>
+            <div className="stat-label">Average of Best Assignment Score</div>
+            <small className="muted" style={{ fontSize: '0.75rem', marginTop: 4 }}>Average of each assignment's best score</small>
+          </div>
+
+          <div className="card stat-tile">
+            <div className="stat-num" style={{ color: '#d97706' }}>
+              {learningMatrix?.assignment_completion || '0 / 0'}
+            </div>
+            <div className="stat-label">Assignment Completion</div>
+            <small className="muted" style={{ fontSize: '0.75rem', marginTop: 4 }}>Completed / Total practice assignments</small>
+          </div>
+        </div>
+
+        {/* PERFORMANCE INDICATOR — TEST ANALYTICS (Requirement 3) */}
+        <div style={{ marginTop: 32, marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0 }}>Performance Indicator</h2>
+            <p className="muted" style={{ fontSize: '0.82rem', margin: '2px 0 0' }}>Practice test performance benchmarks derived from practice data only.</p>
+          </div>
+          <span className="badge" style={{ background: '#e0e7ff', color: '#4338ca', fontWeight: 700 }}>Practice Tests</span>
+        </div>
+
+        <div className="grid grid-2 analytics-stat-row">
+          <div className="card stat-tile">
+            <div className="stat-num" style={{ color: '#6366f1' }}>
+              {performanceIndicator?.cumulative_avg_test_score != null ? `${performanceIndicator.cumulative_avg_test_score}%` : '—'}
+            </div>
+            <div className="stat-label">Cumulative Average Test Score</div>
+            <small className="muted" style={{ fontSize: '0.75rem', marginTop: 4 }}>Average across all practice test attempts</small>
+          </div>
+
+          <div className="card stat-tile">
+            <div className="stat-num" style={{ color: '#8b5cf6' }}>
+              {performanceIndicator?.avg_best_test_score != null ? `${performanceIndicator.avg_best_test_score}%` : '—'}
+            </div>
+            <div className="stat-label">Average of Best Test Score</div>
+            <small className="muted" style={{ fontSize: '0.75rem', marginTop: 4 }}>Average of best attempt on each practice test</small>
           </div>
         </div>
 

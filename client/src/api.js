@@ -136,7 +136,11 @@ async function request(path, { method = 'GET', body, isForm = false, auth = true
     const message = typeof data === 'string' && data.includes('<!doctype html')
       ? 'The API server is not connected to this deployment. Set VITE_API_URL to the deployed API URL and redeploy the client.'
       : (data && (data.detail || data.error)) || `Request failed (${res.status})`;
-    throw new Error(message);
+    const err = new Error(message);
+    if (data && typeof data === 'object') {
+      Object.assign(err, data);
+    }
+    throw err;
   }
   return data;
 }
@@ -150,5 +154,6 @@ export const api = {
   put: (path, body, opts) => request(path, { ...opts, method: 'PUT', body }),
   patch: (path, body, opts) => request(path, { ...opts, method: 'PATCH', body }),
   del: (path, opts) => request(path, { ...opts, method: 'DELETE' }),
+  delete: (path, opts) => request(path, { ...opts, method: 'DELETE' }),
   postForm: (path, formData) => request(path, { method: 'POST', body: formData, isForm: true }),
 };

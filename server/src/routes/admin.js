@@ -505,48 +505,92 @@ router.get('/students/:id', async (req, res) => {
 // Update Student Profile
 router.patch('/students/:id', async (req, res) => {
   const {
-    name, phone, date_of_birth, country, city, status,
+    name, email, phone, date_of_birth, country, city, status,
     qualification, school_college, passing_year, percentage_cgpa,
     math_score, physics_score, english_score,
     aviation_student_id, licence_number, licence_type,
     regulatory_authority, medical_class, medical_validity, flight_hours, gender, address, state
   } = req.body;
 
+  if (email !== undefined) {
+    const trimmedEmail = email ? email.trim().toLowerCase() : '';
+    if (!trimmedEmail) {
+      return res.status(400).json({ error: 'Email address cannot be empty' });
+    }
+    const existing = await pool.query(
+      'SELECT id FROM users WHERE lower(email) = $1 AND id != $2',
+      [trimmedEmail, req.params.id]
+    );
+    if (existing.rows.length) {
+      return res.status(400).json({ error: 'Email address is already in use by another account' });
+    }
+  }
+
+  const parseNum = (val) => {
+    if (val === undefined || val === null || val === '') return null;
+    const n = Number(val);
+    return isNaN(n) ? null : n;
+  };
+
+  const parseIntVal = (val) => {
+    if (val === undefined || val === null || val === '') return null;
+    const n = parseInt(val, 10);
+    return isNaN(n) ? null : n;
+  };
+
   const result = await pool.query(
     `UPDATE users SET
-       name = COALESCE($1, name),
-       phone = COALESCE($2, phone),
-       date_of_birth = CASE WHEN $3 THEN $4 ELSE date_of_birth END,
-       country = COALESCE($5, country),
-       city = COALESCE($6, city),
-       status = COALESCE($7, status),
-       qualification = COALESCE($8, qualification),
-       school_college = COALESCE($9, school_college),
-       passing_year = COALESCE($10, passing_year),
-       percentage_cgpa = COALESCE($11, percentage_cgpa),
-       math_score = COALESCE($12, math_score),
-       physics_score = COALESCE($13, physics_score),
-       english_score = COALESCE($14, english_score),
-       aviation_student_id = COALESCE($15, aviation_student_id),
-       licence_number = COALESCE($16, licence_number),
-       licence_type = COALESCE($17, licence_type),
-       regulatory_authority = COALESCE($18, regulatory_authority),
-       medical_class = COALESCE($19, medical_class),
-       medical_validity = CASE WHEN $20 THEN $21 ELSE medical_validity END,
-       flight_hours = COALESCE($22, flight_hours),
-       gender = COALESCE($23, gender),
-       address = COALESCE($24, address),
-       state = COALESCE($25, state)
-     WHERE id = $26 AND role = 'student'
+       name = CASE WHEN $1 THEN $2 ELSE name END,
+       email = CASE WHEN $3 THEN $4 ELSE email END,
+       phone = CASE WHEN $5 THEN $6 ELSE phone END,
+       date_of_birth = CASE WHEN $7 THEN $8 ELSE date_of_birth END,
+       country = CASE WHEN $9 THEN $10 ELSE country END,
+       city = CASE WHEN $11 THEN $12 ELSE city END,
+       status = CASE WHEN $13 THEN $14 ELSE status END,
+       qualification = CASE WHEN $15 THEN $16 ELSE qualification END,
+       school_college = CASE WHEN $17 THEN $18 ELSE school_college END,
+       passing_year = CASE WHEN $19 THEN $20 ELSE passing_year END,
+       percentage_cgpa = CASE WHEN $21 THEN $22 ELSE percentage_cgpa END,
+       math_score = CASE WHEN $23 THEN $24 ELSE math_score END,
+       physics_score = CASE WHEN $25 THEN $26 ELSE physics_score END,
+       english_score = CASE WHEN $27 THEN $28 ELSE english_score END,
+       aviation_student_id = CASE WHEN $29 THEN $30 ELSE aviation_student_id END,
+       licence_number = CASE WHEN $31 THEN $32 ELSE licence_number END,
+       licence_type = CASE WHEN $33 THEN $34 ELSE licence_type END,
+       regulatory_authority = CASE WHEN $35 THEN $36 ELSE regulatory_authority END,
+       medical_class = CASE WHEN $37 THEN $38 ELSE medical_class END,
+       medical_validity = CASE WHEN $39 THEN $40 ELSE medical_validity END,
+       flight_hours = CASE WHEN $41 THEN $42 ELSE flight_hours END,
+       gender = CASE WHEN $43 THEN $44 ELSE gender END,
+       address = CASE WHEN $45 THEN $46 ELSE address END,
+       state = CASE WHEN $47 THEN $48 ELSE state END
+     WHERE id = $49 AND role = 'student'
      RETURNING *`,
     [
-      name || null, phone || null, date_of_birth !== undefined, date_of_birth || null,
-      country || null, city || null, status || null, qualification || null,
-      school_college || null, passing_year || null, percentage_cgpa || null,
-      math_score || null, physics_score || null, english_score || null,
-      aviation_student_id || null, licence_number || null, licence_type || null,
-      regulatory_authority || null, medical_class || null, medical_validity !== undefined,
-      medical_validity || null, flight_hours || null, gender || null, address || null, state || null,
+      name !== undefined, name ? name.trim() : null,
+      email !== undefined, email ? email.trim().toLowerCase() : null,
+      phone !== undefined, phone ? phone.trim() : null,
+      date_of_birth !== undefined, date_of_birth || null,
+      country !== undefined, country ? country.trim() : null,
+      city !== undefined, city ? city.trim() : null,
+      status !== undefined, status || null,
+      qualification !== undefined, qualification ? qualification.trim() : null,
+      school_college !== undefined, school_college ? school_college.trim() : null,
+      passing_year !== undefined, parseIntVal(passing_year),
+      percentage_cgpa !== undefined, parseNum(percentage_cgpa),
+      math_score !== undefined, math_score ? String(math_score).trim() : null,
+      physics_score !== undefined, physics_score ? String(physics_score).trim() : null,
+      english_score !== undefined, english_score ? String(english_score).trim() : null,
+      aviation_student_id !== undefined, aviation_student_id ? aviation_student_id.trim() : null,
+      licence_number !== undefined, licence_number ? licence_number.trim() : null,
+      licence_type !== undefined, licence_type ? licence_type.trim() : null,
+      regulatory_authority !== undefined, regulatory_authority ? regulatory_authority.trim() : null,
+      medical_class !== undefined, medical_class ? medical_class.trim() : null,
+      medical_validity !== undefined, medical_validity || null,
+      flight_hours !== undefined, parseNum(flight_hours),
+      gender !== undefined, gender ? gender.trim() : null,
+      address !== undefined, address ? address.trim() : null,
+      state !== undefined, state ? state.trim() : null,
       req.params.id
     ]
   );
@@ -759,29 +803,170 @@ router.post('/refunds/:id/reject', async (req, res) => {
 });
 
 // ----------------------------------------------------------------------------
-// Coupons & Discounts APIs
+// ----------------------------------------------------------------------------
+// Coupons & Discounts APIs (Requirements 5, 6, 7, 8)
 // ----------------------------------------------------------------------------
 router.get('/coupons', async (req, res) => {
-  const result = await pool.query(`
-    SELECT c.*, b.title AS bundle_title
+  const { sort, search } = req.query;
+
+  const clauses = ['1=1'];
+  const params = [];
+
+  if (search && search.trim()) {
+    params.push(`%${search.trim().toUpperCase()}%`);
+    clauses.push(`c.code ILIKE $${params.length}`);
+  }
+
+  let orderBy = 'c.created_at DESC';
+  if (sort === 'asc') {
+    orderBy = 'c.code ASC';
+  } else if (sort === 'desc') {
+    orderBy = 'c.code DESC';
+  }
+
+  const query = `
+    SELECT 
+      c.*, 
+      b.title AS bundle_title,
+      COUNT(DISTINCT t.id)::int AS overall_uses,
+      COUNT(DISTINCT t.user_id)::int AS unique_users_count,
+      COUNT(DISTINCT CASE WHEN t.created_at >= DATE_TRUNC('month', CURRENT_DATE) THEN t.id END)::int AS this_month_uses,
+      COUNT(DISTINCT CASE WHEN t.created_at >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '3 months') THEN t.id END)::int AS last_3_months_uses,
+      COUNT(DISTINCT CASE WHEN t.created_at >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '12 months') THEN t.id END)::int AS last_12_months_uses
     FROM coupons c
     LEFT JOIN bundles b ON b.id = c.bundle_id
-    ORDER BY c.created_at DESC
-  `);
+    LEFT JOIN transactions t ON (t.coupon_id = c.id OR UPPER(t.coupon_code) = UPPER(c.code)) AND t.status = 'successful'
+    WHERE ${clauses.join(' AND ')}
+    GROUP BY c.id, b.title
+    ORDER BY ${orderBy}
+  `;
+
+  const result = await pool.query(query, params);
   res.json({ coupons: result.rows });
 });
 
-router.post('/coupons', async (req, res) => {
-  const { code, discount_percent, discount_amount_inr, max_uses, bundle_id, expires_at } = req.body;
-  if (!code || !code.trim()) return res.status(400).json({ error: 'code required' });
+router.get('/coupons/:id/users', async (req, res) => {
+  const couponId = req.params.id;
+  const couponResult = await pool.query('SELECT * FROM coupons WHERE id = $1', [couponId]);
+  const coupon = couponResult.rows[0];
+  if (!coupon) return res.status(404).json({ error: 'Coupon not found' });
 
   const result = await pool.query(
-    `INSERT INTO coupons (code, discount_percent, discount_amount_inr, max_uses, bundle_id, expires_at)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-    [code.trim().toUpperCase(), discount_percent || null, discount_amount_inr || null, max_uses || 100, bundle_id || null, expires_at || null]
+    `SELECT 
+       t.id AS transaction_id,
+       t.purchase_id,
+       t.amount_inr AS final_amount,
+       COALESCE(t.original_amount_inr, t.amount_inr) AS original_amount,
+       COALESCE(t.discount_amount_inr, 0) AS discount_amount,
+       t.status AS transaction_status,
+       t.created_at AS used_at,
+       u.id AS user_id,
+       u.name AS user_name,
+       u.email AS user_email,
+       u.phone AS user_phone,
+       b.title AS course_title
+     FROM transactions t
+     JOIN users u ON u.id = t.user_id
+     LEFT JOIN bundles b ON b.id = t.bundle_id
+     WHERE (t.coupon_id = $1 OR UPPER(t.coupon_code) = UPPER($2))
+       AND t.status = 'successful'
+     ORDER BY t.created_at DESC`,
+    [coupon.id, coupon.code]
+  );
+
+  const uniqueUsers = new Set(result.rows.map((r) => r.user_id)).size;
+  const totalUses = result.rows.length;
+
+  res.json({
+    coupon,
+    users: result.rows,
+    summary: {
+      unique_users_count: uniqueUsers,
+      total_uses_count: totalUses,
+    },
+  });
+});
+
+router.post('/coupons', async (req, res) => {
+  const {
+    code, discount_percent, discount_amount_inr, max_uses, bundle_id, expires_at,
+    min_order_amount_inr, max_discount_amount_inr,
+    discount_type, discount_value, min_purchase_inr, max_discount_inr, usage_limit,
+  } = req.body;
+  if (!code || !code.trim()) return res.status(400).json({ error: 'Coupon code is required' });
+
+  const cleanCode = code.trim().toUpperCase();
+
+  // Prevent duplicate coupon code
+  const existing = await pool.query('SELECT id FROM coupons WHERE UPPER(code) = UPPER($1)', [cleanCode]);
+  if (existing.rows.length) {
+    return res.status(400).json({ error: `A coupon with code "${cleanCode}" already exists` });
+  }
+
+  let finalPercent = discount_percent != null ? Number(discount_percent) : null;
+  let finalFixed = discount_amount_inr != null ? Number(discount_amount_inr) : null;
+
+  if (finalPercent == null && finalFixed == null && discount_value != null) {
+    if (discount_type === 'fixed') {
+      finalFixed = Number(discount_value);
+    } else {
+      finalPercent = Number(discount_value);
+    }
+  }
+
+  if ((!finalPercent || finalPercent <= 0) && (!finalFixed || finalFixed <= 0)) {
+    return res.status(400).json({ error: 'Please enter a valid discount value greater than 0' });
+  }
+
+  const finalMaxUses = max_uses != null ? Number(max_uses) : (usage_limit != null ? Number(usage_limit) : 100);
+  const finalMinOrder = min_order_amount_inr != null ? Number(min_order_amount_inr) : (min_purchase_inr != null ? Number(min_purchase_inr) : 0);
+  const finalMaxDiscount = max_discount_amount_inr != null ? Number(max_discount_amount_inr) : (max_discount_inr != null ? Number(max_discount_inr) : null);
+
+  const result = await pool.query(
+    `INSERT INTO coupons (
+       code, discount_percent, discount_amount_inr, max_uses, bundle_id, expires_at,
+       min_order_amount_inr, max_discount_amount_inr, status
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active') RETURNING *`,
+    [
+      cleanCode,
+      finalPercent,
+      finalFixed,
+      finalMaxUses,
+      bundle_id ? Number(bundle_id) : null,
+      expires_at || null,
+      finalMinOrder,
+      finalMaxDiscount,
+    ]
   );
   await logAudit({ req, action: 'coupon.create', entityType: 'coupon', entityId: result.rows[0].id });
   res.status(201).json({ coupon: result.rows[0] });
+});
+
+router.patch('/coupons/:id', async (req, res) => {
+  const { status, expires_at, max_uses, min_order_amount_inr, max_discount_amount_inr } = req.body;
+  const existing = await pool.query('SELECT * FROM coupons WHERE id = $1', [req.params.id]);
+  if (!existing.rows.length) return res.status(404).json({ error: 'Coupon not found' });
+
+  const result = await pool.query(
+    `UPDATE coupons SET
+       status = COALESCE($1, status),
+       expires_at = COALESCE($2, expires_at),
+       max_uses = COALESCE($3, max_uses),
+       min_order_amount_inr = COALESCE($4, min_order_amount_inr),
+       max_discount_amount_inr = COALESCE($5, max_discount_amount_inr)
+     WHERE id = $6 RETURNING *`,
+    [
+      status || null,
+      expires_at !== undefined ? expires_at : null,
+      max_uses !== undefined ? max_uses : null,
+      min_order_amount_inr !== undefined ? min_order_amount_inr : null,
+      max_discount_amount_inr !== undefined ? max_discount_amount_inr : null,
+      req.params.id,
+    ]
+  );
+  await logAudit({ req, action: 'coupon.update', entityType: 'coupon', entityId: req.params.id });
+  res.json({ coupon: result.rows[0] });
 });
 
 router.delete('/coupons/:id', async (req, res) => {

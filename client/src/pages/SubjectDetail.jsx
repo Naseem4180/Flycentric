@@ -258,6 +258,15 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
                 <BookOpen size={13} /> Start Chapter Exam
               </Link>
             )}
+            {!selectedChapter.assignment_quiz_id && !selectedChapter.test_quiz_id && (
+              <span
+                className="badge"
+                style={{ background: 'var(--border-light, #f1f5f9)', color: 'var(--text-muted, #64748b)', border: '1px dashed var(--border, #cbd5e1)', padding: '6px 12px', fontSize: '.78rem', fontWeight: 600 }}
+                title="The assessment for this chapter has not been created yet"
+              >
+                Assessment Not Available
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -481,6 +490,28 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
                     >
                       <BookOpen size={12} /> EXAM
                     </Link>
+                  )}
+
+                  {/* Assessment Not Available if neither assignment nor exam quiz has been created yet */}
+                  {c.unlocked && !c.assignment_quiz_id && !c.test_quiz_id && (
+                    <span
+                      title="The assessment for this chapter has not been created yet"
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        fontSize: '0.72rem',
+                        fontWeight: 600,
+                        padding: '4px 8px',
+                        borderRadius: '6px',
+                        background: 'var(--border-light, #f1f5f9)',
+                        color: 'var(--text-muted, #64748b)',
+                        border: '1px dashed var(--border, #cbd5e1)',
+                        cursor: 'not-allowed',
+                      }}
+                    >
+                      Assessment Not Available
+                    </span>
                   )}
                 </div>
               </div>

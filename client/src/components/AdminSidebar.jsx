@@ -16,12 +16,16 @@ const NAV_STRUCTURE = [
     end: true,
     icon: LayoutGrid,
     label: 'Dashboard',
+    accent: '#0ea5e9',
+    accentRgb: '14, 165, 233',
   },
   {
     type: 'accordion',
     id: 'academics',
     label: 'Academics',
     icon: BookOpen,
+    accent: '#6366f1',
+    accentRgb: '99, 102, 241',
     children: [
       { to: '/admin/courses', icon: GraduationCap, label: 'Courses' },
       { to: '/admin/batches', icon: Layers, label: 'Batches' },
@@ -42,6 +46,8 @@ const NAV_STRUCTURE = [
     id: 'commerce',
     label: 'Commerce',
     icon: PackageSearch,
+    accent: '#10b981',
+    accentRgb: '16, 185, 129',
     children: [
       { to: '/admin/bundles-pricing', icon: PackageSearch, label: 'Bundles & Pricing' },
       { to: '/admin/purchases', icon: ShoppingBag, label: 'Purchases / Orders' },
@@ -56,6 +62,8 @@ const NAV_STRUCTURE = [
     id: 'students',
     label: 'Students',
     icon: Users,
+    accent: '#0284c7',
+    accentRgb: '2, 132, 199',
     children: [
       { to: '/admin/students', icon: Users, label: 'All Students' },
       { to: '/admin/enrollments', icon: UserCheck, label: 'Enrollments' },
@@ -67,6 +75,8 @@ const NAV_STRUCTURE = [
     id: 'engagement',
     label: 'Engagement',
     icon: Flag,
+    accent: '#f59e0b',
+    accentRgb: '245, 158, 11',
     children: [
       { to: '/admin/reports', icon: Flag, label: 'Reports', badgeKey: 'reports' },
       { to: '/admin/student-analytics', icon: BarChart3, label: 'Student Analytics' },
@@ -79,6 +89,8 @@ const NAV_STRUCTURE = [
     id: 'system',
     label: 'System',
     icon: SettingsIcon,
+    accent: '#8b5cf6',
+    accentRgb: '139, 92, 246',
     children: [
       { to: '/admin/users', icon: Shield, label: 'Users & Roles' },
       { to: '/admin/trash', icon: Trash2, label: 'Trash Bin' },
@@ -137,10 +149,17 @@ export default function AdminSidebar({ collapsed, badges = {}, onNavigate }) {
                 end={item.end}
                 onClick={onNavigate}
                 className={({ isActive }) => `admin-nav-link ${isActive ? 'active' : ''}`}
+                style={{
+                  '--accent': item.accent,
+                  '--accent-rgb': item.accentRgb,
+                }}
                 title={collapsed ? item.label : undefined}
               >
-                <Icon size={18} strokeWidth={2.2} />
-                {!collapsed && <span>{item.label}</span>}
+                <div className="nav-icon-pod">
+                  <Icon size={16} strokeWidth={2.2} />
+                </div>
+                {!collapsed && <span className="nav-link-label">{item.label}</span>}
+                <span className="admin-subnav-active-glow" aria-hidden="true" />
               </NavLink>
             );
           }
@@ -153,7 +172,14 @@ export default function AdminSidebar({ collapsed, badges = {}, onNavigate }) {
             );
 
             return (
-              <div className={`admin-accordion ${isOpen ? 'is-open' : ''}`} key={item.id}>
+              <div
+                className={`admin-accordion ${isOpen ? 'is-open' : ''} ${isParentActive ? 'is-parent-active' : ''}`}
+                key={item.id}
+                style={{
+                  '--accent': item.accent,
+                  '--accent-rgb': item.accentRgb,
+                }}
+              >
                 <button
                   type="button"
                   onClick={() => toggleGroup(item.id)}
@@ -161,16 +187,18 @@ export default function AdminSidebar({ collapsed, badges = {}, onNavigate }) {
                   title={collapsed ? item.label : undefined}
                   aria-expanded={isOpen}
                 >
-                  <Icon size={18} strokeWidth={2.2} className="header-icon" />
+                  <div className="nav-icon-pod">
+                    <Icon size={16} strokeWidth={2.2} className="header-icon" />
+                  </div>
                   {!collapsed && <span className="accordion-label">{item.label}</span>}
                   {!collapsed && (
-                    <ChevronDown size={15} strokeWidth={2.5} className="accordion-chevron" />
+                    <ChevronDown size={14} strokeWidth={2.5} className="accordion-chevron" />
                   )}
                 </button>
 
                 {isOpen && !collapsed && (
                   <div className="admin-accordion-body" role="group" aria-label={item.label}>
-                    {item.children.map(({ to, label, badgeKey }) => {
+                    {item.children.map(({ to, label, icon: ChildIcon, badgeKey }) => {
                       const count = badgeKey ? badges[badgeKey] : 0;
                       return (
                         <NavLink
@@ -179,7 +207,9 @@ export default function AdminSidebar({ collapsed, badges = {}, onNavigate }) {
                           onClick={onNavigate}
                           className={({ isActive }) => `admin-subnav-link ${isActive ? 'active' : ''}`}
                         >
+                          {ChildIcon && <ChildIcon size={14} strokeWidth={2} className="admin-subnav-icon" />}
                           <span className="admin-subnav-label">{label}</span>
+                          <span className="admin-subnav-active-glow" aria-hidden="true" />
                           {count > 0 && (
                             <span className="admin-subnav-badge">{count > 99 ? '99+' : count}</span>
                           )}

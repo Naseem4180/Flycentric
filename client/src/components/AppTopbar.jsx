@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Menu, Search, Settings, ShoppingCart, Bell, Grid3x3, Sun, Moon, LogOut, ChevronDown,
-  Users as UsersIcon, Database, Layers, BookOpen, Flag, User, CheckCheck,
+  Users as UsersIcon, Database, Layers, BookOpen, Flag, User, CheckCheck, ChevronRight,
 } from 'lucide-react';
 import useAuth from '../context/useAuth';
 import useTheme from '../hooks/useTheme';
@@ -337,7 +337,7 @@ export default function AppTopbar({ onToggleSidebar, quickLinks = [], onNotifica
 
         <div className="fc-avatar-wrap" ref={avatarRef}>
           <button
-            className="fc-avatar-pill"
+            className={`fc-avatar-pill ${openPanel === 'avatar' ? 'is-active' : ''}`}
             onClick={() => setOpenPanel((p) => (p === 'avatar' ? null : 'avatar'))}
             aria-expanded={openPanel === 'avatar'}
             aria-label="Account menu"
@@ -351,29 +351,88 @@ export default function AppTopbar({ onToggleSidebar, quickLinks = [], onNotifica
             </span>
             <span className="fc-avatar-meta">
               <strong>{user?.name}</strong>
-              <span>{user?.role}</span>
+              <span className={`fc-role-tag role-${user?.role || 'student'}`}>
+                {user?.role || 'student'}
+              </span>
             </span>
-            <ChevronDown size={14} />
+            <ChevronDown size={14} className={`fc-avatar-chevron ${openPanel === 'avatar' ? 'is-open' : ''}`} />
           </button>
           {openPanel === 'avatar' && (
             <div className="fc-panel fc-avatar-panel">
-              <div className="fc-panel-head" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
-                <strong style={{ fontSize: '.86rem' }}>{user?.name}</strong>
-                <span className="muted" style={{ fontSize: '.74rem', textTransform: 'capitalize' }}>{user?.email}</span>
+              <div className="fc-avatar-card-head">
+                <div className="fc-avatar-card-user">
+                  <div className="fc-avatar-card-avatar">
+                    {user?.avatar_url ? (
+                      <img src={user.avatar_url} alt="" />
+                    ) : (
+                      initials
+                    )}
+                    <span className="fc-avatar-status-dot" title="Active" />
+                  </div>
+                  <div className="fc-avatar-card-details">
+                    <strong className="fc-avatar-card-name">{user?.name}</strong>
+                    <span className="fc-avatar-card-email" title={user?.email}>{user?.email}</span>
+                  </div>
+                </div>
+                <div className="fc-avatar-card-meta-bar">
+                  <span className={`fc-role-tag role-${user?.role || 'student'}`}>
+                    {user?.role === 'admin' ? '★ Administrator' : user?.role === 'instructor' ? '👨‍✈ Instructor' : '✈ Student'}
+                  </span>
+                  <span className="fc-active-pulse">
+                    <span className="fc-pulse-indicator" />
+                    Active
+                  </span>
+                </div>
               </div>
-              <Link className="fc-panel-item" to={settingsPath} onClick={() => setOpenPanel(null)}>
-                <User size={15} /> Profile &amp; account
-              </Link>
-              <button className="fc-panel-item" onClick={() => { toggle(); setOpenPanel(null); }}>
-                {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
-                {theme === 'dark' ? 'Day mode' : 'Night mode'}
-              </button>
-              <Link className="fc-panel-item" to={settingsPath} onClick={() => setOpenPanel(null)}>
-                <Settings size={15} /> Settings
-              </Link>
-              <button className="fc-panel-item fc-panel-item-danger" onClick={handleLogout}>
-                <LogOut size={15} /> Log out
-              </button>
+
+              <div className="fc-avatar-menu-body">
+                <Link className="fc-panel-item fc-menu-item" to={settingsPath} onClick={() => setOpenPanel(null)}>
+                  <div className="fc-item-pod pod-indigo">
+                    <User size={15} />
+                  </div>
+                  <div className="fc-item-text">
+                    <span className="fc-item-title">Profile &amp; account</span>
+                    <span className="fc-item-sub">Personal details &amp; password</span>
+                  </div>
+                  <ChevronRight size={13} className="fc-item-arrow" />
+                </Link>
+
+                <button className="fc-panel-item fc-menu-item" onClick={() => { toggle(); setOpenPanel(null); }}>
+                  <div className={`fc-item-pod ${theme === 'dark' ? 'pod-amber' : 'pod-indigo'}`}>
+                    {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+                  </div>
+                  <div className="fc-item-text">
+                    <span className="fc-item-title">{theme === 'dark' ? 'Day mode' : 'Night mode'}</span>
+                    <span className="fc-item-sub">{theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}</span>
+                  </div>
+                  <span className="fc-theme-badge">
+                    {theme === 'dark' ? 'Dark' : 'Light'}
+                  </span>
+                </button>
+
+                <Link className="fc-panel-item fc-menu-item" to={settingsPath} onClick={() => setOpenPanel(null)}>
+                  <div className="fc-item-pod pod-sky">
+                    <Settings size={15} />
+                  </div>
+                  <div className="fc-item-text">
+                    <span className="fc-item-title">Settings</span>
+                    <span className="fc-item-sub">{isAdmin ? 'System configuration' : 'Preferences'}</span>
+                  </div>
+                  <ChevronRight size={13} className="fc-item-arrow" />
+                </Link>
+
+                <div className="fc-menu-divider" />
+
+                <button className="fc-panel-item fc-menu-item fc-menu-item-danger" onClick={handleLogout}>
+                  <div className="fc-item-pod pod-rose">
+                    <LogOut size={15} />
+                  </div>
+                  <div className="fc-item-text">
+                    <span className="fc-item-title">Log out</span>
+                    <span className="fc-item-sub">End active session</span>
+                  </div>
+                </button>
+              </div>
             </div>
           )}
         </div>

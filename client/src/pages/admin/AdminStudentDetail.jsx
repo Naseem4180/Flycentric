@@ -41,9 +41,22 @@ export default function AdminStudentDetail() {
   const [error, setError] = useState('');
 
   const [editModal, setEditModal] = useState(false);
+  const [editSubTab, setEditSubTab] = useState('personal');
   const [editForm, setEditForm] = useState({});
   const [saving, setSaving] = useState(false);
   const [confirmStatusToggle, setConfirmStatusToggle] = useState(false);
+
+  function toInputDate(val) {
+    if (!val) return '';
+    if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val)) return val;
+    try {
+      const d = new Date(val);
+      if (isNaN(d.getTime())) return '';
+      return d.toISOString().split('T')[0];
+    } catch {
+      return '';
+    }
+  }
 
   const load = useCallback(() => {
     setLoading(true);
@@ -51,7 +64,6 @@ export default function AdminStudentDetail() {
     api.get(`/admin/students/${id}`)
       .then((res) => {
         setData(res);
-        setEditForm(res.student || {});
       })
       .catch((err) => setError(err.message || 'Failed to load cadet profile'))
       .finally(() => setLoading(false));
@@ -83,6 +95,38 @@ export default function AdminStudentDetail() {
 
   const quizAttempts = attempts.filter((a) => a.quiz_type === 'practice');
   const examAttempts = attempts.filter((a) => a.quiz_type === 'exam');
+
+  function openEditModal() {
+    if (!student) return;
+    setEditForm({
+      name: student.name || '',
+      email: student.email || '',
+      phone: student.phone || '',
+      date_of_birth: toInputDate(student.date_of_birth),
+      gender: student.gender || '',
+      country: student.country || 'India',
+      state: student.state || '',
+      city: student.city || '',
+      address: student.address || '',
+      aviation_student_id: student.aviation_student_id || '',
+      licence_type: student.licence_type || '',
+      licence_number: student.licence_number || '',
+      regulatory_authority: student.regulatory_authority || '',
+      medical_class: student.medical_class || '',
+      medical_validity: toInputDate(student.medical_validity),
+      flight_hours: student.flight_hours ?? '',
+      qualification: student.qualification || '',
+      school_college: student.school_college || '',
+      passing_year: student.passing_year ?? '',
+      percentage_cgpa: student.percentage_cgpa ?? '',
+      math_score: student.math_score || '',
+      physics_score: student.physics_score || '',
+      english_score: student.english_score || '',
+      status: student.status || 'active',
+    });
+    setEditSubTab('personal');
+    setEditModal(true);
+  }
 
   async function handleSaveProfile(e) {
     e.preventDefault();
@@ -127,8 +171,8 @@ export default function AdminStudentDetail() {
         subtitle={`Registered: ${student.created_at ? new Date(student.created_at).toLocaleDateString() : '—'} · ${student.email || '—'}`}
         actions={
           <div className="row" style={{ gap: 8 }}>
-            <Button variant="ghost" icon={Pencil} onClick={() => setEditModal(true)}>
-              Edit Info
+            <Button variant="ghost" icon={Pencil} onClick={openEditModal}>
+              Edit Cadet Details
             </Button>
             <Button
               variant={student.status === 'active' ? 'danger' : 'success'}
@@ -529,73 +573,414 @@ export default function AdminStudentDetail() {
 
       {/* Edit Cadet Modal */}
       {editModal && (
-        <Modal title="Edit Cadet Details" onClose={() => setEditModal(false)}>
+        <Modal
+          title="Edit Cadet Dossier"
+          subtitle={`Editing complete profile and training records for ${student.name} (#${student.id})`}
+          size="lg"
+          onClose={() => setEditModal(false)}
+        >
           <form onSubmit={handleSaveProfile} className="form-stack">
-            <div className="grid grid-2" style={{ gap: 12 }}>
-              <div className="form-group">
-                <label>Full Name</label>
-                <input
-                  type="text"
-                  value={editForm.name || ''}
-                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                />
-              </div>
-
-              <div className="form-group">
-                <label>Phone Number</label>
-                <input
-                  type="text"
-                  value={editForm.phone || ''}
-                  onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
-                />
-              </div>
+            {/* Modal Internal Subtabs */}
+            <div
+              style={{
+                display: 'flex',
+                gap: 6,
+                paddingBottom: 10,
+                borderBottom: '1px solid var(--border)',
+                marginBottom: 16,
+                overflowX: 'auto',
+              }}
+            >
+              {[
+                { id: 'personal', label: 'Personal Information', icon: Users },
+                { id: 'aviation', label: 'Aviation & Medical', icon: Award },
+                { id: 'academic', label: 'Academic Qualifications', icon: GraduationCap },
+                { id: 'status', label: 'Account & Status', icon: ShieldAlert },
+              ].map((sub) => {
+                const SubIcon = sub.icon;
+                const isSelected = editSubTab === sub.id;
+                return (
+                  <button
+                    key={sub.id}
+                    type="button"
+                    onClick={() => setEditSubTab(sub.id)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '7px 14px',
+                      borderRadius: 6,
+                      border: isSelected ? '1px solid var(--primary)' : '1px solid var(--border)',
+                      background: isSelected ? 'rgba(14, 165, 233, 0.12)' : 'transparent',
+                      color: isSelected ? 'var(--primary)' : 'var(--text-muted)',
+                      fontWeight: isSelected ? 600 : 500,
+                      fontSize: '0.82rem',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <SubIcon size={14} />
+                    <span>{sub.label}</span>
+                  </button>
+                );
+              })}
             </div>
 
-            <div className="grid grid-2" style={{ gap: 12 }}>
-              <div className="form-group">
-                <label>Licence Type</label>
-                <input
-                  type="text"
-                  placeholder="e.g. CPL, ATPL, PPL"
-                  value={editForm.licence_type || ''}
-                  onChange={(e) => setEditForm({ ...editForm, licence_type: e.target.value })}
-                />
+            {/* Subtab 1: Personal Information */}
+            {editSubTab === 'personal' && (
+              <div className="stack" style={{ gap: 14 }}>
+                <div className="grid grid-2" style={{ gap: 12 }}>
+                  <div className="form-group">
+                    <label>Full Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={editForm.name || ''}
+                      onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                      placeholder="e.g. Rahul Sharma"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Email Address *</label>
+                    <input
+                      type="email"
+                      required
+                      value={editForm.email || ''}
+                      onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                      placeholder="cadet@example.com"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-2" style={{ gap: 12 }}>
+                  <div className="form-group">
+                    <label>Phone Number</label>
+                    <input
+                      type="tel"
+                      value={editForm.phone || ''}
+                      onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                      placeholder="+91 98765 43210"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Date of Birth</label>
+                    <input
+                      type="date"
+                      value={editForm.date_of_birth || ''}
+                      onChange={(e) => setEditForm({ ...editForm, date_of_birth: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-2" style={{ gap: 12 }}>
+                  <div className="form-group">
+                    <label>Gender</label>
+                    <select
+                      value={editForm.gender || ''}
+                      onChange={(e) => setEditForm({ ...editForm, gender: e.target.value })}
+                    >
+                      <option value="">Select Gender</option>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Other">Other</option>
+                      <option value="Prefer not to say">Prefer not to say</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Country</label>
+                    <input
+                      type="text"
+                      value={editForm.country || ''}
+                      onChange={(e) => setEditForm({ ...editForm, country: e.target.value })}
+                      placeholder="India"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-2" style={{ gap: 12 }}>
+                  <div className="form-group">
+                    <label>State / Province</label>
+                    <input
+                      type="text"
+                      value={editForm.state || ''}
+                      onChange={(e) => setEditForm({ ...editForm, state: e.target.value })}
+                      placeholder="e.g. Maharashtra, Delhi"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>City</label>
+                    <input
+                      type="text"
+                      value={editForm.city || ''}
+                      onChange={(e) => setEditForm({ ...editForm, city: e.target.value })}
+                      placeholder="e.g. Mumbai, New Delhi"
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label>Residential Address</label>
+                  <input
+                    type="text"
+                    value={editForm.address || ''}
+                    onChange={(e) => setEditForm({ ...editForm, address: e.target.value })}
+                    placeholder="Full residential street address and postal code"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Subtab 2: Aviation & Medical */}
+            {editSubTab === 'aviation' && (
+              <div className="stack" style={{ gap: 14 }}>
+                <div className="grid grid-2" style={{ gap: 12 }}>
+                  <div className="form-group">
+                    <label>Aviation Cadet ID</label>
+                    <input
+                      type="text"
+                      value={editForm.aviation_student_id || ''}
+                      onChange={(e) => setEditForm({ ...editForm, aviation_student_id: e.target.value })}
+                      placeholder="e.g. FC-CADET-102"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Licence Type</label>
+                    <input
+                      type="text"
+                      value={editForm.licence_type || ''}
+                      onChange={(e) => setEditForm({ ...editForm, licence_type: e.target.value })}
+                      placeholder="e.g. Student Pilot Licence (SPL), CPL, ATPL"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-2" style={{ gap: 12 }}>
+                  <div className="form-group">
+                    <label>Licence / Computer Number</label>
+                    <input
+                      type="text"
+                      value={editForm.licence_number || ''}
+                      onChange={(e) => setEditForm({ ...editForm, licence_number: e.target.value })}
+                      placeholder="e.g. DL-12345 / Comp No."
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Regulatory Authority</label>
+                    <input
+                      type="text"
+                      value={editForm.regulatory_authority || ''}
+                      onChange={(e) => setEditForm({ ...editForm, regulatory_authority: e.target.value })}
+                      placeholder="e.g. DGCA, FAA, EASA"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-2" style={{ gap: 12 }}>
+                  <div className="form-group">
+                    <label>Medical Assessment Class</label>
+                    <select
+                      value={editForm.medical_class || ''}
+                      onChange={(e) => setEditForm({ ...editForm, medical_class: e.target.value })}
+                    >
+                      <option value="">Select Medical Class</option>
+                      <option value="Class 1">Class 1</option>
+                      <option value="Class 2">Class 2</option>
+                      <option value="Pending">Class 2 Pending</option>
+                      <option value="Expired">Expired / Due</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Medical Certificate Validity</label>
+                    <input
+                      type="date"
+                      value={editForm.medical_validity || ''}
+                      onChange={(e) => setEditForm({ ...editForm, medical_validity: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label>Total Logged Flight Hours</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    value={editForm.flight_hours ?? ''}
+                    onChange={(e) => setEditForm({ ...editForm, flight_hours: e.target.value })}
+                    placeholder="e.g. 45.5"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Subtab 3: Academic Qualifications */}
+            {editSubTab === 'academic' && (
+              <div className="stack" style={{ gap: 14 }}>
+                <div className="grid grid-2" style={{ gap: 12 }}>
+                  <div className="form-group">
+                    <label>Highest Qualification</label>
+                    <input
+                      type="text"
+                      value={editForm.qualification || ''}
+                      onChange={(e) => setEditForm({ ...editForm, qualification: e.target.value })}
+                      placeholder="e.g. 10+2 (Physics & Math), B.Tech"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>School / College / University</label>
+                    <input
+                      type="text"
+                      value={editForm.school_college || ''}
+                      onChange={(e) => setEditForm({ ...editForm, school_college: e.target.value })}
+                      placeholder="e.g. National Flying Training Academy"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-2" style={{ gap: 12 }}>
+                  <div className="form-group">
+                    <label>Passing Year</label>
+                    <input
+                      type="number"
+                      min="1970"
+                      max="2035"
+                      value={editForm.passing_year ?? ''}
+                      onChange={(e) => setEditForm({ ...editForm, passing_year: e.target.value })}
+                      placeholder="e.g. 2023"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Overall Percentage / CGPA</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      value={editForm.percentage_cgpa ?? ''}
+                      onChange={(e) => setEditForm({ ...editForm, percentage_cgpa: e.target.value })}
+                      placeholder="e.g. 82.5"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-3" style={{ gap: 12 }}>
+                  <div className="form-group">
+                    <label>10+2 Math Score (%)</label>
+                    <input
+                      type="text"
+                      value={editForm.math_score || ''}
+                      onChange={(e) => setEditForm({ ...editForm, math_score: e.target.value })}
+                      placeholder="e.g. 88%"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>10+2 Physics Score (%)</label>
+                    <input
+                      type="text"
+                      value={editForm.physics_score || ''}
+                      onChange={(e) => setEditForm({ ...editForm, physics_score: e.target.value })}
+                      placeholder="e.g. 85%"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>English Proficiency</label>
+                    <input
+                      type="text"
+                      value={editForm.english_score || ''}
+                      onChange={(e) => setEditForm({ ...editForm, english_score: e.target.value })}
+                      placeholder="e.g. 90% / Band 7.5"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Subtab 4: Account & Status */}
+            {editSubTab === 'status' && (
+              <div className="stack" style={{ gap: 14 }}>
+                <div className="form-group">
+                  <label>Cadet Account Status</label>
+                  <select
+                    value={editForm.status || 'active'}
+                    onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
+                  >
+                    <option value="active">Active (Full platform & exam access)</option>
+                    <option value="suspended">Suspended (Access blocked)</option>
+                  </select>
+                </div>
+
+                <div
+                  style={{
+                    padding: 14,
+                    background: 'var(--card-bg, #1e293b)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  <div style={{ fontWeight: 600, marginBottom: 6 }}>Account Information</div>
+                  <div className="grid grid-2" style={{ gap: 8, color: 'var(--text-muted)' }}>
+                    <div>User ID: <strong>#{student.id}</strong></div>
+                    <div>Account Role: <strong>{student.role || 'student'}</strong></div>
+                    <div>Created: <strong>{student.created_at ? new Date(student.created_at).toLocaleString() : '—'}</strong></div>
+                    <div>Last Login: <strong>{student.last_login_at ? new Date(student.last_login_at).toLocaleString() : 'Never'}</strong></div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="form-actions row row-between" style={{ gap: 8, marginTop: 20, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+              <div className="row" style={{ gap: 8 }}>
+                {editSubTab !== 'personal' && (
+                  <Button
+                    variant="ghost"
+                    type="button"
+                    size="sm"
+                    onClick={() => {
+                      const tabs = ['personal', 'aviation', 'academic', 'status'];
+                      const idx = tabs.indexOf(editSubTab);
+                      if (idx > 0) setEditSubTab(tabs[idx - 1]);
+                    }}
+                  >
+                    Previous Section
+                  </Button>
+                )}
+                {editSubTab !== 'status' && (
+                  <Button
+                    variant="ghost"
+                    type="button"
+                    size="sm"
+                    onClick={() => {
+                      const tabs = ['personal', 'aviation', 'academic', 'status'];
+                      const idx = tabs.indexOf(editSubTab);
+                      if (idx < tabs.length - 1) setEditSubTab(tabs[idx + 1]);
+                    }}
+                  >
+                    Next Section
+                  </Button>
+                )}
               </div>
 
-              <div className="form-group">
-                <label>Licence Number</label>
-                <input
-                  type="text"
-                  placeholder="e.g. DL-12345"
-                  value={editForm.licence_number || ''}
-                  onChange={(e) => setEditForm({ ...editForm, licence_number: e.target.value })}
-                />
+              <div className="row" style={{ gap: 8 }}>
+                <Button variant="ghost" onClick={() => setEditModal(false)} disabled={saving}>
+                  Cancel
+                </Button>
+                <Button variant="primary" type="submit" loading={saving}>
+                  Save All Changes
+                </Button>
               </div>
-            </div>
-
-            <div className="grid grid-2" style={{ gap: 12 }}>
-              <div className="form-group">
-                <label>City</label>
-                <input
-                  type="text"
-                  value={editForm.city || ''}
-                  onChange={(e) => setEditForm({ ...editForm, city: e.target.value })}
-                />
-              </div>
-
-              <div className="form-group">
-                <label>Country</label>
-                <input
-                  type="text"
-                  value={editForm.country || ''}
-                  onChange={(e) => setEditForm({ ...editForm, country: e.target.value })}
-                />
-              </div>
-            </div>
-
-            <div className="form-actions row row-end" style={{ gap: 8, marginTop: 16 }}>
-              <Button variant="ghost" onClick={() => setEditModal(false)} disabled={saving}>Cancel</Button>
-              <Button variant="primary" type="submit" loading={saving}>Save Changes</Button>
             </div>
           </form>
         </Modal>

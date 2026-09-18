@@ -232,6 +232,7 @@ router.post('/quizzes/:id/start', authenticate, authorize('student'), async (req
     if (!entitlement.rows.length) return res.status(403).json({ error: 'Enroll in this course bundle before starting the test' });
   }
 
+  // Check attempt limit
   if (quiz.attempt_limit > 0) {
     const countResult = await pool.query(
       "SELECT COUNT(*)::int AS c FROM attempts WHERE user_id = $1 AND quiz_id = $2 AND status = 'submitted'",
@@ -239,6 +240,34 @@ router.post('/quizzes/:id/start', authenticate, authorize('student'), async (req
     );
     if (countResult.rows[0].c >= quiz.attempt_limit) {
       return res.status(403).json({ error: 'Attempt limit reached for this quiz' });
+    }
+  }
+
+  // Restriction: If a candidate currently has an Exam Mode session in progress,
+  // they must not be allowed to open or start another Practice or Exam assessment.
+  const inProgressExam = await pool.query(
+    `SELECT a.id, a.quiz_id, q.title AS quiz_title, a.started_at, a.deadline_at
+     FROM attempts a
+     JOIN quizzes q ON q.id = a.quiz_id
+     WHERE a.user_id = $1
+       AND a.status = 'in_progress'
+       AND q.type = 'exam'
+       AND (a.deadline_at IS NULL OR a.deadline_at > now())
+     ORDER BY a.started_at DESC LIMIT 1`,
+    [req.user.id]
+  );
+  if (inProgressExam.rows.length) {
+    const activeEx = inProgressExam.rows[0];
+    if (Number(activeEx.quiz_id) !== Number(quiz.id)) {
+      return res.status(409).json({
+        error: 'Exam Still in Progress',
+        message: 'You already have an exam in progress. Please complete or submit the current exam before starting another practice or assessment.',
+        in_progress_exam: {
+          quiz_id: activeEx.quiz_id,
+          title: activeEx.quiz_title,
+          attempt_id: activeEx.id
+        }
+      });
     }
   }
 
@@ -275,8 +304,9 @@ router.post('/quizzes/:id/start', authenticate, authorize('student'), async (req
   }
 
   const attemptResult = await pool.query(
-    `INSERT INTO attempts (user_id, quiz_id, total_questions, deadline_at, question_snapshot) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-    [req.user.id, quiz.id, quiz.question_ids.length, deadline, JSON.stringify(questionSnapshot)]
+    `INSERT INTO attempts (user_id, quiz_id, total_questions, deadline_at, question_snapshot, session_id, client_ip, client_user_agent)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+    [req.user.id, quiz.id, quiz.question_ids.length, deadline, JSON.stringify(questionSnapshot), req.sessionId || null, req.ip || null, req.headers['user-agent'] || null]
   );
 
   // Return questions without the correct answer / explanation while exam is live
@@ -363,7 +393,7 @@ router.post('/attempts/:id/answer', authenticate, async (req, res) => {
 // jobs/scheduler.js), which force-submits an attempt whose last_seen_at is
 // stale even if the browser tab was closed outright (the frontend idle
 // listener in TakeExam.jsx can't fire if there's no tab left to run it).
-async function gradeAndSubmitAttempt(attemptId, userId) {
+async function gradeAndSubmitAttempt(attemptId, userId, options = {}) {
   const attemptResult = await pool.query('SELECT * FROM attempts WHERE id = $1 AND user_id = $2', [attemptId, userId]);
   const attempt = attemptResult.rows[0];
   if (!attempt) return { error: 'not_found' };
@@ -411,10 +441,26 @@ async function gradeAndSubmitAttempt(attemptId, userId) {
   const total = quiz.question_ids.length;
   const score = gradable ? Math.round((correct / gradable) * 10000) / 100 : 0;
 
+  const isAuto = Boolean(options.is_auto_submitted);
+  const autoReason = options.auto_submit_reason || null;
+  const sessId = options.session_id || attempt.session_id || null;
+  const cIp = options.client_ip || attempt.client_ip || null;
+  const cUa = options.client_user_agent || attempt.client_user_agent || null;
+
   const updated = await pool.query(
-    `UPDATE attempts SET status = 'submitted', submitted_at = now(), correct_count = $1, total_questions = $2, score = $3
+    `UPDATE attempts SET
+       status = 'submitted',
+       submitted_at = now(),
+       correct_count = $1,
+       total_questions = $2,
+       score = $3,
+       is_auto_submitted = COALESCE($5, is_auto_submitted),
+       auto_submit_reason = COALESCE($6, auto_submit_reason),
+       session_id = COALESCE($7, session_id),
+       client_ip = COALESCE($8, client_ip),
+       client_user_agent = COALESCE($9, client_user_agent)
      WHERE id = $4 RETURNING *`,
-    [correct, total, score, attemptId]
+    [correct, total, score, attemptId, isAuto, autoReason, sessId, cIp, cUa]
   );
 
   try {

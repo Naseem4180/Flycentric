@@ -3,47 +3,60 @@ import { NavLink, useLocation } from 'react-router-dom';
 import SidebarBrand from './SidebarBrand';
 import SidebarProCard from './SidebarProCard';
 import {
-  LayoutDashboard, BookOpen, MessageCircle, CalendarClock, History, Brain, LineChart, Compass,
-  Home, ListChecks, ChevronDown
+  LayoutGrid, BookOpen, Compass, ListChecks, Brain,
+  Award, History, CalendarClock, BarChart3,
+  MessageCircle, Flag, Briefcase, HelpCircle, ChevronDown
 } from 'lucide-react';
 
 const STUDENT_NAV = [
   {
     type: 'link',
-    to: '/home',
-    icon: Home,
-    label: 'Home',
-  },
-  {
-    type: 'link',
     to: '/',
     end: true,
-    icon: LayoutDashboard,
+    icon: LayoutGrid,
     label: 'Dashboard',
+    accent: '#0ea5e9',
+    accentRgb: '14, 165, 233',
   },
   {
     type: 'accordion',
-    id: 'learning',
-    label: 'Learning',
+    id: 'academics',
+    label: 'Academics & Study',
     icon: BookOpen,
+    accent: '#6366f1',
+    accentRgb: '99, 102, 241',
     children: [
-      { to: '/explore', icon: Compass, label: 'Explore Bundles' },
       { to: '/my-subjects', icon: BookOpen, label: 'My Subjects' },
-      { to: '/quizzes', icon: ListChecks, label: 'Quizzes' },
-      { to: '/my-results', icon: History, label: 'My Results' },
-      { to: '/exam-history', icon: LineChart, label: 'Exam History' },
+      { to: '/explore', icon: Compass, label: 'Explore Bundles' },
+      { to: '/quizzes', icon: ListChecks, label: 'Practice Quizzes' },
       { to: '/memory-bank', icon: Brain, label: 'Memory Box' },
-      { to: '/analytics', icon: LineChart, label: 'Analytics' },
+    ],
+  },
+  {
+    type: 'accordion',
+    id: 'performance',
+    label: 'Performance & Exams',
+    icon: Award,
+    accent: '#10b981',
+    accentRgb: '16, 185, 129',
+    children: [
+      { to: '/my-results', icon: History, label: 'Exam Results' },
+      { to: '/exam-history', icon: CalendarClock, label: 'Exam History' },
+      { to: '/analytics', icon: BarChart3, label: 'Analytics' },
     ],
   },
   {
     type: 'accordion',
     id: 'support',
-    label: 'Support',
+    label: 'Support & Career',
     icon: MessageCircle,
+    accent: '#f59e0b',
+    accentRgb: '245, 158, 11',
     children: [
-      { to: '/my-doubts', icon: MessageCircle, label: 'My Doubts' },
-      { to: '/report-exam-question', icon: CalendarClock, label: 'Report Exam Question' },
+      { to: '/my-doubts', icon: MessageCircle, label: 'Instructor Doubts' },
+      { to: '/report-exam-question', icon: Flag, label: 'Report Question' },
+      { to: '/jobs', icon: Briefcase, label: 'Aviation Career' },
+      { to: '/support', icon: HelpCircle, label: 'Help Desk' },
     ],
   },
 ];
@@ -64,7 +77,7 @@ export default function StudentSidebar({ collapsed, onNavigate }) {
 
   const [openGroups, setOpenGroups] = useState(() => {
     const active = getActiveGroupId(location.pathname);
-    const defaultGroup = active || 'learning';
+    const defaultGroup = active || 'academics';
     return { [defaultGroup]: true };
   });
 
@@ -80,7 +93,7 @@ export default function StudentSidebar({ collapsed, onNavigate }) {
   };
 
   return (
-    <aside className={`admin-sidebar student-sidebar ${collapsed ? 'collapsed' : ''}`}>
+    <aside className={`admin-sidebar student-sidebar ${collapsed ? 'collapsed' : ''}`} aria-label="Student navigation">
       <SidebarBrand collapsed={collapsed} />
       <nav className="admin-sidebar-nav">
         {STUDENT_NAV.map((item) => {
@@ -93,10 +106,17 @@ export default function StudentSidebar({ collapsed, onNavigate }) {
                 end={item.end}
                 onClick={onNavigate}
                 className={({ isActive }) => `admin-nav-link ${isActive ? 'active' : ''}`}
+                style={{
+                  '--accent': item.accent,
+                  '--accent-rgb': item.accentRgb,
+                }}
                 title={collapsed ? item.label : undefined}
               >
-                <Icon size={18} strokeWidth={2.2} />
-                {!collapsed && <span>{item.label}</span>}
+                <div className="nav-icon-pod">
+                  <Icon size={16} strokeWidth={2.2} />
+                </div>
+                {!collapsed && <span className="nav-link-label">{item.label}</span>}
+                <span className="admin-subnav-active-glow" aria-hidden="true" />
               </NavLink>
             );
           }
@@ -109,7 +129,14 @@ export default function StudentSidebar({ collapsed, onNavigate }) {
             );
 
             return (
-              <div className="admin-accordion" key={item.id}>
+              <div
+                className={`admin-accordion ${isOpen ? 'is-open' : ''} ${isParentActive ? 'is-parent-active' : ''}`}
+                key={item.id}
+                style={{
+                  '--accent': item.accent,
+                  '--accent-rgb': item.accentRgb,
+                }}
+              >
                 <button
                   type="button"
                   onClick={() => toggleGroup(item.id)}
@@ -117,23 +144,27 @@ export default function StudentSidebar({ collapsed, onNavigate }) {
                   title={collapsed ? item.label : undefined}
                   aria-expanded={isOpen}
                 >
-                  <Icon size={18} strokeWidth={2.2} className="header-icon" />
+                  <div className="nav-icon-pod">
+                    <Icon size={16} strokeWidth={2.2} className="header-icon" />
+                  </div>
                   {!collapsed && <span className="accordion-label">{item.label}</span>}
                   {!collapsed && (
-                    <ChevronDown size={15} strokeWidth={2.5} className="accordion-chevron" />
+                    <ChevronDown size={14} strokeWidth={2.5} className="accordion-chevron" />
                   )}
                 </button>
 
                 {isOpen && !collapsed && (
                   <div className="admin-accordion-body" role="group" aria-label={item.label}>
-                    {item.children.map(({ to, label }) => (
+                    {item.children.map(({ to, label, icon: ChildIcon }) => (
                       <NavLink
                         key={to}
                         to={to}
                         onClick={onNavigate}
                         className={({ isActive }) => `admin-subnav-link ${isActive ? 'active' : ''}`}
                       >
+                        {ChildIcon && <ChildIcon size={14} strokeWidth={2} className="admin-subnav-icon" />}
                         <span className="admin-subnav-label">{label}</span>
+                        <span className="admin-subnav-active-glow" aria-hidden="true" />
                       </NavLink>
                     ))}
                   </div>

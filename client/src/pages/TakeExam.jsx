@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { X, Brain, Flag, ChevronDown, Eraser } from 'lucide-react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import { X, Brain, Flag, ChevronDown, Eraser, AlertCircle } from 'lucide-react';
 import { api } from '../api';
 import useAuth from '../context/useAuth';
 
@@ -116,7 +116,10 @@ export default function TakeExam() {
         if (d.questions?.length) setVisited(new Set([d.questions[0].id]));
         entryTimeRef.current = Date.now();
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => {
+        setConfirmed(false);
+        setError(e.message || 'Exam Still in Progress');
+      });
     // Hydrate the Memory Box state so questions already saved by this student
     // show as "Saved" instead of appearing unsaved and being toggled off.
     api.get('/memory-bank')
@@ -446,7 +449,32 @@ export default function TakeExam() {
     };
   }, [questions, answers, marked, visited]);
 
-  if (error) return <div className="page"><div className="container"><div className="error-banner">{error}</div></div></div>;
+  if (error) {
+    const isExamInProgress = typeof error === 'string' && (error.includes('Exam Still in Progress') || error.includes('already have an exam in progress'));
+    return (
+      <div className="page">
+        <div className="container" style={{ maxWidth: 540, paddingTop: 60 }}>
+          <div className="card" style={{ padding: '36px 32px', textAlign: 'center', borderRadius: 14 }}>
+            <div style={{ width: 60, height: 60, borderRadius: '50%', background: '#fee2e2', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+              <AlertCircle size={32} />
+            </div>
+            <h2 style={{ fontSize: '1.45rem', fontWeight: 800, color: '#0f172a', marginBottom: 8 }}>
+              {isExamInProgress ? 'Exam Still in Progress' : 'Cannot Start Assessment'}
+            </h2>
+            <p className="muted" style={{ fontSize: '0.94rem', lineHeight: 1.6, marginBottom: 24 }}>
+              {isExamInProgress
+                ? 'You already have an exam in progress. Please complete or submit the current exam before starting another practice or assessment.'
+                : error}
+            </p>
+            <div className="row" style={{ justifyContent: 'center', gap: 12 }}>
+              <Link to="/" className="btn btn-outline">Go to Dashboard</Link>
+              <Link to="/exam-history" className="btn btn-primary">View Exam History</Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // isPractice is derived from the attempt the SERVER handed back (no
   // deadline == untimed), not from a client-side guess, so the two can never

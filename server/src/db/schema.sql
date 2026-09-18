@@ -246,8 +246,9 @@ SET deleted_at = now()
 FROM chapter_merge_map m
 WHERE c.id = m.duplicate_id AND c.deleted_at IS NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS chapters_unique_active_title
-  ON chapters (lower(trim(title)))
+DROP INDEX IF EXISTS chapters_unique_active_title;
+CREATE UNIQUE INDEX IF NOT EXISTS chapters_unique_active_title_per_subject
+  ON chapters (subject_id, lower(trim(title)))
   WHERE deleted_at IS NULL;
 
 -- Publish workflow: quizzes are built as drafts and only become visible to
@@ -787,5 +788,41 @@ CREATE INDEX IF NOT EXISTS idx_users_created_desc ON users(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_doubts_student_status ON doubts(student_id, status);
 CREATE INDEX IF NOT EXISTS idx_doubts_created_desc ON doubts(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notification_reads_user ON notification_reads(user_id);
+
+-- User Sessions & Dual Login Tracking -----------------------------------------
+CREATE TABLE IF NOT EXISTS user_sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  session_token TEXT UNIQUE NOT NULL,
+  user_agent TEXT,
+  ip_address TEXT,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  last_active_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_user_active ON user_sessions(user_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON user_sessions(session_token);
+
+-- Auto-submit & Attempt Tracking ----------------------------------------------
+ALTER TABLE attempts ADD COLUMN IF NOT EXISTS is_auto_submitted BOOLEAN DEFAULT false;
+ALTER TABLE attempts ADD COLUMN IF NOT EXISTS auto_submit_reason TEXT;
+ALTER TABLE attempts ADD COLUMN IF NOT EXISTS session_id TEXT;
+ALTER TABLE attempts ADD COLUMN IF NOT EXISTS client_ip TEXT;
+ALTER TABLE attempts ADD COLUMN IF NOT EXISTS client_user_agent TEXT;
+
+-- Coupon & Commerce Tracking --------------------------------------------------
+ALTER TABLE coupons ADD COLUMN IF NOT EXISTS min_order_amount_inr NUMERIC DEFAULT 0;
+ALTER TABLE coupons ADD COLUMN IF NOT EXISTS max_discount_amount_inr NUMERIC;
+
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS coupon_id INTEGER REFERENCES coupons(id) ON DELETE SET NULL;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS coupon_code TEXT;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS original_amount_inr NUMERIC;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS discount_amount_inr NUMERIC DEFAULT 0;
+
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS coupon_id INTEGER REFERENCES coupons(id) ON DELETE SET NULL;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS coupon_code TEXT;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS original_amount_inr NUMERIC;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS discount_amount_inr NUMERIC DEFAULT 0;
+
 
 

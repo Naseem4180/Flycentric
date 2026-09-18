@@ -3,11 +3,13 @@ const path = require('path');
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 const pool = require('../db/pool');
-const { signAccessToken, signRefreshToken, verifyRefreshToken } = require('../auth/tokens');
-const { authenticate } = require('../middleware/auth');
+const { signAccessToken, signRefreshToken, verifyRefreshToken, verifyAccessToken } = require('../auth/tokens');
+const { authenticate, invalidateSessionCache, clearAllSessionCache } = require('../middleware/auth');
 const { authLimiter, loginLimiter, passwordResetLimiter } = require('../middleware/rateLimit');
 const { enqueueMail } = require('../utils/mailQueue');
+const { gradeAndSubmitAttempt } = require('./exams');
 
 const router = express.Router();
 
@@ -95,13 +97,20 @@ router.post('/register', authLimiter, async (req, res) => {
       ]
     );
     const user = result.rows[0];
-    const accessToken = signAccessToken(user);
+    const sessionToken = crypto.randomBytes(32).toString('hex');
+    const newSession = await pool.query(
+      `INSERT INTO user_sessions (user_id, session_token, user_agent, ip_address, is_active)
+       VALUES ($1, $2, $3, $4, true) RETURNING id`,
+      [user.id, sessionToken, req.headers['user-agent'] || null, req.ip || null]
+    );
+    const sessionId = newSession.rows[0].id;
+    const accessToken = signAccessToken(user, sessionId);
     const refreshToken = signRefreshToken(user);
     await pool.query(
       `INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES ($1,$2, now() + interval '30 days')`,
       [user.id, refreshToken]
     );
-    res.status(201).json({ user, accessToken, refreshToken });
+    res.status(201).json({ user, accessToken, refreshToken, sessionId });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Registration failed' });
@@ -109,7 +118,7 @@ router.post('/register', authLimiter, async (req, res) => {
 });
 
 router.post('/login', loginLimiter, async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, forceLogout } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'email and password required' });
   try {
     const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
@@ -119,17 +128,79 @@ router.post('/login', loginLimiter, async (req, res) => {
     const ok = await bcrypt.compare(password, user.password_hash);
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
 
-    const accessToken = signAccessToken(user);
+    // Single-session and concurrent assessment checks ONLY apply to students
+    const isStudent = user.role === 'student';
+
+    if (isStudent) {
+      const activeSessions = await pool.query(
+        'SELECT id, user_agent, ip_address, created_at FROM user_sessions WHERE user_id = $1 AND is_active = true',
+        [user.id]
+      );
+
+      // Check if candidate is working on an active exam or assignment attempt (Requirement 12, 13)
+      const activeAttemptResult = await pool.query(
+        `SELECT a.id, a.quiz_id, q.title AS quiz_title, q.type AS quiz_type
+         FROM attempts a
+         JOIN quizzes q ON q.id = a.quiz_id
+         WHERE a.user_id = $1 AND a.status = 'in_progress'
+           AND (a.deadline_at IS NULL OR a.deadline_at > now())
+         ORDER BY a.started_at DESC LIMIT 1`,
+        [user.id]
+      );
+      const activeAssessment = activeAttemptResult.rows[0] || null;
+
+      if (activeSessions.rows.length > 0 && !forceLogout) {
+        return res.status(409).json({
+          error: 'Already Logged In',
+          requires_confirmation: true,
+          reason: activeAssessment ? 'exam_in_progress' : 'already_logged_in',
+          active_assessment: activeAssessment ? {
+            id: activeAssessment.id,
+            quiz_id: activeAssessment.quiz_id,
+            title: activeAssessment.quiz_title,
+            type: activeAssessment.quiz_type,
+          } : null,
+        });
+      }
+
+      // If Logout All was chosen and an active assessment is in progress, auto-submit it (Requirement 13)
+      if (activeAssessment && forceLogout) {
+        try {
+          await gradeAndSubmitAttempt(activeAssessment.id, user.id, {
+            is_auto_submitted: true,
+            auto_submit_reason: 'dual_login_logout_all',
+            client_ip: req.ip,
+            client_user_agent: req.headers['user-agent'],
+          });
+        } catch (err) {
+          console.error('Error auto-submitting assessment on dual login logout-all:', err);
+        }
+      }
+
+      // Invalidate old sessions and refresh tokens for student
+      await pool.query('UPDATE user_sessions SET is_active = false WHERE user_id = $1', [user.id]);
+      await pool.query('DELETE FROM refresh_tokens WHERE user_id = $1', [user.id]);
+      clearAllSessionCache();
+    }
+
+    // Issue new session for current browser
+    const sessionToken = crypto.randomBytes(32).toString('hex');
+    const newSession = await pool.query(
+      `INSERT INTO user_sessions (user_id, session_token, user_agent, ip_address, is_active)
+       VALUES ($1, $2, $3, $4, true) RETURNING id`,
+      [user.id, sessionToken, req.headers['user-agent'] || null, req.ip || null]
+    );
+    const sessionId = newSession.rows[0].id;
+
+    const accessToken = signAccessToken(user, sessionId);
     const refreshToken = signRefreshToken(user);
     await pool.query(
       `INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES ($1,$2, now() + interval '30 days')`,
       [user.id, refreshToken]
     );
-    // Inactivity Re-engagement Workflow reads this to find users who
-    // haven't logged in for 7 consecutive days (see jobs/scheduler.js).
     await pool.query('UPDATE users SET last_login_at = now() WHERE id = $1', [user.id]);
     delete user.password_hash;
-    res.json({ user, accessToken, refreshToken });
+    res.json({ user, accessToken, refreshToken, sessionId });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Login failed' });
@@ -140,7 +211,7 @@ router.post('/login', loginLimiter, async (req, res) => {
 // (Full server-side token verification against Google's tokeninfo endpoint
 // wires in here once GOOGLE_CLIENT_ID is configured for a live deployment.)
 router.post('/google', async (req, res) => {
-  const { googleId, email, name } = req.body;
+  const { googleId, email, name, forceLogout } = req.body;
   if (!googleId || !email) return res.status(400).json({ error: 'googleId and email required' });
   try {
     let result = await pool.query('SELECT * FROM users WHERE google_id = $1 OR email = $2', [googleId, email]);
@@ -153,10 +224,66 @@ router.post('/google', async (req, res) => {
       );
       user = insert.rows[0];
     }
-    const accessToken = signAccessToken(user);
+
+    // Single-session checks ONLY apply to students
+    const isStudent = user.role === 'student';
+    if (isStudent) {
+      const activeSessions = await pool.query(
+        'SELECT id FROM user_sessions WHERE user_id = $1 AND is_active = true',
+        [user.id]
+      );
+      const activeAttemptResult = await pool.query(
+        `SELECT a.id, a.quiz_id, q.title AS quiz_title, q.type AS quiz_type
+         FROM attempts a JOIN quizzes q ON q.id = a.quiz_id
+         WHERE a.user_id = $1 AND a.status = 'in_progress' AND (a.deadline_at IS NULL OR a.deadline_at > now())
+         LIMIT 1`,
+        [user.id]
+      );
+      const activeAssessment = activeAttemptResult.rows[0] || null;
+
+      if (activeSessions.rows.length > 0 && !forceLogout) {
+        return res.status(409).json({
+          error: 'Already Logged In',
+          requires_confirmation: true,
+          reason: activeAssessment ? 'exam_in_progress' : 'already_logged_in',
+          active_assessment: activeAssessment ? {
+            id: activeAssessment.id,
+            quiz_id: activeAssessment.quiz_id,
+            title: activeAssessment.quiz_title,
+            type: activeAssessment.quiz_type,
+          } : null,
+        });
+      }
+
+      if (activeAssessment && forceLogout) {
+        try {
+          await gradeAndSubmitAttempt(activeAssessment.id, user.id, {
+            is_auto_submitted: true,
+            auto_submit_reason: 'dual_login_logout_all',
+            client_ip: req.ip,
+            client_user_agent: req.headers['user-agent'],
+          });
+        } catch (err) {
+          console.error('Error auto-submitting on google dual login:', err);
+        }
+      }
+
+      await pool.query('UPDATE user_sessions SET is_active = false WHERE user_id = $1', [user.id]);
+      await pool.query('DELETE FROM refresh_tokens WHERE user_id = $1', [user.id]);
+      clearAllSessionCache();
+    }
+
+    const sessionToken = crypto.randomBytes(32).toString('hex');
+    const newSession = await pool.query(
+      `INSERT INTO user_sessions (user_id, session_token, user_agent, ip_address, is_active)
+       VALUES ($1, $2, $3, $4, true) RETURNING id`,
+      [user.id, sessionToken, req.headers['user-agent'] || null, req.ip || null]
+    );
+    const sessionId = newSession.rows[0].id;
+    const accessToken = signAccessToken(user, sessionId);
     const refreshToken = signRefreshToken(user);
     delete user.password_hash;
-    res.json({ user, accessToken, refreshToken });
+    res.json({ user, accessToken, refreshToken, sessionId });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Google sign-in failed' });
@@ -173,7 +300,9 @@ router.post('/refresh', async (req, res) => {
     const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [payload.sub]);
     const user = userResult.rows[0];
     if (!user) return res.status(401).json({ error: 'User not found' });
-    const accessToken = signAccessToken(user);
+    const activeSess = await pool.query('SELECT id FROM user_sessions WHERE user_id = $1 AND is_active = true ORDER BY last_active_at DESC LIMIT 1', [user.id]);
+    const sessionId = activeSess.rows.length ? activeSess.rows[0].id : null;
+    const accessToken = signAccessToken(user, sessionId);
     res.json({ accessToken });
   } catch (err) {
     res.status(401).json({ error: 'Invalid refresh token' });
@@ -234,10 +363,51 @@ router.patch('/me', authenticate, async (req, res) => {
 // tokens. Access tokens already issued remain valid until their own short
 // expiry (see auth/tokens.js) — that trade-off is documented, not accidental.
 router.post('/logout', async (req, res) => {
-  const { refreshToken } = req.body;
+  const { refreshToken, accessToken: bodyAccessToken } = req.body || {};
+  let userId = null;
+  let sessionId = null;
+
   if (refreshToken) {
-    await pool.query('DELETE FROM refresh_tokens WHERE token = $1', [refreshToken]);
+    try {
+      const rtRes = await pool.query('SELECT user_id FROM refresh_tokens WHERE token = $1', [refreshToken]);
+      if (rtRes.rows.length > 0) {
+        userId = rtRes.rows[0].user_id;
+      }
+      await pool.query('DELETE FROM refresh_tokens WHERE token = $1', [refreshToken]);
+    } catch (err) {
+      console.error('Error clearing refresh token on logout:', err);
+    }
   }
+
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : (bodyAccessToken || null);
+  if (token) {
+    try {
+      const decoded = jwt.decode(token);
+      if (decoded) {
+        if (decoded.sid) sessionId = decoded.sid;
+        if (decoded.sub || decoded.id) userId = userId || decoded.sub || decoded.id;
+      }
+    } catch {}
+  }
+
+  if (sessionId) {
+    try {
+      await pool.query('UPDATE user_sessions SET is_active = false WHERE id = $1', [sessionId]);
+      invalidateSessionCache(sessionId);
+    } catch (err) {
+      console.error('Error deactivating session on logout:', err);
+    }
+  }
+  if (userId) {
+    try {
+      await pool.query('UPDATE user_sessions SET is_active = false WHERE user_id = $1', [userId]);
+      clearAllSessionCache();
+    } catch (err) {
+      console.error('Error deactivating user sessions on logout:', err);
+    }
+  }
+
   res.json({ ok: true });
 });
 

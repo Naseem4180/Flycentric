@@ -1181,4 +1181,16 @@ img, svg, video, canvas { max-width: 100%; height: auto; }
   color: #f8fafc !important;
 }
 
+[data-theme='dark'] .app-loading-screen {
+  background: radial-gradient(circle at 50% 35%, #162038 0%, #0b1120 70%) !important;
+}
+
+[data-theme='dark'] .app-loading-panel {
+  background: rgba(18, 28, 50, 0.92) !important;
+  border-color: #223250 !important;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5) !important;
+  color: #f8fafc !important;
+}
+
+
 

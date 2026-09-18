@@ -4692,3 +4692,38 @@ textarea {
 [data-theme='dark'] .mb-question-text {
   color: #f8fafc !important;
 }
+
+/* ==========================================================================
+   18. App Initial Loading Screen Dark Mode Overrides
+   ========================================================================== */
+[data-theme='dark'] .app-loading-screen {
+  background: radial-gradient(circle at 50% 35%, #162038 0%, #0b1120 70%) !important;
+}
+
+[data-theme='dark'] .app-loading-panel {
+  background: rgba(18, 28, 50, 0.92) !important;
+  border-color: #223250 !important;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5) !important;
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .app-loading-panel h1 {
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .app-loading-panel p {
+  color: #94a3b8 !important;
+}
+
+[data-theme='dark'] .app-loading-icon {
+  background: rgba(99, 102, 241, 0.22) !important;
+  color: #818cf8 !important;
+}
+
+[data-theme='dark'] .app-loading-track {
+  background: #1e2a42 !important;
+}
+
+[data-theme='dark'] .app-loading-track span {
+  background: #6366f1 !important;
+}

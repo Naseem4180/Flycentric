@@ -160,42 +160,60 @@ router.get('/bundles', async (req, res) => {
 });
 
 router.post('/bundles', authenticate, authorize('admin'), async (req, res) => {
-  const { title, description, exam_type, price_inr, is_free, subject_ids } = req.body;
+  const { title, slug, description, exam_type, price_inr, is_free, status, subject_ids } = req.body;
   const bundleIsFree = is_free === undefined ? Number(price_inr || 0) === 0 : !!is_free;
   if (!title) return res.status(400).json({ error: 'title required' });
+  const finalSlug = slug ? slug.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') : slugify(title);
+  const finalStatus = status === 'live' ? 'live' : 'draft';
   const result = await pool.query(
     `INSERT INTO bundles (title, slug, description, exam_type, price_inr, is_free, status, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,'draft',$7) RETURNING *`,
-    [title, slugify(title), description || null, exam_type || 'CPL', bundleIsFree ? 0 : (price_inr || 0), bundleIsFree, req.user.id]
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+    [title, finalSlug || slugify(title), description || null, exam_type || 'CPL', bundleIsFree ? 0 : (price_inr || 0), bundleIsFree, finalStatus, req.user.id]
   );
   const bundle = result.rows[0];
-  if (Array.isArray(subject_ids) && subject_ids.length) {
-    const values = subject_ids.map((sid) => `(${bundle.id}, ${Number(sid)})`).join(',');
-    await pool.query(`INSERT INTO bundle_subjects (bundle_id, subject_id) VALUES ${values} ON CONFLICT DO NOTHING`);
+  if (Array.isArray(subject_ids)) {
+    const validIds = subject_ids.map(Number).filter((id) => Number.isInteger(id) && id > 0);
+    if (validIds.length) {
+      await pool.query(
+        `INSERT INTO bundle_subjects (bundle_id, subject_id)
+         SELECT $1, unnest($2::int[])
+         ON CONFLICT DO NOTHING`,
+        [bundle.id, validIds]
+      );
+    }
   }
   const [withSubjects] = await attachIncludedSubjects([bundle]);
   res.status(201).json({ bundle: withSubjects });
 });
 
 router.patch('/bundles/:id', authenticate, authorize('admin'), async (req, res) => {
-  const { title, description, exam_type, price_inr, is_free, subject_ids } = req.body;
-  const bundleIsFree = is_free === undefined ? Number(price_inr || 0) === 0 : !!is_free;
+  const { title, slug, description, exam_type, price_inr, is_free, status, subject_ids } = req.body;
+  const bundleIsFree = is_free === undefined ? (price_inr !== undefined ? Number(price_inr || 0) === 0 : undefined) : !!is_free;
+  const cleanSlug = slug ? slug.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') : undefined;
+  const cleanStatus = status === 'live' || status === 'draft' ? status : undefined;
   const result = await pool.query(
     `UPDATE bundles SET
        title = COALESCE($1, title),
        description = COALESCE($2, description),
        exam_type = COALESCE($3, exam_type),
        price_inr = CASE WHEN $5 THEN 0 ELSE COALESCE($4, price_inr) END,
-       is_free = $5
+       is_free = COALESCE($5, is_free),
+       slug = COALESCE($7, slug),
+       status = COALESCE($8, status)
      WHERE id = $6 AND deleted_at IS NULL RETURNING *`,
-    [title, description, exam_type, price_inr, bundleIsFree, req.params.id]
+    [title, description, exam_type, price_inr !== undefined ? price_inr : null, bundleIsFree, req.params.id, cleanSlug, cleanStatus]
   );
   if (!result.rows.length) return res.status(404).json({ error: 'Bundle not found' });
   if (Array.isArray(subject_ids)) {
+    const validIds = subject_ids.map(Number).filter((id) => Number.isInteger(id) && id > 0);
     await pool.query('DELETE FROM bundle_subjects WHERE bundle_id = $1', [req.params.id]);
-    if (subject_ids.length) {
-      const values = subject_ids.map((sid) => `(${req.params.id}, ${Number(sid)})`).join(',');
-      await pool.query(`INSERT INTO bundle_subjects (bundle_id, subject_id) VALUES ${values} ON CONFLICT DO NOTHING`);
+    if (validIds.length) {
+      await pool.query(
+        `INSERT INTO bundle_subjects (bundle_id, subject_id)
+         SELECT $1, unnest($2::int[])
+         ON CONFLICT DO NOTHING`,
+        [req.params.id, validIds]
+      );
     }
   }
   const [withSubjects] = await attachIncludedSubjects([result.rows[0]]);
@@ -285,7 +303,32 @@ router.get('/bundles/:bundleId/subjects', async (req, res) => {
 });
 
 router.post('/bundles/:bundleId/subjects', authenticate, authorize('admin'), async (req, res) => {
-  const { title, order_index } = req.body;
+  const { title, order_index, subjectIds, subject_ids } = req.body;
+  const sIds = subjectIds || subject_ids;
+  if (Array.isArray(sIds)) {
+    const validIds = sIds.map(Number).filter((id) => Number.isInteger(id) && id > 0);
+    await pool.query('DELETE FROM bundle_subjects WHERE bundle_id = $1', [req.params.bundleId]);
+    if (validIds.length) {
+      await pool.query(
+        `INSERT INTO bundle_subjects (bundle_id, subject_id)
+         SELECT $1, unnest($2::int[])
+         ON CONFLICT DO NOTHING`,
+        [req.params.bundleId, validIds]
+      );
+    }
+    const result = await pool.query(
+      `SELECT s.* FROM subjects s
+       JOIN bundle_subjects bs ON bs.subject_id = s.id
+       WHERE bs.bundle_id = $1 AND s.deleted_at IS NULL ORDER BY s.order_index`,
+      [req.params.bundleId]
+    );
+    return res.json({ subjects: result.rows });
+  }
+
+  if (!title) {
+    return res.status(400).json({ error: 'title or subjectIds required' });
+  }
+
   const result = await pool.query(
     'INSERT INTO subjects (title, order_index) VALUES ($1,$2) RETURNING *',
     [title, order_index || 0]

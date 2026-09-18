@@ -157,21 +157,15 @@ export default function AdminCourses() {
         price_inr: form.is_free ? 0 : Number(form.price_inr),
         is_free: form.is_free,
         status: form.status,
+        subject_ids: form.subject_ids,
       };
 
-      let bundleId;
       if (editing) {
         await api.patch(`/content/bundles/${editing.id}`, payload);
-        bundleId = editing.id;
         toast.success('Course updated', `${form.title} has been updated.`);
       } else {
-        const created = await api.post('/content/bundles', payload);
-        bundleId = created.bundle?.id;
+        await api.post('/content/bundles', payload);
         toast.success('Course created', `${form.title} has been created.`);
-      }
-
-      if (bundleId) {
-        await api.post(`/content/bundles/${bundleId}/subjects`, { subjectIds: form.subject_ids });
       }
 
       setFormOpen(false);

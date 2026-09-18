@@ -162,41 +162,67 @@ export default function AdminInstructorDoubts() {
       <Modal
         open={!!active}
         onClose={() => !sending && setActive(null)}
-        variant="drawer"
-        title={active ? `Doubt from ${active.student_name}` : ''}
-        description={active ? `Asked on ${new Date(active.created_at).toLocaleString()}` : ''}
+        size="lg"
+        icon={MessageCircleQuestion}
+        tone="indigo"
+        title={active ? `Student Doubt: ${active.student_name}` : 'Resolve Doubt'}
+        subtitle={active ? `Submitted on ${new Date(active.created_at).toLocaleString()}` : ''}
         footer={(
           <>
             <Button variant="outline" onClick={() => setActive(null)} disabled={sending}>Cancel</Button>
             <Button variant="primary" icon={Send} onClick={send} loading={sending} loadingLabel="Sending…">
-              {active?.status === 'answered' ? 'Update Response' : 'Send Response'}
+              {active?.status === 'answered' ? 'Update Response' : 'Send Instructor Response'}
             </Button>
           </>
         )}
       >
         {active && (
           <>
-            {active.question_text && (
-              <div className="quote-block">
-                <span className="quote-label">Related question</span>
-                <p>{active.question_text}</p>
+            {/* Section 1: Student Inquiry Context */}
+            <div className="form-card-box form-card-blue">
+              <div className="form-card-header-row">
+                <span className="form-card-header">
+                  <MessageCircleQuestion size={14} /> Student Question &amp; Inquiry
+                </span>
+                <span className="form-card-badge">
+                  {active.status === 'answered' ? 'Answered' : 'Pending Response'}
+                </span>
               </div>
-            )}
-            <div className="quote-block">
-              <span className="quote-label">Student's doubt</span>
-              <p>{active.message}</p>
+
+              {active.question_text && (
+                <div className="quote-block" style={{ marginBottom: 10 }}>
+                  <span className="quote-label">Related Question Stem</span>
+                  <p style={{ margin: 0 }}>{active.question_text}</p>
+                </div>
+              )}
+              <div className="quote-block">
+                <span className="quote-label">{active.student_name}'s Query</span>
+                <p style={{ margin: 0 }}>{active.message}</p>
+              </div>
             </div>
-            <div className="field">
-              <label htmlFor="doubt-reply">Your response <span className="field-req">*</span></label>
-              <textarea
-                id="doubt-reply"
-                rows={7}
-                value={reply}
-                className={replyError ? 'has-error' : ''}
-                onChange={(e) => { setReply(e.target.value); setReplyError(''); }}
-                placeholder="Explain the concept clearly so the student can follow it on their own…"
-              />
-              {replyError && <p className="field-error">{replyError}</p>}
+
+            {/* Section 2: Instructor Guidance */}
+            <div className="form-card-box form-card-green">
+              <div className="form-card-header-row">
+                <span className="form-card-header">
+                  <Send size={14} /> Official Faculty Response
+                </span>
+                <span className="form-card-badge">Verified Guidance</span>
+              </div>
+
+              <div className="field">
+                <label htmlFor="doubt-reply">Instructor Answer &amp; Explanation <span className="field-req">*</span></label>
+                <textarea
+                  id="doubt-reply"
+                  rows={6}
+                  value={reply}
+                  className={replyError ? 'has-error' : ''}
+                  onChange={(e) => { setReply(e.target.value); setReplyError(''); }}
+                  placeholder="Explain the concept clearly with reference to DGCA syllabus rules and practical pilot decision-making..."
+                />
+                <small className="field-hint">Your explanation will be delivered directly to the student's doubt inbox.</small>
+                {replyError && <p className="field-error">{replyError}</p>}
+              </div>
             </div>
           </>
         )}

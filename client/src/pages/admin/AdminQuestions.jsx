@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import {
   Download, Plus, Search, Upload, Database, Trash2, Copy, Eye, ListPlus,
   Pencil, FileDown, X, CheckCircle2, RotateCcw, FolderPlus,
+  ArrowUpDown, ArrowUp, ArrowDown, Filter, HelpCircle, BookOpen, FileText,
 } from 'lucide-react';
 import { api, BASE_URL } from '../../api';
 import {
@@ -251,8 +252,8 @@ export default function AdminQuestions() {
     return rows.sort((a, b) => {
       let av; let bv;
       switch (sort.key) {
-        case 'subject': av = subjectById[String(a.subject_id)]?.title || ''; bv = subjectById[String(b.subject_id)]?.title || ''; break;
-        case 'chapter': av = chapterById[String(a.chapter_id)]?.title || ''; bv = chapterById[String(b.chapter_id)]?.title || ''; break;
+        case 'subject': av = a.subject_title || subjectById[String(a.subject_id)]?.title || ''; bv = b.subject_title || subjectById[String(b.subject_id)]?.title || ''; break;
+        case 'chapter': av = a.chapter_title || chapterById[String(a.chapter_id)]?.title || ''; bv = b.chapter_title || chapterById[String(b.chapter_id)]?.title || ''; break;
         case 'difficulty': { const rank = { easy: 1, medium: 2, hard: 3 }; av = rank[a.difficulty] || 0; bv = rank[b.difficulty] || 0; break; }
         case 'appearances': av = (a.appearances || []).length; bv = (b.appearances || []).length; break;
         default: av = a.id; bv = b.id;
@@ -285,7 +286,12 @@ export default function AdminQuestions() {
   function toggleSort(key) {
     setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
   }
-  const sortMark = (key) => (sort.key === key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : '');
+  function renderSortIcon(key) {
+    if (sort.key !== key) {
+      return <ArrowUpDown size={12} className="sort-icon-muted" />;
+    }
+    return sort.dir === 'asc' ? <ArrowUp size={13} className="sort-icon-active" /> : <ArrowDown size={13} className="sort-icon-active" />;
+  }
 
   /* ------------------------------------------------------------------ */
   /* Editor                                                              */
@@ -514,51 +520,101 @@ export default function AdminQuestions() {
         title="Question Bank"
         subtitle="Manage, organise and import your question library."
         actions={(
-          <>
-            <Button icon={FileDown} onClick={downloadTemplate}>Download Template</Button>
-            <Button icon={Download} onClick={() => exportCsv()}>Export CSV</Button>
-            <Button variant="success" icon={Upload} onClick={() => setImportOpen(true)}>Import CSV</Button>
-            <Button variant="primary" icon={Plus} onClick={() => openEditor(null)}>Add Question</Button>
-          </>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Button variant="outline" size="sm" icon={FileDown} onClick={downloadTemplate}>Template</Button>
+            <Button variant="outline" size="sm" icon={Download} onClick={() => exportCsv()}>Export CSV</Button>
+            <Button variant="success" size="sm" icon={Upload} onClick={() => setImportOpen(true)}>Import CSV</Button>
+            <Button variant="primary" size="sm" icon={Plus} onClick={() => openEditor(null)}>Add Question</Button>
+          </div>
         )}
       />
 
       {error && <div className="error-banner"><span>{error}</span><Button size="xs" icon={RotateCcw} onClick={loadQuestions}>Retry</Button></div>}
 
-      <Card>
-        <div className="filter-grid">
-          <label className="input-with-icon">
-            <Search size={15} />
-            <input placeholder="Search by question or ID…" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search questions" />
-          </label>
-          <select value={filterSubject} onChange={(e) => { setFilterSubject(e.target.value); setFilterChapter(''); }} aria-label="Filter by subject">
-            <option value="">All Subjects</option>
-            {subjects.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
-          </select>
-          <select value={filterChapter} onChange={(e) => setFilterChapter(e.target.value)} aria-label="Filter by chapter">
-            <option value="">All Chapters</option>
-            {chapters.filter((c) => !filterSubject || String(c.subject_id) === filterSubject).map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
-          </select>
-          <select value={filterSubtopic} onChange={(e) => setFilterSubtopic(e.target.value)} aria-label="Filter by subtopic">
-            <option value="">All Subtopics</option>
-            {subtopics.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
-          <select value={filterDifficulty} onChange={(e) => setFilterDifficulty(e.target.value)} aria-label="Filter by difficulty">
-            <option value="">All Difficulties</option>
-            <option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option>
-          </select>
-          <select value={filterType} onChange={(e) => setFilterType(e.target.value)} aria-label="Filter by question type">
-            <option value="">All Types</option>
-            {QUESTION_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-          </select>
-          <select value={filterUsage} onChange={(e) => setFilterUsage(e.target.value)} aria-label="Filter by usage">
-            <option value="">All Usage</option>
-            <option value="used">Used in a quiz</option>
-            <option value="unused">Not used yet</option>
-          </select>
+      {/* Pill Filter Bar (Matching Screenshot 3) */}
+      <div className="filter-pills-bar">
+        <div className="filter-search-pill">
+          <Search size={14} />
+          <input
+            placeholder="Search questions or #ID…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            aria-label="Search questions"
+          />
+          {search && (
+            <button type="button" className="filter-search-clear" onClick={() => setSearch('')} title="Clear search">
+              <X size={12} />
+            </button>
+          )}
         </div>
-        <FilterChips chips={chips} onClear={clearFilters} />
-      </Card>
+
+        <select
+          className={`filter-pill-select ${filterSubject ? 'is-active' : ''}`}
+          value={filterSubject}
+          onChange={(e) => { setFilterSubject(e.target.value); setFilterChapter(''); }}
+          aria-label="Filter by subject"
+        >
+          <option value="">All Subjects</option>
+          {subjects.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
+        </select>
+
+        <select
+          className={`filter-pill-select ${filterChapter ? 'is-active' : ''}`}
+          value={filterChapter}
+          onChange={(e) => setFilterChapter(e.target.value)}
+          aria-label="Filter by chapter"
+        >
+          <option value="">All Chapters</option>
+          {chapters.filter((c) => !filterSubject || String(c.subject_id) === filterSubject).map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+        </select>
+
+        <select
+          className={`filter-pill-select ${filterDifficulty ? 'is-active' : ''}`}
+          value={filterDifficulty}
+          onChange={(e) => setFilterDifficulty(e.target.value)}
+          aria-label="Filter by difficulty"
+        >
+          <option value="">All Difficulties</option>
+          <option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option>
+        </select>
+
+        <select
+          className={`filter-pill-select ${filterType ? 'is-active' : ''}`}
+          value={filterType}
+          onChange={(e) => setFilterType(e.target.value)}
+          aria-label="Filter by question type"
+        >
+          <option value="">All Types</option>
+          {QUESTION_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+
+        <select
+          className={`filter-pill-select ${filterSubtopic ? 'is-active' : ''}`}
+          value={filterSubtopic}
+          onChange={(e) => setFilterSubtopic(e.target.value)}
+          aria-label="Filter by subtopic"
+        >
+          <option value="">All Subtopics</option>
+          {subtopics.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+
+        <select
+          className={`filter-pill-select ${filterUsage ? 'is-active' : ''}`}
+          value={filterUsage}
+          onChange={(e) => setFilterUsage(e.target.value)}
+          aria-label="Filter by usage"
+        >
+          <option value="">All Usage</option>
+          <option value="used">Used in a quiz</option>
+          <option value="unused">Not used yet</option>
+        </select>
+
+        {chips.length > 0 && (
+          <button type="button" className="filter-clear-link" onClick={clearFilters}>
+            Clear Filters
+          </button>
+        )}
+      </div>
 
       <Card flush className="table-card">
         <div className="flex-between" style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)' }}>
@@ -626,13 +682,23 @@ export default function AdminQuestions() {
                     <th style={{ width: 40 }}>
                       <input type="checkbox" checked={allOnPageSelected} onChange={toggleAll} aria-label="Select all questions on this page" />
                     </th>
-                    <th className="sortable" onClick={() => toggleSort('id')}>Q.ID{sortMark('id')}</th>
-                    <th className="sortable" onClick={() => toggleSort('subject')}>Subject{sortMark('subject')}</th>
-                    <th className="sortable" onClick={() => toggleSort('chapter')}>Chapter{sortMark('chapter')}</th>
+                    <th className={`sortable ${sort.key === 'id' ? 'is-sorted' : ''}`} onClick={() => toggleSort('id')}>
+                      Q.ID {renderSortIcon('id')}
+                    </th>
+                    <th className={`sortable ${sort.key === 'subject' ? 'is-sorted' : ''}`} onClick={() => toggleSort('subject')}>
+                      Subject {renderSortIcon('subject')}
+                    </th>
+                    <th className={`sortable ${sort.key === 'chapter' ? 'is-sorted' : ''}`} onClick={() => toggleSort('chapter')}>
+                      Chapter {renderSortIcon('chapter')}
+                    </th>
                     <th>Subtopic</th>
-                    <th className="sortable" onClick={() => toggleSort('difficulty')}>Difficulty{sortMark('difficulty')}</th>
+                    <th className={`sortable ${sort.key === 'difficulty' ? 'is-sorted' : ''}`} onClick={() => toggleSort('difficulty')}>
+                      Difficulty {renderSortIcon('difficulty')}
+                    </th>
                     <th>Question</th>
-                    <th className="sortable" onClick={() => toggleSort('appearances')}>Appearances{sortMark('appearances')}</th>
+                    <th className={`sortable ${sort.key === 'appearances' ? 'is-sorted' : ''}`} onClick={() => toggleSort('appearances')}>
+                      Appearances {renderSortIcon('appearances')}
+                    </th>
                     <th className="td-actions">Actions</th>
                   </tr>
                 </thead>
@@ -645,9 +711,21 @@ export default function AdminQuestions() {
                       <td data-label="Q.ID" className="td-nowrap">
                         <span className="q-id-chip">#{q.id}</span>
                       </td>
-                      <td data-label="Subject">{subjectById[String(q.subject_id)]?.title || <span className="td-muted">—</span>}</td>
-                      <td data-label="Chapter">{chapterById[String(q.chapter_id)]?.title || <span className="td-muted">—</span>}</td>
-                      <td data-label="Subtopic">{(q.tags || [])[0] ? <Badge tone="cyan">{q.tags[0]}</Badge> : <span className="td-muted">—</span>}</td>
+                      <td data-label="Subject">{q.subject_title || subjectById[String(q.subject_id)]?.title || <span className="td-muted">—</span>}</td>
+                      <td data-label="Chapter">{q.chapter_title || chapterById[String(q.chapter_id)]?.title || <span className="td-muted">—</span>}</td>
+                      <td data-label="Subtopic">
+                        {(q.tags && q.tags.length > 0) ? (
+                          <div style={{ display: 'inline-flex', flexWrap: 'wrap', gap: '4px' }}>
+                            {q.tags.map((t, idx) => (
+                              <Badge key={idx} tone="cyan">{t}</Badge>
+                            ))}
+                          </div>
+                        ) : (q.subchapter || q.topic) ? (
+                          <Badge tone="cyan">{q.subchapter || q.topic}</Badge>
+                        ) : (
+                          <span className="td-muted">—</span>
+                        )}
+                      </td>
                       <td data-label="Difficulty"><DifficultyBadge difficulty={q.difficulty} /></td>
                       <td data-label="Question" className="question-cell"><span className="td-clamp-2" title={q.question_text}>{q.question_text}</span></td>
                       <td data-label="Appearances">
@@ -681,14 +759,15 @@ export default function AdminQuestions() {
         )}
       </Card>
 
-      {/* ---------------- Add / Edit drawer ---------------- */}
+      {/* ---------------- Add / Edit Question Modal ---------------- */}
       <Modal
         open={editorOpen}
         onClose={() => !saving && setEditorOpen(false)}
-        variant="drawer"
         size="lg"
-        title={editing ? `Edit question #${editing.id}` : 'Add a question'}
-        description="Questions can be filed under any subject and chapter."
+        icon={HelpCircle}
+        tone="indigo"
+        title={editing ? `Edit Question #${editing.id}` : 'Create Question'}
+        subtitle="Questions are cataloged under syllabus subjects, chapters, and subtopic tags."
         footer={(
           <>
             <Button variant="outline" onClick={() => setEditorOpen(false)} disabled={saving}>Cancel</Button>
@@ -699,159 +778,225 @@ export default function AdminQuestions() {
         )}
       >
         <form onSubmit={saveQuestion}>
-          <div className="field">
-            <label htmlFor="q-type">Question type</label>
-            <select id="q-type" value={form.question_type} onChange={(e) => changeType(e.target.value)}>
-              {QUESTION_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
-          </div>
-
-          <div className="field">
-            <label htmlFor="q-text">Question <span className="field-req">*</span></label>
-            <textarea
-              id="q-text" rows={3} value={form.question_text}
-              className={formErrors.question_text ? 'has-error' : ''}
-              aria-invalid={!!formErrors.question_text}
-              onChange={(e) => setForm({ ...form, question_text: e.target.value })}
-            />
-            {formErrors.question_text && <p className="field-error">{formErrors.question_text}</p>}
-          </div>
-
-          {showOptions && (
-            <div className="form-grid">
-              {form.options.map((opt, idx) => (
-                <div className="field" key={opt.key}>
-                  <label>Option {opt.key} <span className="field-req">*</span></label>
-                  <input
-                    value={opt.text}
-                    disabled={form.question_type === 'true_false'}
-                    className={formErrors[`opt${idx}`] ? 'has-error' : ''}
-                    onChange={(e) => {
-                      const options = [...form.options];
-                      options[idx] = { ...opt, text: e.target.value };
-                      setForm({ ...form, options });
-                    }}
-                  />
-                  {formErrors[`opt${idx}`] && <p className="field-error">{formErrors[`opt${idx}`]}</p>}
-                  {/* Distractor Error Breakdown: an optional per-option note
-                      explaining WHY a wrong option is a trap (e.g. "confuses
-                      true airspeed with indicated airspeed"), shown to
-                      students as an accordion during post-exam review
-                      instead of just revealing the correct answer. Left
-                      blank for the correct option — it isn't a distractor. */}
-                  <textarea
-                    className="input" rows={2} style={{ marginTop: 6, fontSize: '.78rem' }}
-                    placeholder="Optional: why is this a trap option? (shown to students in review)"
-                    value={opt.rationale || ''}
-                    onChange={(e) => {
-                      const options = [...form.options];
-                      options[idx] = { ...opt, rationale: e.target.value };
-                      setForm({ ...form, options });
-                    }}
-                  />
-                </div>
-              ))}
+          {/* Card 1: Blue - Subject, Chapter & Classification */}
+          <div className="form-card-box form-card-blue">
+            <div className="form-card-header-row">
+              <span className="form-card-header">
+                <BookOpen size={14} /> Curriculum Filing &amp; Classification
+              </span>
+              <span className="form-card-badge">
+                {(form.difficulty || 'medium').toUpperCase()}
+              </span>
             </div>
-          )}
 
-          {showMultiCorrect && (
+            <div className="form-row-2">
+              <div className="field">
+                <label htmlFor="q-subject">Syllabus Subject</label>
+                <select id="q-subject" value={form.subject_id} onChange={(e) => setForm({ ...form, subject_id: e.target.value, chapter_id: '' })}>
+                  <option value="">— No subject (General) —</option>
+                  {subjects.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
+                </select>
+                <small className="field-hint">Primary curriculum subject.</small>
+              </div>
+
+              <div className="field">
+                <label htmlFor="q-chapter">
+                  Chapter
+                  <button
+                    type="button"
+                    className="inline-add-btn"
+                    disabled={!form.subject_id}
+                    title={form.subject_id ? 'Add a new chapter to this subject' : 'Pick a subject first'}
+                    onClick={() => { setNewChapterTitle(''); setChapterModalOpen(true); }}
+                  >
+                    <FolderPlus size={12} /> Add Chapter
+                  </button>
+                </label>
+                <select id="q-chapter" value={form.chapter_id} onChange={(e) => setForm({ ...form, chapter_id: e.target.value })} disabled={!form.subject_id}>
+                  <option value="">{form.subject_id ? '— No chapter —' : 'Pick a subject first'}</option>
+                  {formChapterOptions.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+                </select>
+                <small className="field-hint">Specific chapter unit.</small>
+              </div>
+            </div>
+
+            <div className="form-row-2" style={{ marginTop: 8 }}>
+              <div className="field">
+                <label htmlFor="q-diff">Difficulty Level</label>
+                <select id="q-diff" value={form.difficulty} onChange={(e) => setForm({ ...form, difficulty: e.target.value })}>
+                  <option value="easy">Easy</option>
+                  <option value="medium">Medium</option>
+                  <option value="hard">Hard</option>
+                </select>
+                <small className="field-hint">Used for adaptive practice test generation.</small>
+              </div>
+
+              <div className="field">
+                <label htmlFor="q-tags">Subtopic Tags</label>
+                <input
+                  id="q-tags"
+                  value={(form.tags || []).join(', ')}
+                  placeholder="e.g. altimeter, heading indicator"
+                  onChange={(e) => setForm({ ...form, tags: e.target.value.split(',').map((t) => t.trim()).filter(Boolean) })}
+                />
+                <small className="field-hint">Comma separated. Appears as Subtopic badge.</small>
+              </div>
+            </div>
+          </div>
+
+          {/* Card 2: Purple - Question Stem & Type */}
+          <div className="form-card-box form-card-purple">
+            <div className="form-card-header-row">
+              <span className="form-card-header">
+                <HelpCircle size={14} /> Question Stem &amp; Format
+              </span>
+              <span className="form-card-badge">
+                {TYPE_LABELS[form.question_type] || 'MCQ'}
+              </span>
+            </div>
+
             <div className="field">
-              <label>Correct options (select all that apply) <span className="field-req">*</span></label>
-              <div className="row">
-                {form.options.map((o) => (
-                  <label key={o.key} className="row" style={{ gap: 6, fontWeight: 600, fontSize: '.83rem' }}>
+              <label htmlFor="q-type">Question Type</label>
+              <select id="q-type" value={form.question_type} onChange={(e) => changeType(e.target.value)}>
+                {QUESTION_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+            </div>
+
+            <div className="field" style={{ marginTop: 8 }}>
+              <label htmlFor="q-text">Question Prompt <span className="field-req">*</span></label>
+              <textarea
+                id="q-text"
+                rows={3}
+                value={form.question_text}
+                className={formErrors.question_text ? 'has-error' : ''}
+                aria-invalid={!!formErrors.question_text}
+                onChange={(e) => setForm({ ...form, question_text: e.target.value })}
+                placeholder="Enter the complete question text as presented in DGCA exams..."
+                required
+              />
+              <small className="field-hint">Supports full mathematical and aviation symbols.</small>
+              {formErrors.question_text && <p className="field-error">{formErrors.question_text}</p>}
+            </div>
+          </div>
+
+          {/* Card 3: Green - Options & Scoring */}
+          <div className="form-card-box form-card-green">
+            <div className="form-card-header-row">
+              <span className="form-card-header">
+                <ListPlus size={14} /> Answer Choices &amp; Scoring Key
+              </span>
+              <span className="form-card-badge">
+                {showCorrectPicker ? `Key: ${form.correct_option || '—'}` : 'Answer Setup'}
+              </span>
+            </div>
+
+            {showOptions && (
+              <div className="form-grid">
+                {form.options.map((opt, idx) => (
+                  <div className="field" key={opt.key}>
+                    <label>Option {opt.key} <span className="field-req">*</span></label>
                     <input
-                      type="checkbox"
-                      checked={(form.correct_option || '').split(',').includes(o.key)}
-                      onChange={() => {
-                        const cur = (form.correct_option || '').split(',').filter(Boolean);
-                        const next = cur.includes(o.key) ? cur.filter((k) => k !== o.key) : [...cur, o.key];
-                        setForm({ ...form, correct_option: next.join(',') });
+                      value={opt.text}
+                      disabled={form.question_type === 'true_false'}
+                      className={formErrors[`opt${idx}`] ? 'has-error' : ''}
+                      placeholder={`Choice text for ${opt.key}...`}
+                      onChange={(e) => {
+                        const options = [...form.options];
+                        options[idx] = { ...opt, text: e.target.value };
+                        setForm({ ...form, options });
                       }}
                     />
-                    {o.key}
-                  </label>
+                    {formErrors[`opt${idx}`] && <p className="field-error">{formErrors[`opt${idx}`]}</p>}
+                    <textarea
+                      className="input"
+                      rows={2}
+                      style={{ marginTop: 6, fontSize: '.76rem' }}
+                      placeholder="Optional distractor rationale (shown to students in exam review)"
+                      value={opt.rationale || ''}
+                      onChange={(e) => {
+                        const options = [...form.options];
+                        options[idx] = { ...opt, rationale: e.target.value };
+                        setForm({ ...form, options });
+                      }}
+                    />
+                  </div>
                 ))}
               </div>
-              {formErrors.correct_option && <p className="field-error">{formErrors.correct_option}</p>}
-            </div>
-          )}
+            )}
 
-          {showRefAnswer && (
-            <div className="field">
-              <label>{form.question_type === 'numerical' ? 'Correct numeric answer' : 'Expected / reference answer'} <span className="field-req">*</span></label>
-              <input
-                value={form.correct_option}
-                className={formErrors.correct_option ? 'has-error' : ''}
-                onChange={(e) => setForm({ ...form, correct_option: e.target.value })}
-                placeholder={form.question_type === 'numerical' ? 'e.g. 1013.25' : 'Used as a reference for manual grading'}
-              />
-              {formErrors.correct_option && <p className="field-error">{formErrors.correct_option}</p>}
-            </div>
-          )}
-
-          {form.question_type === 'descriptive' && (
-            <p className="field-hint" style={{ marginTop: -6, marginBottom: 14 }}>
-              Descriptive answers are always graded manually — put a model answer in the explanation field below.
-            </p>
-          )}
-
-          <div className="form-grid">
-            <div className="field">
-              <label htmlFor="q-subject">Subject</label>
-              <select id="q-subject" value={form.subject_id} onChange={(e) => setForm({ ...form, subject_id: e.target.value, chapter_id: '' })}>
-                <option value="">— No subject —</option>
-                {subjects.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="q-chapter">
-                Chapter
-                <button
-                  type="button"
-                  className="inline-add-btn"
-                  disabled={!form.subject_id}
-                  title={form.subject_id ? 'Add a new chapter to this subject' : 'Pick a subject first'}
-                  onClick={() => { setNewChapterTitle(''); setChapterModalOpen(true); }}
-                >
-                  <FolderPlus size={12} /> Add Chapter
-                </button>
-              </label>
-              <select id="q-chapter" value={form.chapter_id} onChange={(e) => setForm({ ...form, chapter_id: e.target.value })} disabled={!form.subject_id}>
-                <option value="">{form.subject_id ? '— No chapter —' : 'Pick a subject first'}</option>
-                {formChapterOptions.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
-              </select>
-              {form.subject_id && !formChapterOptions.length && (
-                <p className="field-hint">This subject has no chapters yet — use “Add Chapter” above.</p>
-              )}
-            </div>
             {showCorrectPicker && (
-              <div className="field">
-                <label htmlFor="q-correct">Correct option <span className="field-req">*</span></label>
+              <div className="field" style={{ marginTop: 10 }}>
+                <label htmlFor="q-correct">Correct Option <span className="field-req">*</span></label>
                 <select id="q-correct" value={form.correct_option} className={formErrors.correct_option ? 'has-error' : ''} onChange={(e) => setForm({ ...form, correct_option: e.target.value })}>
-                  {form.options.map((o) => <option key={o.key} value={o.key}>{o.key}{o.text ? ` — ${o.text}` : ''}</option>)}
+                  {form.options.map((o) => <option key={o.key} value={o.key}>Option {o.key}{o.text ? ` — ${o.text}` : ''}</option>)}
                 </select>
+                <small className="field-hint">The correct choice graded automatically.</small>
                 {formErrors.correct_option && <p className="field-error">{formErrors.correct_option}</p>}
               </div>
             )}
+
+            {showMultiCorrect && (
+              <div className="field" style={{ marginTop: 10 }}>
+                <label>Correct options (select all that apply) <span className="field-req">*</span></label>
+                <div className="row">
+                  {form.options.map((o) => (
+                    <label key={o.key} className="row" style={{ gap: 6, fontWeight: 600, fontSize: '.83rem' }}>
+                      <input
+                        type="checkbox"
+                        checked={(form.correct_option || '').split(',').includes(o.key)}
+                        onChange={() => {
+                          const cur = (form.correct_option || '').split(',').filter(Boolean);
+                          const next = cur.includes(o.key) ? cur.filter((k) => k !== o.key) : [...cur, o.key];
+                          setForm({ ...form, correct_option: next.join(',') });
+                        }}
+                      />
+                      {o.key}
+                    </label>
+                  ))}
+                </div>
+                {formErrors.correct_option && <p className="field-error">{formErrors.correct_option}</p>}
+              </div>
+            )}
+
+            {showRefAnswer && (
+              <div className="field" style={{ marginTop: 10 }}>
+                <label>{form.question_type === 'numerical' ? 'Correct numeric answer' : 'Expected / reference answer'} <span className="field-req">*</span></label>
+                <input
+                  value={form.correct_option}
+                  className={formErrors.correct_option ? 'has-error' : ''}
+                  onChange={(e) => setForm({ ...form, correct_option: e.target.value })}
+                  placeholder={form.question_type === 'numerical' ? 'e.g. 1013.25' : 'Used as reference for manual grading'}
+                />
+                {formErrors.correct_option && <p className="field-error">{formErrors.correct_option}</p>}
+              </div>
+            )}
+          </div>
+
+          {/* Card 4: Amber - Solution & Appearances */}
+          <div className="form-card-box form-card-amber">
+            <div className="form-card-header-row">
+              <span className="form-card-header">
+                <FileText size={14} /> Detailed Solution &amp; Exam Appearances
+              </span>
+              <span className="form-card-badge">
+                {(form.appearances || []).length ? `${(form.appearances || []).length} Exams` : 'Solution'}
+              </span>
+            </div>
+
             <div className="field">
-              <label htmlFor="q-diff">Difficulty</label>
-              <select id="q-diff" value={form.difficulty} onChange={(e) => setForm({ ...form, difficulty: e.target.value })}>
-                <option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option>
-              </select>
-            </div>
-            <div className="field full">
-              <label htmlFor="q-tags">Tags / subtopics</label>
-              <input
-                id="q-tags"
-                value={(form.tags || []).join(', ')}
-                placeholder="e.g. instruments, procedures"
-                onChange={(e) => setForm({ ...form, tags: e.target.value.split(',').map((t) => t.trim()).filter(Boolean) })}
+              <label htmlFor="q-explanation">Comprehensive Explanation &amp; Working</label>
+              <textarea
+                id="q-explanation"
+                rows={3}
+                value={form.explanation}
+                onChange={(e) => setForm({ ...form, explanation: e.target.value })}
+                placeholder="Step-by-step logic, formula derivation, or rule reference displayed to students upon completing an exam..."
               />
-              <p className="field-hint">Comma separated. The first tag shows as the Subtopic in the table.</p>
+              <small className="field-hint">Rendered in student post-exam analytics.</small>
             </div>
-            <div className="field full">
-              <label htmlFor="q-appearances">Exam appearances</label>
+
+            <div className="field" style={{ marginTop: 10 }}>
+              <label htmlFor="q-appearances">Past Exam Appearances (Years)</label>
               <input
                 id="q-appearances"
                 value={appearanceText}
@@ -861,18 +1006,13 @@ export default function AdminQuestions() {
                   setForm({ ...form, appearances: parseAppearanceYears(e.target.value) });
                 }}
               />
-              <p className="field-hint">Enter four-digit exam years separated by commas. They appear as year bubbles in the question bank.</p>
+              <small className="field-hint">Enter 4-digit exam years separated by commas (e.g. 2026, 2025).</small>
             </div>
           </div>
 
-          <div className="field">
-            <label htmlFor="q-explanation">Explanation {form.question_type === 'descriptive' && '(model answer)'}</label>
-            <textarea id="q-explanation" rows={3} value={form.explanation} onChange={(e) => setForm({ ...form, explanation: e.target.value })} />
-          </div>
-
           {form.question_text.trim() && (
-            <div className="question-editor-preview" style={{ position: 'static' }}>
-              <strong style={{ fontSize: '.78rem', textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--muted)' }}>Preview</strong>
+            <div className="question-editor-preview" style={{ position: 'static', marginBottom: 12 }}>
+              <strong style={{ fontSize: '.78rem', textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--muted)' }}>Live Student View Preview</strong>
               <p style={{ fontWeight: 600, margin: '10px 0 12px' }}>{form.question_text}</p>
               {form.options.map((o) => (
                 <div key={o.key} className={`preview-option ${String(form.correct_option || '').split(',').includes(o.key) ? 'correct' : ''}`}>
@@ -897,7 +1037,12 @@ export default function AdminQuestions() {
           <>
             <div className="row" style={{ marginBottom: 14 }}>
               <DifficultyBadge difficulty={previewQuestion.difficulty} />
-              {subjectById[String(previewQuestion.subject_id)] && <Badge tone="purple">{subjectById[String(previewQuestion.subject_id)].title}</Badge>}
+              {(previewQuestion.subject_title || subjectById[String(previewQuestion.subject_id)]?.title) && (
+                <Badge tone="purple">{previewQuestion.subject_title || subjectById[String(previewQuestion.subject_id)].title}</Badge>
+              )}
+              {(previewQuestion.chapter_title || chapterById[String(previewQuestion.chapter_id)]?.title) && (
+                <Badge tone="neutral">{previewQuestion.chapter_title || chapterById[String(previewQuestion.chapter_id)].title}</Badge>
+              )}
               {previewQuestion.is_faq && <Badge tone="cyan">FAQ</Badge>}
             </div>
             <p style={{ fontWeight: 600, fontSize: '.92rem' }}>{previewQuestion.question_text}</p>

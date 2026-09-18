@@ -78,32 +78,39 @@ async function validateQuestionPayload({ question_type, difficulty, subject_id, 
 // "quantum, mechanics, 2023" finds anything mentioning any one of them).
 router.get('/', async (req, res) => {
   const { chapter_id, subject_id, difficulty, q, keywords, is_faq, include_old_versions, limit = 50, offset = 0 } = req.query;
-  const clauses = ['deleted_at IS NULL'];
+  const clauses = ['q.deleted_at IS NULL'];
   const params = [];
   // Archived versions (superseded by a later edit — see Question Versioning
   // in the PATCH handler below) are hidden by default so lists/pickers only
   // ever show the current, editable version of each question.
-  if (!include_old_versions) clauses.push('is_latest = true');
-  if (chapter_id) { params.push(chapter_id); clauses.push(`chapter_id = $${params.length}`); }
+  if (!include_old_versions) clauses.push('q.is_latest = true');
+  if (chapter_id) { params.push(chapter_id); clauses.push(`q.chapter_id = $${params.length}`); }
   if (subject_id) {
     params.push(subject_id);
     const subjectParam = `$${params.length}`;
-    clauses.push(`(subject_id = ${subjectParam} OR chapter_id IN (
+    clauses.push(`(q.subject_id = ${subjectParam} OR q.chapter_id IN (
       SELECT id FROM chapters WHERE subject_id = ${subjectParam} AND deleted_at IS NULL
     ))`);
   }
-  if (difficulty) { params.push(difficulty); clauses.push(`difficulty = $${params.length}`); }
-  if (is_faq) { params.push(is_faq === 'true'); clauses.push(`is_faq = $${params.length}`); }
-  if (q) { params.push(q); clauses.push(`to_tsvector('english', question_text) @@ plainto_tsquery($${params.length})`); }
+  if (difficulty) { params.push(difficulty); clauses.push(`q.difficulty = $${params.length}`); }
+  if (is_faq) { params.push(is_faq === 'true'); clauses.push(`q.is_faq = $${params.length}`); }
+  if (q) { params.push(q); clauses.push(`to_tsvector('english', q.question_text) @@ plainto_tsquery($${params.length})`); }
   if (keywords) {
     const terms = keywords.split(',').map((t) => t.trim()).filter(Boolean);
     if (terms.length) {
-      const orClauses = terms.map((term) => { params.push(`%${term}%`); return `question_text ILIKE $${params.length}`; });
+      const orClauses = terms.map((term) => { params.push(`%${term}%`); return `q.question_text ILIKE $${params.length}`; });
       clauses.push(`(${orClauses.join(' OR ')})`);
     }
   }
   params.push(limit); params.push(offset);
-  const query = `SELECT * FROM questions WHERE ${clauses.join(' AND ')} ORDER BY id DESC LIMIT $${params.length - 1} OFFSET $${params.length}`;
+  const query = `
+    SELECT q.*, s.title AS subject_title, c.title AS chapter_title
+    FROM questions q
+    LEFT JOIN subjects s ON s.id = q.subject_id
+    LEFT JOIN chapters c ON c.id = q.chapter_id
+    WHERE ${clauses.join(' AND ')}
+    ORDER BY q.id DESC LIMIT $${params.length - 1} OFFSET $${params.length}
+  `;
   const result = await pool.query(query, params);
   res.json({ questions: result.rows });
 });
@@ -354,12 +361,40 @@ router.post('/bulk/import', authenticate, authorize('admin'), upload.single('fil
     const chapterCache = new Map();
 
     async function resolveSubject(title) {
-      const key = String(title || '').trim().toLowerCase();
-      if (!key) return null;
+      const clean = String(title || '').trim();
+      if (!clean) return null;
+      const key = clean.toLowerCase();
       if (subjectCache.has(key)) return subjectCache.get(key);
-      const found = await client.query('SELECT id FROM subjects WHERE lower(title) = $1 AND deleted_at IS NULL LIMIT 1', [key]);
-      const id = found.rows[0]?.id || null;
-      subjectCache.set(key, id);
+
+      // 1. Check existing active subjects
+      let found = await client.query(
+        'SELECT id FROM subjects WHERE lower(trim(title)) = $1 AND deleted_at IS NULL LIMIT 1',
+        [key]
+      );
+      let id = found.rows[0]?.id;
+
+      // 2. Check soft-deleted subjects and revive if found
+      if (!id) {
+        const deleted = await client.query(
+          'SELECT id FROM subjects WHERE lower(trim(title)) = $1 AND deleted_at IS NOT NULL LIMIT 1',
+          [key]
+        );
+        if (deleted.rows.length) {
+          id = deleted.rows[0].id;
+          await client.query('UPDATE subjects SET deleted_at = NULL, status = $2 WHERE id = $1', [id, 'live']);
+        }
+      }
+
+      // 3. Auto-create subject if not found
+      if (!id) {
+        const ins = await client.query(
+          'INSERT INTO subjects (title, status) VALUES ($1, $2) RETURNING id',
+          [clean, 'live']
+        );
+        id = ins.rows[0]?.id || null;
+      }
+
+      if (id) subjectCache.set(key, id);
       return id;
     }
 
@@ -368,12 +403,48 @@ router.post('/bulk/import', authenticate, authorize('admin'), upload.single('fil
       if (!clean) return null;
       const key = `${subjectId || 'none'}::${clean.toLowerCase()}`;
       if (chapterCache.has(key)) return chapterCache.get(key);
-      const found = await client.query(
-        `SELECT id FROM chapters WHERE lower(title) = $1 AND deleted_at IS NULL
+
+      // 1. Check active chapter under subjectId (or any if subjectId omitted)
+      let found = await client.query(
+        `SELECT id FROM chapters WHERE lower(trim(title)) = $1 AND deleted_at IS NULL
          ${subjectId ? 'AND subject_id = $2' : ''} LIMIT 1`,
         subjectId ? [clean.toLowerCase(), subjectId] : [clean.toLowerCase()]
       );
-      const id = found.rows[0]?.id || null;
+      let id = found.rows[0]?.id;
+
+      // Fallback: if subjectId was specified but not found, check if chapter with this name exists in another subject
+      if (!id && subjectId) {
+        const fallback = await client.query(
+          'SELECT id FROM chapters WHERE lower(trim(title)) = $1 AND deleted_at IS NULL LIMIT 1',
+          [clean.toLowerCase()]
+        );
+        if (fallback.rows.length) {
+          id = fallback.rows[0].id;
+        }
+      }
+
+      // 2. Check soft-deleted
+      if (!id) {
+        const deleted = await client.query(
+          `SELECT id FROM chapters WHERE lower(trim(title)) = $1 AND deleted_at IS NOT NULL
+           ${subjectId ? 'AND subject_id = $2' : ''} LIMIT 1`,
+          subjectId ? [clean.toLowerCase(), subjectId] : [clean.toLowerCase()]
+        );
+        if (deleted.rows.length) {
+          id = deleted.rows[0].id;
+          await client.query('UPDATE chapters SET deleted_at = NULL, status = $2 WHERE id = $1', [id, 'live']);
+        }
+      }
+
+      // 3. Auto-create chapter under subjectId
+      if (!id && subjectId) {
+        const ins = await client.query(
+          'INSERT INTO chapters (subject_id, title, status) VALUES ($1, $2, $3) RETURNING id',
+          [subjectId, clean, 'live']
+        );
+        id = ins.rows[0]?.id || null;
+      }
+
       if (id) chapterCache.set(key, id);
       return id;
     }
@@ -427,11 +498,36 @@ router.post('/bulk/import', authenticate, authorize('admin'), upload.single('fil
       seenHashesThisFile.set(hash, fileRow);
 
       let subjectId = row.subject_id || null;
-      if (!subjectId && row.subject_title) subjectId = await resolveSubject(row.subject_title);
-      let chapterId = row.chapter_id || null;
-      if (!chapterId && row.chapter_title) chapterId = await resolveChapter(row.chapter_title, subjectId);
+      const subjectName = row.subject_title || row.subject || row.subject_name;
+      if (!subjectId && subjectName) {
+        subjectId = await resolveSubject(subjectName);
+      }
 
-      const appearanceYears = normalizeAppearances(row.appearances) || [];
+      let chapterId = row.chapter_id || null;
+      const chapterName = row.chapter_title || row.chapter || row.chapter_name;
+      if (!chapterId && chapterName) {
+        chapterId = await resolveChapter(chapterName, subjectId);
+      }
+
+      // Collect tags from subchapter, topic, subtopic, and explicit tags
+      const tagList = [];
+      const addTag = (t) => {
+        if (t == null) return;
+        const s = String(t).trim();
+        if (s && !tagList.some((x) => x.toLowerCase() === s.toLowerCase())) {
+          tagList.push(s);
+        }
+      };
+      if (row.subchapter) addTag(row.subchapter);
+      if (row.sub_chapter) addTag(row.sub_chapter);
+      if (row.subtopic) addTag(row.subtopic);
+      if (row.sub_topic) addTag(row.sub_topic);
+      if (row.topic) addTag(row.topic);
+      if (row.tags) {
+        String(row.tags).split(/[|,]/).forEach(addTag);
+      }
+
+      const appearanceYears = normalizeAppearances(row.appearances || row.years || row.year || row.exam_year) || [];
 
       const createdRow = await client.query(
         `INSERT INTO questions (chapter_id, subject_id, question_text, question_type, options, correct_option, explanation, difficulty, tags, appearances, created_by, content_hash)
@@ -445,7 +541,7 @@ router.post('/bulk/import', authenticate, authorize('admin'), upload.single('fil
           row.correct_option ? String(row.correct_option).trim().toUpperCase() : null,
           row.explanation || null,
           difficulty,
-          row.tags ? String(row.tags).split('|').map((t) => t.trim()).filter(Boolean) : [],
+          tagList,
           appearanceYears,
           req.user.id,
           hash,
@@ -635,10 +731,15 @@ router.patch('/reports/:id', authenticate, authorize('admin'), async (req, res) 
   res.json({ report: result.rows[0] });
 });
 
-// Keep parameterized routes after fixed paths. Otherwise `/bulk/import` is
-// interpreted as a request to restore a question whose id is "bulk".
 router.get('/:id', async (req, res) => {
-  const result = await pool.query('SELECT * FROM questions WHERE id = $1 AND deleted_at IS NULL', [req.params.id]);
+  const result = await pool.query(
+    `SELECT q.*, s.title AS subject_title, c.title AS chapter_title
+     FROM questions q
+     LEFT JOIN subjects s ON s.id = q.subject_id
+     LEFT JOIN chapters c ON c.id = q.chapter_id
+     WHERE q.id = $1 AND q.deleted_at IS NULL`,
+    [req.params.id]
+  );
   if (!result.rows.length) return res.status(404).json({ error: 'Question not found' });
   res.json({ question: result.rows[0] });
 });

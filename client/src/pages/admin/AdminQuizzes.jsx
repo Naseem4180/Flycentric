@@ -374,98 +374,124 @@ export default function AdminQuizzes() {
       {formOpen && (
         <Modal
           title={editing ? `Edit Quiz: ${editing.title}` : 'Create New Quiz'}
+          subtitle="Set up evaluation parameters, passing scores, question pool, and publication status."
+          icon={CheckSquare}
+          tone="cyan"
+          badge={form.type.toUpperCase()}
           onClose={() => setFormOpen(false)}
+          footer={(
+            <>
+              <Button variant="ghost" onClick={() => setFormOpen(false)} disabled={saving}>
+                Cancel
+              </Button>
+              <Button variant="primary" onClick={submitQuiz} loading={saving}>
+                {editing ? 'Update Quiz' : 'Create Quiz'}
+              </Button>
+            </>
+          )}
         >
           <form onSubmit={submitQuiz} className="form-stack">
-            <div className="form-group">
-              <label>Quiz Title *</label>
-              <input
-                type="text"
-                placeholder="e.g. Navigation Dead Reckoning Assessment"
-                value={form.title}
-                onChange={(e) => setForm({ ...form, title: e.target.value })}
-                required
-              />
-            </div>
-
-            <div className="grid grid-2" style={{ gap: 12 }}>
-              <div className="form-group">
-                <label>Subject</label>
-                <select
-                  value={form.subject_id}
-                  onChange={(e) => setForm({ ...form, subject_id: e.target.value })}
-                >
-                  <option value="">Select Subject</option>
-                  {subjects.map((s) => (
-                    <option key={s.id} value={s.id}>{s.title}</option>
-                  ))}
-                </select>
+            <div className="form-group-box">
+              <div className="form-group-box-title">Quiz Details &amp; Scope</div>
+              <div className="field">
+                <label>Quiz Title <span className="field-req">*</span></label>
+                <input
+                  type="text"
+                  placeholder="e.g. Navigation Dead Reckoning Assessment"
+                  value={form.title}
+                  onChange={(e) => setForm({ ...form, title: e.target.value })}
+                  required
+                />
               </div>
 
-              <div className="form-group">
-                <label>Quiz Mode</label>
-                <select
-                  value={form.type}
-                  onChange={(e) => setForm({ ...form, type: e.target.value })}
-                >
-                  <option value="practice">Practice (Untimed with instant explanations)</option>
-                  <option value="exam">Exam (Timed, formal evaluation)</option>
-                </select>
+              <div className="form-row-2" style={{ marginTop: 12 }}>
+                <div className="field">
+                  <label>Subject</label>
+                  <select
+                    value={form.subject_id}
+                    onChange={(e) => setForm({ ...form, subject_id: e.target.value })}
+                  >
+                    <option value="">Select Subject</option>
+                    {subjects.map((s) => (
+                      <option key={s.id} value={s.id}>{s.title}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="field">
+                  <label>Quiz Mode</label>
+                  <select
+                    value={form.type}
+                    onChange={(e) => setForm({ ...form, type: e.target.value })}
+                  >
+                    <option value="practice">Practice (Untimed with instant explanations)</option>
+                    <option value="exam">Exam (Timed, formal evaluation)</option>
+                  </select>
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-3" style={{ gap: 12 }}>
-              {form.type === 'exam' && (
-                <div className="form-group">
-                  <label>Duration (Minutes) *</label>
+            <div className="form-group-box">
+              <div className="form-group-box-title">Evaluation &amp; Passing Thresholds</div>
+              <div className="form-row-3">
+                {form.type === 'exam' && (
+                  <div className="field">
+                    <label>Duration (Min) <span className="field-req">*</span></label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={form.duration_minutes}
+                      onChange={(e) => setForm({ ...form, duration_minutes: e.target.value })}
+                    />
+                  </div>
+                )}
+
+                <div className="field">
+                  <label>Passing Score (%)</label>
                   <input
                     type="number"
                     min="1"
-                    value={form.duration_minutes}
-                    onChange={(e) => setForm({ ...form, duration_minutes: e.target.value })}
+                    max="100"
+                    value={form.pass_percent}
+                    onChange={(e) => setForm({ ...form, pass_percent: e.target.value })}
                   />
                 </div>
-              )}
 
-              <div className="form-group">
-                <label>Passing Score (%)</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="100"
-                  value={form.pass_percent}
-                  onChange={(e) => setForm({ ...form, pass_percent: e.target.value })}
-                />
+                <div className="field">
+                  <label>Attempt Limit</label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="0 = Unlimited"
+                    value={form.attempt_limit}
+                    onChange={(e) => setForm({ ...form, attempt_limit: e.target.value })}
+                  />
+                </div>
               </div>
 
-              <div className="form-group">
-                <label>Attempt Limit (0 = Unlimited)</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={form.attempt_limit}
-                  onChange={(e) => setForm({ ...form, attempt_limit: e.target.value })}
-                />
+              <div className="field" style={{ marginTop: 12 }}>
+                <label>Status</label>
+                <select
+                  value={form.status}
+                  onChange={(e) => setForm({ ...form, status: e.target.value })}
+                >
+                  <option value="draft">Draft (Hidden from students)</option>
+                  <option value="published">Published (Live to students)</option>
+                </select>
               </div>
-            </div>
-
-            <div className="form-group">
-              <label>Status</label>
-              <select
-                value={form.status}
-                onChange={(e) => setForm({ ...form, status: e.target.value })}
-              >
-                <option value="draft">Draft (Hidden from students)</option>
-                <option value="published">Published (Live to students)</option>
-              </select>
             </div>
 
             {form.subject_id && availableQuestions.length > 0 && (
-              <div className="form-group">
-                <label>Select Questions ({selectedQuestions.length} selected of {availableQuestions.length} available)</label>
+              <div className="form-group-box">
+                <div className="flex-between" style={{ marginBottom: 8 }}>
+                  <div className="form-group-box-title" style={{ margin: 0 }}>Select Questions Pool</div>
+                  <span className="badge badge-cyan" style={{ fontSize: '0.72rem' }}>
+                    {selectedQuestions.length} of {availableQuestions.length} selected
+                  </span>
+                </div>
                 <div
                   style={{
-                    maxHeight: 180,
+                    maxHeight: 200,
                     overflowY: 'auto',
                     border: '1px solid var(--border)',
                     borderRadius: 8,
@@ -478,7 +504,7 @@ export default function AdminQuizzes() {
                   {availableQuestions.map((q) => {
                     const checked = selectedQuestions.includes(q.id);
                     return (
-                      <label key={q.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82rem' }}>
+                      <label key={q.id} className={`check-row ${checked ? 'is-checked' : ''}`} style={{ background: checked ? 'var(--primary-soft)' : 'transparent', borderRadius: 6 }}>
                         <input
                           type="checkbox"
                           checked={checked}
@@ -489,23 +515,14 @@ export default function AdminQuizzes() {
                             setSelectedQuestions(updated);
                           }}
                         />
-                        <span style={{ flex: 1 }}>{q.question_text?.slice(0, 80)}...</span>
-                        <Badge tone="slate">{q.difficulty || 'medium'}</Badge>
+                        <span style={{ flex: 1, fontSize: '0.82rem' }}>{q.question_text?.slice(0, 80)}...</span>
+                        <DifficultyBadge difficulty={q.difficulty || 'medium'} />
                       </label>
                     );
                   })}
                 </div>
               </div>
             )}
-
-            <div className="form-actions row row-end" style={{ gap: 8, marginTop: 16 }}>
-              <Button variant="ghost" onClick={() => setFormOpen(false)} disabled={saving}>
-                Cancel
-              </Button>
-              <Button variant="primary" type="submit" loading={saving}>
-                {editing ? 'Update Quiz' : 'Create Quiz'}
-              </Button>
-            </div>
           </form>
         </Modal>
       )}

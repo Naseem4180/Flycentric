@@ -148,42 +148,69 @@ export default function AdminMarkFAQ() {
 
       {tab === 'mark' ? (
         <>
-          <Card>
-            <form onSubmit={runSearch}>
-              <div className="filter-grid">
-                <select value={subjectId} onChange={(e) => { setSubjectId(e.target.value); setChapterId(''); }} aria-label="Subject">
-                  <option value="">All Subjects</option>
-                  {subjects.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
-                </select>
-                <select value={chapterId} onChange={(e) => setChapterId(e.target.value)} aria-label="Chapter">
-                  <option value="">All Chapters</option>
-                  {chapters.filter((c) => !subjectId || String(c.subject_id) === subjectId).map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
-                </select>
-                <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)} aria-label="Difficulty">
-                  <option value="">All Difficulties</option>
-                  <option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option>
-                </select>
-                <label className="input-with-icon">
-                  <Search size={15} />
-                  <input
-                    placeholder="Comma separated keywords (e.g. transponder, VFR)"
-                    value={keywords}
-                    onChange={(e) => setKeywords(e.target.value)}
-                    aria-label="Keywords"
-                  />
-                </label>
+          <form onSubmit={runSearch} style={{ marginBottom: 16 }}>
+            <div className="filter-pills-bar">
+              <div className="filter-search-pill" style={{ minWidth: 240, maxWidth: 360 }}>
+                <Search size={14} />
+                <input
+                  placeholder="Keywords (e.g. transponder, VFR)…"
+                  value={keywords}
+                  onChange={(e) => setKeywords(e.target.value)}
+                  aria-label="Keywords"
+                />
+                {keywords && (
+                  <button type="button" className="filter-search-clear" onClick={() => setKeywords('')} title="Clear keywords">
+                    <X size={12} />
+                  </button>
+                )}
               </div>
-              <div className="row" style={{ marginTop: 14 }}>
-                <label className="row" style={{ gap: 7, fontSize: '.82rem', fontWeight: 600 }}>
-                  <input type="checkbox" checked={faqOnly} onChange={(e) => setFaqOnly(e.target.checked)} />
-                  Show only questions already marked as FAQ
-                </label>
-                <span className="spacer" />
-                <Button variant="outline" icon={RotateCcw} onClick={reset}>Reset</Button>
-                <Button variant="primary" type="submit" icon={Search} loading={searching} loadingLabel="Searching…">Search Questions</Button>
-              </div>
-            </form>
-          </Card>
+
+              <select
+                className={`filter-pill-select ${subjectId ? 'is-active' : ''}`}
+                value={subjectId}
+                onChange={(e) => { setSubjectId(e.target.value); setChapterId(''); }}
+                aria-label="Subject"
+              >
+                <option value="">All Subjects</option>
+                {subjects.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
+              </select>
+
+              <select
+                className={`filter-pill-select ${chapterId ? 'is-active' : ''}`}
+                value={chapterId}
+                onChange={(e) => setChapterId(e.target.value)}
+                aria-label="Chapter"
+              >
+                <option value="">All Chapters</option>
+                {chapters.filter((c) => !subjectId || String(c.subject_id) === subjectId).map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+              </select>
+
+              <select
+                className={`filter-pill-select ${difficulty ? 'is-active' : ''}`}
+                value={difficulty}
+                onChange={(e) => setDifficulty(e.target.value)}
+                aria-label="Difficulty"
+              >
+                <option value="">All Difficulties</option>
+                <option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option>
+              </select>
+
+              <label className="row" style={{ gap: 6, fontSize: '.82rem', fontWeight: 500, color: '#334155', cursor: 'pointer' }}>
+                <input type="checkbox" checked={faqOnly} onChange={(e) => setFaqOnly(e.target.checked)} />
+                FAQ Only
+              </label>
+
+              {(subjectId || chapterId || difficulty || keywords || faqOnly) && (
+                <button type="button" className="filter-clear-link" onClick={reset}>
+                  Clear Filters
+                </button>
+              )}
+
+              <Button variant="primary" size="sm" type="submit" icon={Search} loading={searching} loadingLabel="Searching…" style={{ marginLeft: 'auto' }}>
+                Search Questions
+              </Button>
+            </div>
+          </form>
 
           <Card flush className="table-card">
             {results === null ? (

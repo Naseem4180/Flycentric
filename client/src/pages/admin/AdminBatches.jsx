@@ -225,47 +225,110 @@ export default function AdminBatches() {
       <Modal
         open={formOpen}
         onClose={() => !saving && setFormOpen(false)}
-        variant="drawer"
-        title={editing ? `Edit ${editing.name}` : 'New Batch'}
-        description="Group students under an instructor with a schedule."
+        size="lg"
+        icon={UsersIcon}
+        tone="indigo"
+        title={editing ? `Edit Training Batch: ${editing.name}` : 'Create Training Batch'}
+        subtitle="Batches organize students into cohorts with an assigned instructor and recurring class schedule."
         footer={(
           <>
             <Button variant="outline" onClick={() => setFormOpen(false)} disabled={saving}>Cancel</Button>
-            <Button variant="primary" onClick={submit} loading={saving} loadingLabel="Saving…">{editing ? 'Save Changes' : 'Create Batch'}</Button>
+            <Button variant="primary" onClick={submit} loading={saving} loadingLabel="Saving…">
+              {editing ? 'Save Changes' : 'Create Training Batch'}
+            </Button>
           </>
         )}
       >
         <form onSubmit={submit}>
-          <div className="field">
-            <label htmlFor="b-name">Batch name <span className="field-req">*</span></label>
-            <input id="b-name" value={form.name} className={formErrors.name ? 'has-error' : ''} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. CPL Batch — Aug 2026" />
-            {formErrors.name && <p className="field-error">{formErrors.name}</p>}
-          </div>
-          <div className="form-grid">
+          {/* Section 1: Blue Card - Batch Identity & Schedule */}
+          <div className="form-card-box form-card-blue">
+            <div className="form-card-header-row">
+              <span className="form-card-header">
+                <CalendarClock size={14} /> Batch Identity &amp; Schedule
+              </span>
+              <span className="form-card-badge">
+                {editing ? 'Active Cohort' : 'New Cohort'}
+              </span>
+            </div>
+
             <div className="field">
-              <label htmlFor="b-inst">Instructor</label>
-              <select id="b-inst" value={form.instructor_id} onChange={(e) => setForm({ ...form, instructor_id: e.target.value })}>
-                <option value="">— Unassigned —</option>
-                {instructors.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
+              <label htmlFor="b-name">Batch Name <span className="field-req">*</span></label>
+              <input
+                id="b-name"
+                value={form.name}
+                className={formErrors.name ? 'has-error' : ''}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="e.g. DGCA CPL Ground Batch — Autumn 2026"
+                required
+              />
+              <small className="field-hint">Primary name displayed in student portal and attendance rosters.</small>
+              {formErrors.name && <p className="field-error">{formErrors.name}</p>}
+            </div>
+
+            <div className="field">
+              <label htmlFor="b-sched">Class Schedule / Timing</label>
+              <input
+                id="b-sched"
+                value={form.schedule}
+                onChange={(e) => setForm({ ...form, schedule: e.target.value })}
+                placeholder="e.g. Mon / Wed / Fri 18:00 – 20:00 IST"
+              />
+              <small className="field-hint">Weekly schedule communicated to enrolled students.</small>
+            </div>
+          </div>
+
+          {/* Section 2: Green Card - Assigned Instructor */}
+          <div className="form-card-box form-card-green">
+            <div className="form-card-header-row">
+              <span className="form-card-header">
+                <GraduationCap size={14} /> Faculty &amp; Instructor Assignment
+              </span>
+              <span className="form-card-badge">
+                {form.instructor_id ? 'Instructor Linked' : 'Unassigned'}
+              </span>
+            </div>
+
+            <div className="field">
+              <label htmlFor="b-inst">Lead Ground Instructor</label>
+              <select
+                id="b-inst"
+                value={form.instructor_id}
+                onChange={(e) => setForm({ ...form, instructor_id: e.target.value })}
+              >
+                <option value="">— Unassigned (Assign instructor later) —</option>
+                {instructors.map((i) => <option key={i.id} value={i.id}>{i.name} ({i.email})</option>)}
               </select>
-            </div>
-            <div className="field">
-              <label htmlFor="b-sched">Schedule</label>
-              <input id="b-sched" value={form.schedule} onChange={(e) => setForm({ ...form, schedule: e.target.value })} placeholder="e.g. Mon/Wed/Fri 6–8pm" />
+              <small className="field-hint">Assigned instructor manages doubt sessions and student progress reviews.</small>
             </div>
           </div>
-          <div className="field">
-            <label>Students ({form.studentIds.length} selected)</label>
-            <div className="check-list">
+
+          {/* Section 3: Purple Card - Enrolled Students */}
+          <div className="form-card-box form-card-purple">
+            <div className="form-card-header-row">
+              <span className="form-card-header">
+                <UsersIcon size={14} /> Student Enrollment
+              </span>
+              <span className="form-card-badge">
+                {form.studentIds.length} students enrolled
+              </span>
+            </div>
+
+            <div className="check-list" style={{ maxHeight: '180px', overflowY: 'auto', background: 'var(--surface)' }}>
               {students.length ? students.map((s) => (
                 <label key={s.id} className="check-row">
                   <input type="checkbox" checked={form.studentIds.includes(s.id)} onChange={() => toggleStudent(s.id)} />
-                  <span style={{ flex: 1 }}>{s.name}</span>
-                  <span className="td-muted">{s.email}</span>
+                  <span style={{ flex: 1, fontWeight: 600 }}>{s.name}</span>
+                  <span className="td-muted" style={{ fontSize: '0.78rem' }}>{s.email}</span>
                 </label>
-              )) : <p className="muted" style={{ padding: 12, margin: 0 }}>No students yet. Add them from the Users page first.</p>}
+              )) : (
+                <p className="muted" style={{ padding: 12, margin: 0 }}>
+                  No students yet. Add them from the Users page first.
+                </p>
+              )}
             </div>
-            {editing && <p className="field-hint">Ticking a student adds them to the batch. Removing a student is done from the batch detail view.</p>}
+            <small className="field-hint" style={{ marginTop: 6, display: 'block' }}>
+              Selected students will be assigned to this batch and receive cohort notifications.
+            </small>
           </div>
         </form>
       </Modal>

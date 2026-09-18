@@ -210,10 +210,11 @@ export default function AdminMemoryBank() {
       <Modal
         open={!!openStudent}
         onClose={() => setOpenStudent(null)}
-        variant="drawer"
         size="lg"
-        title={openStudent ? `${openStudent.name}'s Memory Box` : ''}
-        description={openStudent ? `${openStudent.email} • private to this student` : ''}
+        icon={Brain}
+        tone="purple"
+        title={openStudent ? `${openStudent.name}'s Memory Box` : 'Student Memory Box'}
+        description={openStudent ? `${openStudent.email} • Private student bookmarked questions and flashcards` : ''}
         footer={<Button variant="outline" onClick={() => setOpenStudent(null)}>Close</Button>}
       >
         {studentBox === null ? <SkeletonTable rows={4} cols={2} /> : boxError ? (

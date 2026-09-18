@@ -1,12 +1,67 @@
 const { parse } = require('csv-parse/sync');
 const XLSX = require('xlsx');
 
+// Aliases for common header variants across Excel/CSV exports
+const HEADER_ALIASES = {
+  subject: 'subject_title',
+  subject_name: 'subject_title',
+  subjects: 'subject_title',
+  chapter: 'chapter_title',
+  chapter_name: 'chapter_title',
+  chapters: 'chapter_title',
+  subchapter: 'subchapter',
+  sub_chapter: 'subchapter',
+  subchapter_name: 'subchapter',
+  subchapter_title: 'subchapter',
+  sub_chapter_title: 'subchapter',
+  topic: 'topic',
+  topic_name: 'topic',
+  topic_title: 'topic',
+  subtopic: 'subtopic',
+  sub_topic: 'subtopic',
+  subtopic_title: 'subtopic',
+  sub_topic_title: 'subtopic',
+  question: 'question_text',
+  question_title: 'question_text',
+  question_stem: 'question_text',
+  stem: 'question_text',
+  questiontext: 'question_text',
+  type: 'question_type',
+  questiontype: 'question_type',
+  solution: 'explanation',
+  rationale: 'explanation',
+  level: 'difficulty',
+  correct_answer: 'correct_option',
+  answer: 'correct_option',
+  correct: 'correct_option',
+  correctoption: 'correct_option',
+  opt_a: 'option_a',
+  'opt-a': 'option_a',
+  optiona: 'option_a',
+  opt_b: 'option_b',
+  'opt-b': 'option_b',
+  optionb: 'option_b',
+  opt_c: 'option_c',
+  'opt-c': 'option_c',
+  optionc: 'option_c',
+  opt_d: 'option_d',
+  'opt-d': 'option_d',
+  optiond: 'option_d',
+  appearance: 'appearances',
+  years: 'appearances',
+  year: 'appearances',
+  exam_year: 'appearances',
+  tag: 'tags',
+  subtopics: 'tags',
+};
+
 // Columns that, when all blank, mean the row carries no data at all (a
 // trailing newline, a spacer row, a row of stray commas from Excel export).
 const MEANINGFUL_COLUMNS = [
-  'question_text', 'question_type', 'option_a', 'option_b', 'option_c', 'option_d',
-  'correct_option', 'explanation', 'difficulty', 'subject_title', 'chapter_title',
-  'subject_id', 'chapter_id', 'tags', 'appearances',
+  'question_text', 'question', 'question_type', 'type', 'option_a', 'option_b', 'option_c', 'option_d',
+  'correct_option', 'correct_answer', 'answer', 'explanation', 'solution', 'difficulty', 'level',
+  'subject_title', 'subject', 'subject_name', 'chapter_title', 'chapter', 'chapter_name',
+  'subject_id', 'chapter_id', 'subchapter', 'sub_chapter', 'topic', 'subtopic', 'tags', 'appearances', 'year', 'years',
 ];
 
 function isBlank(value) {
@@ -21,17 +76,21 @@ function normalizeKey(key) {
     .replace(/^\uFEFF/, '')
     .trim()
     .toLowerCase()
-    .replace(/\s+/g, '_');
+    .replace(/[\s-]+/g, '_');
 }
 
 function normalizeRecord(raw) {
   const out = {};
   for (const [key, value] of Object.entries(raw || {})) {
-    const k = normalizeKey(key);
-    if (!k) continue;
-    // Excel gives numbers/dates as native types; everything downstream expects
-    // strings, so coerce once here rather than in twelve call sites.
-    out[k] = value == null ? '' : String(value).trim();
+    const rawK = normalizeKey(key);
+    if (!rawK) continue;
+    const strVal = value == null ? '' : String(value).trim();
+    // Coerce once here
+    out[rawK] = strVal;
+    const aliased = HEADER_ALIASES[rawK];
+    if (aliased && aliased !== rawK) {
+      out[aliased] = strVal;
+    }
   }
   return out;
 }

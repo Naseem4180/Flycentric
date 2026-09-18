@@ -109,7 +109,13 @@ export function RoleBadge({ role }) {
 
 export function DifficultyBadge({ difficulty }) {
   const key = String(difficulty || '').toLowerCase();
-  return <Badge tone={DIFFICULTY_TONES[key] || 'slate'}>{difficulty || '—'}</Badge>;
+  const label = difficulty ? (difficulty[0].toUpperCase() + difficulty.slice(1).toLowerCase()) : '—';
+  return (
+    <span className={`question-difficulty ${key}`}>
+      <span className="badge-dot-indicator" />
+      {label}
+    </span>
+  );
 }
 
 /* -------------------------------------------------------------------------- */

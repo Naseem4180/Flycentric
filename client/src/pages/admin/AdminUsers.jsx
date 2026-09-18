@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import {
   Users as UsersIcon, GraduationCap, UserCog, ShieldCheck, UserX,
   Download, Upload, Plus, Search, Pencil, Ban, RotateCcw, FileDown, Building2,
+  User, KeyRound, Shield, UserPlus,
 } from 'lucide-react';
 import { api, BASE_URL } from '../../api';
 import {
@@ -293,57 +294,129 @@ export default function AdminUsers() {
       <Modal
         open={formOpen}
         onClose={() => !saving && setFormOpen(false)}
-        variant="drawer"
-        title={editing ? `Edit ${editing.name}` : 'Add User'}
-        description={editing ? 'Update this account’s details and access.' : 'Create a new FlyCentric account.'}
+        size="md"
+        icon={UserPlus}
+        tone="indigo"
+        title={editing ? `Edit User: ${editing.name}` : 'Create User Account'}
+        subtitle="Configure personal credentials, platform role access, and account status."
         footer={(
           <>
             <Button variant="outline" onClick={() => setFormOpen(false)} disabled={saving}>Cancel</Button>
-            <Button variant="primary" onClick={submit} loading={saving} loadingLabel="Saving…">{editing ? 'Save Changes' : 'Create User'}</Button>
+            <Button variant="primary" onClick={submit} loading={saving} loadingLabel="Saving…">
+              {editing ? 'Save Changes' : 'Create User Account'}
+            </Button>
           </>
         )}
       >
         <form onSubmit={submit}>
-          <div className="field">
-            <label htmlFor="u-name">Name <span className="field-req">*</span></label>
-            <input id="u-name" value={form.name} className={formErrors.name ? 'has-error' : ''} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            {formErrors.name && <p className="field-error">{formErrors.name}</p>}
-          </div>
-          <div className="field">
-            <label htmlFor="u-email">Email <span className="field-req">*</span></label>
-            <input id="u-email" type="email" value={form.email} disabled={!!editing} className={formErrors.email ? 'has-error' : ''} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-            {editing && <p className="field-hint">Email addresses can't be changed after the account is created.</p>}
-            {formErrors.email && <p className="field-error">{formErrors.email}</p>}
-          </div>
-          {!editing && (
+          {/* Section 1: Blue Card - User Identity */}
+          <div className="form-card-box form-card-blue">
+            <div className="form-card-header-row">
+              <span className="form-card-header">
+                <User size={14} /> Personal Information
+              </span>
+              <span className="form-card-badge">
+                {(form.role || 'student').toUpperCase()}
+              </span>
+            </div>
+
             <div className="field">
-              <label htmlFor="u-pass">Password <span className="field-req">*</span></label>
-              <input id="u-pass" type="password" value={form.password} className={formErrors.password ? 'has-error' : ''} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-              <p className="field-hint">At least 8 characters. Share it securely with the user.</p>
-              {formErrors.password && <p className="field-error">{formErrors.password}</p>}
+              <label htmlFor="u-name">Full Name <span className="field-req">*</span></label>
+              <input
+                id="u-name"
+                value={form.name}
+                className={formErrors.name ? 'has-error' : ''}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="e.g. Capt. Vikram Sharma"
+                required
+              />
+              <small className="field-hint">Legal student or instructor name displayed across rosters &amp; test results.</small>
+              {formErrors.name && <p className="field-error">{formErrors.name}</p>}
+            </div>
+
+            <div className="field">
+              <label htmlFor="u-email">Email Address <span className="field-req">*</span></label>
+              <input
+                id="u-email"
+                type="email"
+                value={form.email}
+                disabled={!!editing}
+                className={formErrors.email ? 'has-error' : ''}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                placeholder="pilot@airline.com"
+                required
+              />
+              <small className="field-hint">
+                {editing ? "Email addresses cannot be changed after account creation." : "Login email used for platform access and test reports."}
+              </small>
+              {formErrors.email && <p className="field-error">{formErrors.email}</p>}
+            </div>
+          </div>
+
+          {/* Section 2: Amber Card - Security Credentials (if new user) */}
+          {!editing && (
+            <div className="form-card-box form-card-amber">
+              <div className="form-card-header-row">
+                <span className="form-card-header">
+                  <KeyRound size={14} /> Security &amp; Credentials
+                </span>
+                <span className="form-card-badge">Password</span>
+              </div>
+
+              <div className="field">
+                <label htmlFor="u-pass">Initial Account Password <span className="field-req">*</span></label>
+                <input
+                  id="u-pass"
+                  type="password"
+                  value={form.password}
+                  className={formErrors.password ? 'has-error' : ''}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  placeholder="Minimum 8 characters..."
+                  required
+                />
+                <small className="field-hint">At least 8 characters. Please securely convey this initial password to the pilot.</small>
+                {formErrors.password && <p className="field-error">{formErrors.password}</p>}
+              </div>
             </div>
           )}
-          <div className="form-grid">
-            <div className="field">
-              <label htmlFor="u-role">Role</label>
-              <select id="u-role" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-                {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-              </select>
+
+          {/* Section 3: Purple Card - Role & Access Permissions */}
+          <div className="form-card-box form-card-purple">
+            <div className="form-card-header-row">
+              <span className="form-card-header">
+                <Shield size={14} /> Role &amp; Account Status
+              </span>
+              <span className="form-card-badge">
+                {(form.status || 'active').toUpperCase()}
+              </span>
             </div>
-            {editing && (
+
+            <div className="form-row-2">
               <div className="field">
-                <label htmlFor="u-status">Status</label>
-                <select id="u-status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-                  <option value="active">Active</option>
-                  <option value="suspended">Suspended</option>
+                <label htmlFor="u-role">Platform Role</label>
+                <select id="u-role" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
+                  {ROLES.map((r) => <option key={r} value={r}>{r.toUpperCase()}</option>)}
                 </select>
+                <small className="field-hint">Defines permissions across syllabus &amp; exams.</small>
               </div>
-            )}
-          </div>
-          <div className="row" style={{ marginTop: 4 }}>
-            <span className="muted" style={{ fontSize: '.79rem' }}>Preview:</span>
-            <RoleBadge role={form.role} />
-            <StatusBadge status={form.status || 'active'} />
+
+              {editing && (
+                <div className="field">
+                  <label htmlFor="u-status">Account Status</label>
+                  <select id="u-status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+                    <option value="active">Active (Access Allowed)</option>
+                    <option value="suspended">Suspended (Access Revoked)</option>
+                  </select>
+                  <small className="field-hint">Suspended accounts cannot sign in.</small>
+                </div>
+              )}
+            </div>
+
+            <div className="row" style={{ marginTop: 8, alignItems: 'center', gap: 8 }}>
+              <span className="muted" style={{ fontSize: '.78rem', fontWeight: 600 }}>Active Badges:</span>
+              <RoleBadge role={form.role} />
+              <StatusBadge status={form.status || 'active'} />
+            </div>
           </div>
         </form>
       </Modal>

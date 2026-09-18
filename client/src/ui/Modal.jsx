@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, isValidElement } from 'react';
 import { createPortal } from 'react-dom';
 import { X, AlertTriangle, Trash2, ShieldAlert } from 'lucide-react';
 import Button from './Button';
@@ -22,13 +22,42 @@ function useDismiss(open, onClose) {
  * what the longer create/edit forms (Add User, New Batch, Add Question,
  * Import CSV) use.
  */
-export function Modal({ open = true, onClose, title, description, icon, size = '', variant = 'modal', footer, children }) {
+export function Modal({
+  open = true,
+  onClose,
+  title,
+  subtitle,
+  description,
+  icon: Icon,
+  tone = 'indigo',
+  badge,
+  size = '',
+  variant = 'modal',
+  footer,
+  children,
+}) {
   const isOpen = open ?? true;
   useDismiss(isOpen, onClose);
   const panelRef = useRef(null);
   if (!isOpen) return null;
 
   const isDrawer = variant === 'drawer';
+  const descText = description || subtitle;
+
+  let renderedIcon = null;
+  if (Icon) {
+    if (isValidElement(Icon)) {
+      renderedIcon = Icon;
+    } else {
+      const IconComp = Icon;
+      renderedIcon = (
+        <div className={`modal-icon-badge tone-${tone}`}>
+          <IconComp size={19} />
+        </div>
+      );
+    }
+  }
+
   return createPortal(
     <div
       className={`modal-backdrop ${isDrawer ? 'drawer-backdrop' : ''}`}
@@ -42,10 +71,13 @@ export function Modal({ open = true, onClose, title, description, icon, size = '
         aria-label={typeof title === 'string' ? title : 'Dialog'}
       >
         <div className="modal-head">
-          {icon}
-          <div style={{ minWidth: 0 }}>
-            <h3>{title}</h3>
-            {description && <p>{description}</p>}
+          {renderedIcon}
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <h3>{title}</h3>
+              {badge && <span className="badge badge-indigo" style={{ fontSize: '0.7rem' }}>{badge}</span>}
+            </div>
+            {descText && <p>{descText}</p>}
           </div>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Close dialog">
             <X size={17} />

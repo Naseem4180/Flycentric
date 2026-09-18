@@ -4,6 +4,35 @@ import { Modal } from './Modal';
 import Button from './Button';
 import useToast from './Toast';
 
+const HEADER_ALIASES = {
+  subject: 'subject_title',
+  subject_name: 'subject_title',
+  chapter: 'chapter_title',
+  chapter_name: 'chapter_title',
+  sub_chapter: 'subchapter',
+  sub_topic: 'subtopic',
+  question: 'question_text',
+  question_title: 'question_text',
+  type: 'question_type',
+  solution: 'explanation',
+  level: 'difficulty',
+  correct_answer: 'correct_option',
+  answer: 'correct_option',
+  correct: 'correct_option',
+  opt_a: 'option_a',
+  opt_b: 'option_b',
+  opt_c: 'option_c',
+  opt_d: 'option_d',
+  appearance: 'appearances',
+  years: 'appearances',
+  year: 'appearances',
+  tag: 'tags',
+};
+
+function normalizeHeader(h) {
+  return String(h || '').replace(/^\uFEFF/, '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+}
+
 /* --- Minimal RFC-4180-ish CSV parser (quotes, escaped quotes, newlines) ---- */
 export function parseCsv(text) {
   const rows = [];
@@ -28,7 +57,16 @@ export function parseCsv(text) {
   const headers = nonEmpty[0].map((h) => h.trim());
   const records = nonEmpty.slice(1).map((r, idx) => {
     const obj = { __row: idx + 2 };
-    headers.forEach((h, i) => { obj[h] = (r[i] ?? '').trim(); });
+    headers.forEach((h, i) => {
+      const val = (r[i] ?? '').trim();
+      obj[h] = val;
+      const norm = normalizeHeader(h);
+      if (norm) {
+        if (obj[norm] === undefined) obj[norm] = val;
+        const alias = HEADER_ALIASES[norm];
+        if (alias && obj[alias] === undefined) obj[alias] = val;
+      }
+    });
     return obj;
   });
   return { headers, records };
@@ -109,7 +147,14 @@ export default function ImportCsvModal({
     try {
       const text = await f.text();
       const { headers, records } = parseCsv(text);
-      const missing = requiredColumns.filter((c) => !headers.includes(c));
+      const normalizedHeaderSet = new Set(
+        headers.flatMap((h) => {
+          const norm = normalizeHeader(h);
+          const alias = HEADER_ALIASES[norm];
+          return [h, norm, alias].filter(Boolean);
+        })
+      );
+      const missing = requiredColumns.filter((c) => !normalizedHeaderSet.has(c) && !headers.includes(c));
       const seen = new Set();
       const errors = [];
       let valid = 0;
@@ -208,9 +253,11 @@ export default function ImportCsvModal({
     <Modal
       open={open}
       onClose={busy ? undefined : onClose}
-      variant="drawer"
+      size="lg"
+      icon={UploadCloud}
+      tone="indigo"
       title={title}
-      description="Upload a CSV, review what will be created, then import."
+      description="Upload a CSV or Excel spreadsheet, review verified records, and bulk import into the bank."
       footer={step === 2 ? (
         <>
           <Button variant="outline" onClick={onClose}>Cancel</Button>

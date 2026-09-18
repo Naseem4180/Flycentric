@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Plus, CheckCircle2, PackageSearch, Pencil, Trash2, Eye, RotateCcw, IndianRupee, Layers,
+  CreditCard, BookOpen, Tag,
 } from 'lucide-react';
 import { api } from '../../api';
 import {
@@ -243,51 +244,126 @@ export default function AdminBundlesPricing() {
       <Modal
         open={formOpen}
         onClose={() => !saving && setFormOpen(false)}
-        variant="drawer"
-        title={editing ? `Edit ${editing.title}` : 'Create Bundle'}
-        description="Bundles are created as drafts — publish them when you're ready."
+        size="lg"
+        icon={Layers}
+        tone="indigo"
+        title={editing ? `Edit Course Bundle: ${editing.title}` : 'Create Course Bundle'}
+        subtitle="Bundles combine curriculum subjects into commercial course packages for student enrollment."
         footer={(
           <>
             <Button variant="outline" onClick={() => setFormOpen(false)} disabled={saving}>Cancel</Button>
-            <Button variant="primary" onClick={submit} loading={saving} loadingLabel="Saving…">{editing ? 'Save Changes' : 'Create Bundle'}</Button>
+            <Button variant="primary" onClick={submit} loading={saving} loadingLabel="Saving…">
+              {editing ? 'Save Changes' : 'Create Course Bundle'}
+            </Button>
           </>
         )}
       >
         <form onSubmit={submit}>
-          <div className="field">
-            <label htmlFor="bu-title">Bundle title <span className="field-req">*</span></label>
-            <input id="bu-title" value={form.title} className={formErrors.title ? 'has-error' : ''} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. DGCA CPL Ground Classes" />
-            {formErrors.title && <p className="field-error">{formErrors.title}</p>}
-          </div>
-          <div className="field">
-            <label htmlFor="bu-desc">Description</label>
-            <textarea id="bu-desc" rows={3} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="What students get with this bundle…" />
-          </div>
-          <div className="form-grid">
-            <div className="field">
-              <label htmlFor="bu-type">Category</label>
-              <input id="bu-type" value={form.exam_type} onChange={(e) => setForm({ ...form, exam_type: e.target.value })} placeholder="e.g. CPL" />
+          {/* Section 1: Blue Card - Bundle Identity & Scope */}
+          <div className="form-card-box form-card-blue">
+            <div className="form-card-header-row">
+              <span className="form-card-header">
+                <Layers size={14} /> Course Bundle Identity
+              </span>
+              <span className="form-card-badge">
+                {form.is_free ? 'Free Course' : 'Commercial'}
+              </span>
             </div>
+
             <div className="field">
-              <label>Access type</label>
-              <div className="segmented-control">
-                <button type="button" className={form.is_free ? 'active' : ''} onClick={() => setForm({ ...form, is_free: true, price_inr: '' })}>Free</button>
-                <button type="button" className={!form.is_free ? 'active' : ''} onClick={() => setForm({ ...form, is_free: false })}>Paid</button>
+              <label htmlFor="bu-title">Bundle Title <span className="field-req">*</span></label>
+              <input
+                id="bu-title"
+                value={form.title}
+                className={formErrors.title ? 'has-error' : ''}
+                onChange={(e) => setForm({ ...form, title: e.target.value })}
+                placeholder="e.g. DGCA CPL Ground Classes Comprehensive"
+                required
+              />
+              <small className="field-hint">Primary title displayed on public course and pricing screens.</small>
+              {formErrors.title && <p className="field-error">{formErrors.title}</p>}
+            </div>
+
+            <div className="form-row-2">
+              <div className="field">
+                <label htmlFor="bu-type">Exam Category</label>
+                <input
+                  id="bu-type"
+                  value={form.exam_type}
+                  onChange={(e) => setForm({ ...form, exam_type: e.target.value })}
+                  placeholder="e.g. CPL, ATPL, RTR(A)"
+                />
+                <small className="field-hint">Target regulatory certification.</small>
+              </div>
+
+              <div className="field">
+                <label htmlFor="bu-desc">Syllabus Scope &amp; Summary</label>
+                <input
+                  id="bu-desc"
+                  value={form.description}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  placeholder="What students get with this bundle…"
+                />
+                <small className="field-hint">Brief subtitle or syllabus overview.</small>
               </div>
             </div>
-            <div className="field">
-              <label htmlFor="bu-price">Price (₹) {!form.is_free && <span className="field-req">*</span>}</label>
-              <input id="bu-price" type="number" min="1" disabled={form.is_free} value={form.price_inr} className={formErrors.price_inr ? 'has-error' : ''} onChange={(e) => setForm({ ...form, price_inr: e.target.value })} placeholder={form.is_free ? 'Free bundle' : 'e.g. 4999'} />
-              {formErrors.price_inr && <p className="field-error">{formErrors.price_inr}</p>}
+          </div>
+
+          {/* Section 2: Green Card - Pricing & Access */}
+          <div className="form-card-box form-card-green">
+            <div className="form-card-header-row">
+              <span className="form-card-header">
+                <CreditCard size={14} /> Pricing &amp; Enrollment Access
+              </span>
+              <span className="form-card-badge">
+                {form.is_free ? 'Open Access' : (form.price_inr ? `₹${Number(form.price_inr).toLocaleString('en-IN')}` : 'Paid')}
+              </span>
+            </div>
+
+            <div className="form-row-2">
+              <div className="field">
+                <label>Access Type</label>
+                <div className="segmented-control" style={{ width: '100%' }}>
+                  <button type="button" className={form.is_free ? 'active' : ''} onClick={() => setForm({ ...form, is_free: true, price_inr: '' })}>Free</button>
+                  <button type="button" className={!form.is_free ? 'active' : ''} onClick={() => setForm({ ...form, is_free: false })}>Paid</button>
+                </div>
+                <small className="field-hint">Free bundles are unlocked for all registered pilots immediately.</small>
+              </div>
+
+              <div className="field">
+                <label htmlFor="bu-price">Price (₹) {!form.is_free && <span className="field-req">*</span>}</label>
+                <input
+                  id="bu-price"
+                  type="number"
+                  min="1"
+                  disabled={form.is_free}
+                  value={form.price_inr}
+                  className={formErrors.price_inr ? 'has-error' : ''}
+                  onChange={(e) => setForm({ ...form, price_inr: e.target.value })}
+                  placeholder={form.is_free ? 'Free bundle (₹0)' : 'e.g. 4999'}
+                />
+                <small className="field-hint">Price charged to student via payment gateway.</small>
+                {formErrors.price_inr && <p className="field-error">{formErrors.price_inr}</p>}
+              </div>
             </div>
           </div>
-          <div className="field">
-            <label>Included subjects ({form.subject_ids.length} selected)</label>
-            <div className="check-list">
+
+          {/* Section 3: Purple Card - Included Subjects Curriculum */}
+          <div className="form-card-box form-card-purple">
+            <div className="form-card-header-row">
+              <span className="form-card-header">
+                <BookOpen size={14} /> Included Subjects Curriculum
+              </span>
+              <span className="form-card-badge">
+                {form.subject_ids.length} subjects selected
+              </span>
+            </div>
+
+            <div className="check-list" style={{ maxHeight: '180px', overflowY: 'auto', background: 'var(--surface)' }}>
               {subjects.length ? subjects.map((s) => (
                 <label key={s.id} className="check-row">
                   <input type="checkbox" checked={form.subject_ids.includes(s.id)} onChange={() => toggleSubject(s.id)} />
-                  <span style={{ flex: 1 }}>{s.title}</span>
+                  <span style={{ flex: 1, fontWeight: 600 }}>{s.title}</span>
                   <StatusBadge status={s.status || 'draft'} />
                 </label>
               )) : (
@@ -296,6 +372,9 @@ export default function AdminBundlesPricing() {
                 </p>
               )}
             </div>
+            <small className="field-hint" style={{ marginTop: 6, display: 'block' }}>
+              Enrolled students will gain full syllabus and question bank access to all checked subjects.
+            </small>
           </div>
         </form>
       </Modal>

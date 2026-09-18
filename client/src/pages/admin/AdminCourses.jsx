@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   GraduationCap, Plus, Search, Filter, BookOpen, Layers, CheckCircle2,
-  AlertCircle, Eye, Pencil, Trash2, Globe, Lock, Clock, DollarSign
+  AlertCircle, Eye, Pencil, Trash2, Globe, Lock, Clock, DollarSign, CreditCard
 } from 'lucide-react';
 import { api } from '../../api';
 import {
@@ -360,114 +360,165 @@ export default function AdminCourses() {
       {formOpen && (
         <Modal
           title={editing ? `Edit Course: ${editing.title}` : 'Create Aviation Course'}
+          subtitle="Configure syllabus scope, target DGCA exam, pricing model, and subject curriculum."
+          icon={Layers}
+          tone="indigo"
+          badge={form.status === 'live' ? 'Active Bundle' : 'Draft'}
           onClose={() => setFormOpen(false)}
+          footer={(
+            <>
+              <Button variant="ghost" onClick={() => setFormOpen(false)} disabled={saving}>
+                Cancel
+              </Button>
+              <Button variant="primary" onClick={submitCourse} loading={saving}>
+                {editing ? 'Update Course' : 'Create Course'}
+              </Button>
+            </>
+          )}
         >
           <form onSubmit={submitCourse} className="form-stack">
-            <div className="form-group">
-              <label>Course Title *</label>
-              <input
-                type="text"
-                placeholder="e.g. DGCA CPL Ground School Comprehensive"
-                value={form.title}
-                onChange={handleTitleChange}
-                className={formErrors.title ? 'is-invalid' : ''}
-              />
-              {formErrors.title && <span className="field-error">{formErrors.title}</span>}
-            </div>
-
-            <div className="grid grid-2" style={{ gap: 12 }}>
-              <div className="form-group">
-                <label>Slug (URL) *</label>
-                <input
-                  type="text"
-                  placeholder="dgca-cpl-ground-school"
-                  value={form.slug}
-                  onChange={(e) => setForm({ ...form, slug: e.target.value })}
-                  className={formErrors.slug ? 'is-invalid' : ''}
-                />
+            {/* Section 1: Course Identity */}
+            <div className="form-card-box form-card-blue">
+              <div className="form-card-header-row">
+                <span className="form-card-header">
+                  <Layers size={14} /> Course Information &amp; Scope
+                </span>
+                <span className="form-card-badge">
+                  {form.exam_type || 'CPL'}
+                </span>
               </div>
 
-              <div className="form-group">
-                <label>Exam Target</label>
+              <div className="field">
+                <label>Course Title <span className="field-req">*</span></label>
+                <input
+                  type="text"
+                  placeholder="e.g. DGCA CPL Ground School Comprehensive"
+                  value={form.title}
+                  onChange={handleTitleChange}
+                  className={formErrors.title ? 'is-invalid' : ''}
+                  required
+                />
+                <small className="field-hint">Primary title displayed across student syllabus catalogs.</small>
+                {formErrors.title && <span className="field-error">{formErrors.title}</span>}
+              </div>
+
+              <div className="form-row-2" style={{ marginTop: 8 }}>
+                <div className="field">
+                  <label>Slug (URL Identifier) <span className="field-req">*</span></label>
+                  <input
+                    type="text"
+                    placeholder="dgca-cpl-ground-school"
+                    value={form.slug}
+                    onChange={(e) => setForm({ ...form, slug: e.target.value })}
+                    className={formErrors.slug ? 'is-invalid' : ''}
+                    required
+                  />
+                  {formErrors.slug && <span className="field-error">{formErrors.slug}</span>}
+                </div>
+
+                <div className="field">
+                  <label>Target Regulatory Exam</label>
+                  <select
+                    value={form.exam_type}
+                    onChange={(e) => setForm({ ...form, exam_type: e.target.value })}
+                  >
+                    {EXAM_TYPES.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="field" style={{ marginTop: 8 }}>
+                <label>Description &amp; Syllabus Scope</label>
+                <textarea
+                  rows={3}
+                  placeholder="Detail the subjects covered, flight simulator prep, and exam syllabus..."
+                  value={form.description}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                />
+                <small className="field-hint">Brief overview presented to students before enrollment.</small>
+              </div>
+            </div>
+
+            {/* Section 2: Pricing & Access */}
+            <div className="form-card-box form-card-green">
+              <div className="form-card-header-row">
+                <span className="form-card-header">
+                  <CreditCard size={14} /> Pricing &amp; Enrollment Access
+                </span>
+                <span className="form-card-badge">
+                  {form.is_free ? 'Free Course' : (form.price_inr ? `₹${Number(form.price_inr).toLocaleString('en-IN')}` : 'Paid')}
+                </span>
+              </div>
+
+              <div className="form-row-2">
+                <div className="field">
+                  <label>Pricing Structure</label>
+                  <label className={`check-pill ${form.is_free ? 'is-checked' : ''}`} style={{ marginTop: 4 }}>
+                    <input
+                      type="checkbox"
+                      checked={form.is_free}
+                      onChange={(e) => setForm({ ...form, is_free: e.target.checked })}
+                    />
+                    <span>Free Course (Complimentary access)</span>
+                  </label>
+                  <small className="field-hint">When ticked, any pilot can enroll without payment.</small>
+                </div>
+
+                {!form.is_free ? (
+                  <div className="field">
+                    <label>Price (INR) <span className="field-req">*</span></label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      placeholder="e.g. 14999"
+                      value={form.price_inr}
+                      onChange={(e) => setForm({ ...form, price_inr: e.target.value })}
+                      className={formErrors.price_inr ? 'is-invalid' : ''}
+                      required
+                    />
+                    {formErrors.price_inr && <span className="field-error">{formErrors.price_inr}</span>}
+                  </div>
+                ) : (
+                  <div className="field">
+                    <label>Access Mode</label>
+                    <div style={{ padding: '8px 12px', background: '#dcfce7', color: '#15803d', borderRadius: 8, fontSize: '0.82rem', fontWeight: 700 }}>
+                      ✓ Students can enroll with 1-click free access
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="field" style={{ marginTop: 8 }}>
+                <label>Publish Status</label>
                 <select
-                  value={form.exam_type}
-                  onChange={(e) => setForm({ ...form, exam_type: e.target.value })}
+                  value={form.status}
+                  onChange={(e) => setForm({ ...form, status: e.target.value })}
                 >
-                  {EXAM_TYPES.map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
+                  <option value="draft">Draft (Hidden from students)</option>
+                  <option value="live">Live (Active and open for student enrollment)</option>
                 </select>
               </div>
             </div>
 
-            <div className="form-group">
-              <label>Description & Syllabus Scope</label>
-              <textarea
-                rows={3}
-                placeholder="Detail the subjects covered, flight simulator prep, and exam syllabus..."
-                value={form.description}
-                onChange={(e) => setForm({ ...form, description: e.target.value })}
-              />
-            </div>
-
-            <div className="grid grid-2" style={{ gap: 12 }}>
-              <div className="form-group">
-                <label>Pricing Structure</label>
-                <label className="checkbox-row" style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <input
-                    type="checkbox"
-                    checked={form.is_free}
-                    onChange={(e) => setForm({ ...form, is_free: e.target.checked })}
-                  />
-                  <span>Free Course (Complimentary access)</span>
-                </label>
+            {/* Section 3: Subject Curriculum Assignment */}
+            <div className="form-card-box form-card-purple">
+              <div className="form-card-header-row">
+                <span className="form-card-header">
+                  <BookOpen size={14} /> Included Subjects Curriculum
+                </span>
+                <span className="form-card-badge">
+                  {form.subject_ids.length} of {subjects.length} selected
+                </span>
               </div>
 
-              {!form.is_free && (
-                <div className="form-group">
-                  <label>Price (INR) *</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    placeholder="e.g. 14999"
-                    value={form.price_inr}
-                    onChange={(e) => setForm({ ...form, price_inr: e.target.value })}
-                    className={formErrors.price_inr ? 'is-invalid' : ''}
-                  />
-                </div>
-              )}
-            </div>
-
-            <div className="form-group">
-              <label>Initial Status</label>
-              <select
-                value={form.status}
-                onChange={(e) => setForm({ ...form, status: e.target.value })}
-              >
-                <option value="draft">Draft (Admin only)</option>
-                <option value="live">Live (Enrolling Students)</option>
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label>Assign Subjects Included</label>
-              <div
-                style={{
-                  maxHeight: 180,
-                  overflowY: 'auto',
-                  border: '1px solid var(--border)',
-                  borderRadius: 8,
-                  padding: 8,
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-                  gap: 8,
-                }}
-              >
+              <div className="check-pill-grid" style={{ maxHeight: 190, overflowY: 'auto', padding: 2 }}>
                 {subjects.map((s) => {
                   const checked = form.subject_ids.includes(s.id);
                   return (
-                    <label key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem' }}>
+                    <label key={s.id} className={`check-pill ${checked ? 'is-checked' : ''}`}>
                       <input
                         type="checkbox"
                         checked={checked}
@@ -478,20 +529,11 @@ export default function AdminCourses() {
                           setForm({ ...form, subject_ids: updated });
                         }}
                       />
-                      <span>{s.title}</span>
+                      <span style={{ fontWeight: checked ? 700 : 500 }}>{s.title}</span>
                     </label>
                   );
                 })}
               </div>
-            </div>
-
-            <div className="form-actions row row-end" style={{ gap: 8, marginTop: 16 }}>
-              <Button variant="ghost" onClick={() => setFormOpen(false)} disabled={saving}>
-                Cancel
-              </Button>
-              <Button variant="primary" type="submit" loading={saving}>
-                {editing ? 'Update Course' : 'Create Course'}
-              </Button>
             </div>
           </form>
         </Modal>

@@ -135,7 +135,7 @@ export default function ExploreBundles() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
             {/* Search Input */}
-            <div className="input-with-icon" style={{ flex: 1, minWidth: 260 }}>
+            <div className="input-with-icon" style={{ flex: 1, minWidth: 'min(100%, 220px)' }}>
               <Search size={15} />
               <input
                 className="input"
@@ -223,7 +223,7 @@ export default function ExploreBundles() {
       ) : visible.length ? (
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 300px), 1fr))',
           gap: 18,
           marginBottom: 36,
         }}>

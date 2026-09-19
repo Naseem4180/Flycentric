@@ -46,7 +46,7 @@ export default function AdminCourses() {
     setLoading(true);
     setError('');
     Promise.all([
-      api.get('/content/bundles'),
+      api.get('/content/bundles?include_drafts=true'),
       api.get('/content/subjects'),
     ])
       .then(([bundlesRes, subjectsRes]) => {

@@ -15,36 +15,51 @@ const pool = require('./pool');
  *   it clears all tables for a fresh installation and seeds ONLY the admin user.
  */
 async function seed() {
-  const isReset = process.argv.includes('--reset') || process.argv.includes('--clean');
+  const keepData = process.argv.includes('--keep-data') || process.argv.includes('--no-reset');
+  const isReset = !keepData;
   const client = await pool.connect();
 
   try {
     await client.query('BEGIN');
 
     if (isReset) {
-      console.log('⚠️  --reset flag detected: Truncating all tables for a fresh clean slate...');
+      console.log('🧹 Clearing all data for a fresh clean slate...');
       await client.query(
         `TRUNCATE TABLE
           notification_reads,
+          notifications,
           bundle_access,
+          course_enrollments,
           payments,
+          transactions,
+          refunds,
+          coupons,
           job_applications,
+          job_postings,
           doubts,
           notes,
           batch_students,
+          batches,
           attempts,
+          student_question_stats,
           memory_bank,
           discrepancy_reports,
+          exam_appearances,
+          assignments,
           questions,
           sections,
           chapters,
+          bundle_subjects,
           subjects,
           quizzes,
-          batches,
-          job_postings,
           bundles,
           refresh_tokens,
           user_sessions,
+          password_resets,
+          audit_log,
+          media_uploads,
+          email_campaigns,
+          settings,
           users,
           institutions
          RESTART IDENTITY CASCADE`

@@ -67,7 +67,7 @@ export default function AdminStudentActivity() {
         <KpiCard icon={Radio} tone="green" value={academic.studentsActiveNow || 0} label="Active Right Now" sub="Taking tests or studying" />
         <KpiCard icon={Clock} tone="orange" value={academic.studentsInactive7d || 0} label="Idle Cadets (7d+)" sub="At risk of dropping out" />
         <KpiCard icon={CheckCircle2} tone="indigo" value={overview.activeStudents || 0} label="Active Cadets (30d)" sub="Engaged this month" />
-        <KpiCard icon={Activity} tone="purple" value={`${academic.avgQuizScore || 70}%`} label="Live Cohort Accuracy" sub="Average assessment score" />
+        <KpiCard icon={Activity} tone="purple" value={`${Number(academic.avgQuizScore || 0)}%`} label="Live Cohort Accuracy" sub="Average assessment score" />
       </div>
 
       <div className="grid grid-2-1" style={{ gap: 16 }}>

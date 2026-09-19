@@ -49,11 +49,17 @@ html, body {
 img, svg, video, canvas { max-width: 100%; height: auto; }
 
 /* Any grid built for desktop collapses gracefully rather than overflowing. */
-@media (max-width: 900px) {
-  .grid-2, .grid-3, .grid-4 { grid-template-columns: minmax(0, 1fr) !important; }
+/* Tablets (561–960px): grid-2-1, grid-1-2, grid-3, grid-4 → 2 equal cols */
+@media (min-width: 641px) and (max-width: 960px) {
+  .grid-2-1, .grid-1-2, .grid-3, .grid-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
 }
-@media (min-width: 561px) and (max-width: 900px) {
-  .grid-3, .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+/* Phones (≤640px): everything collapses to single column */
+@media (max-width: 640px) {
+  .grid-2, .grid-2-1, .grid-1-2, .grid-3, .grid-4 {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
 }
 
 /* --------------------------------------------------------------------------
@@ -79,8 +85,20 @@ img, svg, video, canvas { max-width: 100%; height: auto; }
   /* Tables that opt in (results, exam history) become stacked cards on a
      phone: each row is a block, each cell prefixed by its column name via
      data-label. Far more readable than an 8-column horizontal scroll. */
+  /* Keep .table-scroll scrolling internally — never expand the page. */
+  /* Only the specific stacked-card tables (results, exam-history) drop
+     their min-width; all other admin tables continue to scroll inside
+     their wrapper so headers and data stay aligned. */
   .table-scroll {
-    overflow-x: visible !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  /* .table-wrap (used in admin pages) also stays scrollable */
+  .table-wrap {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
     width: 100% !important;
     max-width: 100% !important;
   }
@@ -1425,5 +1443,409 @@ img, svg, video, canvas { max-width: 100%; height: auto; }
   color: #f8fafc !important;
 }
 
+/* ==========================================================================
+   COMPREHENSIVE MOBILE & TABLET RESPONSIVE FIXES
+   ========================================================================== */
 
+/* --------------------------------------------------------------------------
+   Metric rows — convert to uniform card grid on mobile/tablet
+   On desktop they are horizontal divider-separated items. Below 960px they
+   wrap into a responsive grid of small stat cards with border+bg.
+   -------------------------------------------------------------------------- */
+@media (max-width: 960px) {
+  .metric-row {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)) !important;
+    gap: 10px !important;
+  }
+  .metric-item {
+    border-left: 0 !important;
+    padding: 10px 12px !important;
+    background: var(--surface-sunken, var(--page-bg)) !important;
+    border: 1px solid var(--border, var(--line)) !important;
+    border-radius: 8px !important;
+  }
+  .metric-item:first-child {
+    padding-left: 12px !important;
+  }
+}
 
+/* --------------------------------------------------------------------------
+   PageHeader & action buttons — stack on mobile
+   -------------------------------------------------------------------------- */
+@media (max-width: 640px) {
+  .fc-page-header,
+  .page-header {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 12px !important;
+  }
+  .fc-page-header-actions {
+    width: 100% !important;
+    flex-wrap: wrap !important;
+  }
+  .fc-page-header-actions .btn,
+  .fc-page-header-actions button {
+    flex: 1 1 auto !important;
+    min-width: 120px !important;
+    justify-content: center !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Toolbar filters — wrap inputs on narrow screens
+   -------------------------------------------------------------------------- */
+@media (max-width: 720px) {
+  .toolbar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+  .toolbar-filters {
+    flex-wrap: wrap !important;
+    width: 100% !important;
+  }
+  .toolbar-filters .input-with-icon {
+    flex: 1 1 100% !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  .toolbar-filters select {
+    flex: 1 1 calc(50% - 5px) !important;
+    min-width: 0 !important;
+    width: auto !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   KPI card grid — never clip on narrow screens
+   -------------------------------------------------------------------------- */
+@media (max-width: 640px) {
+  .kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+  }
+  .kpi-num {
+    font-size: 1.35rem !important;
+  }
+  .kpi-label {
+    font-size: .75rem !important;
+  }
+}
+@media (max-width: 360px) {
+  .kpi-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Public Landing & Pricing — 2 cols on tablet, 1 on phone
+   -------------------------------------------------------------------------- */
+@media (min-width: 641px) and (max-width: 1024px) {
+  .feature-grid, .pricing-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+@media (max-width: 640px) {
+  .feature-grid, .pricing-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  /* Hero section stacks on small mobile */
+  .public-hero h1 {
+    font-size: clamp(1.75rem, 7vw, 2.6rem) !important;
+  }
+  .hero-actions {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+  .hero-actions .btn {
+    text-align: center !important;
+  }
+  /* Public wrap padding on tiny screens */
+  .public-wrap {
+    width: calc(100% - 24px) !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Course bundle explorer — prevent 340px min-width overflow on phone
+   -------------------------------------------------------------------------- */
+@media (max-width: 640px) {
+  /* The grid in ExploreBundles.jsx uses inline style — override via body class */
+  .admin-main-inner [style*="minmax(340px"] {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Modal — full-width on phone, safe padding
+   -------------------------------------------------------------------------- */
+@media (max-width: 640px) {
+  .modal-backdrop {
+    padding: 8px !important;
+    align-items: flex-end !important;
+  }
+  .modal,
+  .modal-sm,
+  .modal-md,
+  .modal-lg,
+  .modal-balanced {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 92vh !important;
+    border-radius: 16px 16px 0 0 !important;
+  }
+  .modal-full {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 95vh !important;
+    max-height: 95vh !important;
+    border-radius: 16px 16px 0 0 !important;
+  }
+  .modal-head {
+    padding: 16px !important;
+  }
+  .modal-body {
+    padding: 16px !important;
+  }
+  .modal-foot {
+    padding: 12px 16px !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+  .modal-foot .btn {
+    flex: 1 1 auto !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Notification and avatar popovers — clamp to viewport on phone
+   -------------------------------------------------------------------------- */
+@media (max-width: 500px) {
+  .fc-panel {
+    max-width: calc(100vw - 16px) !important;
+    right: -8px !important;
+  }
+  .fc-notification-panel {
+    width: calc(100vw - 16px) !important;
+    max-width: 340px !important;
+  }
+  .fc-avatar-panel {
+    width: calc(100vw - 16px) !important;
+    max-width: 300px !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Admin sidebar backdrop + main area padding on mobile
+   -------------------------------------------------------------------------- */
+@media (max-width: 640px) {
+  .admin-main-inner {
+    padding: 16px 14px 60px !important;
+  }
+  .fc-topbar {
+    padding: 0 10px !important;
+    gap: 6px !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Cards — no horizontal overflow, safe padding on phone
+   -------------------------------------------------------------------------- */
+@media (max-width: 640px) {
+  .card {
+    border-radius: 10px !important;
+    padding: 14px !important;
+  }
+  .card-head {
+    flex-wrap: wrap !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Row helper — ensure flex rows wrap and don't force page-width
+   -------------------------------------------------------------------------- */
+.row {
+  flex-wrap: wrap;
+}
+
+/* --------------------------------------------------------------------------
+   Table header & body min-width on all admin tables at mobile
+   Makes wide admin tables (questions, users, etc.) scroll inside their
+   .table-wrap container instead of exploding the viewport.
+   -------------------------------------------------------------------------- */
+@media (max-width: 768px) {
+  .table-wrap > table,
+  .table-scroll > table:not(.results-table):not(.eh-table):not(.eh-report-table) {
+    min-width: 560px !important;
+  }
+}
+@media (max-width: 480px) {
+  .table-wrap > table,
+  .table-scroll > table:not(.results-table):not(.eh-table):not(.eh-report-table) {
+    min-width: 480px !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Recharts / chart containers — never exceed parent width
+   -------------------------------------------------------------------------- */
+.recharts-wrapper {
+  max-width: 100% !important;
+}
+.recharts-responsive-container {
+  width: 100% !important;
+}
+
+/* --------------------------------------------------------------------------
+   StudentDashboard flight-hero and gauge
+   -------------------------------------------------------------------------- */
+@media (max-width: 480px) {
+  .flight-hero {
+    padding: 18px 14px !important;
+    flex-direction: column !important;
+    gap: 14px !important;
+    min-height: 0 !important;
+  }
+  .hero-gauge-wrap {
+    align-self: center !important;
+  }
+  .mission-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  .readiness-breakdown {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 6px !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Admin Dashboard — Academic Performance card gauge + metrics layout
+   -------------------------------------------------------------------------- */
+@media (max-width: 720px) {
+  /* Gauge row: stack gauge above metric items vertically */
+  .card .row:has(.metric-row) {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 16px !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Section titles and card-action-links
+   -------------------------------------------------------------------------- */
+@media (max-width: 640px) {
+  .section-title {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 8px !important;
+  }
+  .card-action-link {
+    font-size: .78rem !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   BundleView — curriculum header & chapter items on mobile
+   -------------------------------------------------------------------------- */
+@media (max-width: 640px) {
+  /* Bundle pricing side panel stacks below curriculum */
+  .curriculum-tree {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .curriculum-tree-side {
+    position: static !important;
+    max-height: none !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   CBT Exam Simulator — topbar, question area, bottom bar on mobile
+   -------------------------------------------------------------------------- */
+@media (max-width: 640px) {
+  .cbt-topbar {
+    padding: 0 10px !important;
+    gap: 6px !important;
+  }
+  .cbt-topbar-center {
+    font-size: .8rem !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    min-width: 0 !important;
+  }
+  .cbt-question-meta {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+  .cbt-question-actions {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+  .cbt-action-bar {
+    gap: 6px !important;
+  }
+  .cbt-btn {
+    padding: 10px 12px !important;
+    font-size: .82rem !important;
+    flex: 1 1 auto !important;
+  }
+  .cbt-qnav {
+    gap: 4px !important;
+  }
+  .cbt-qnav-btn {
+    width: 30px !important;
+    height: 30px !important;
+    font-size: .72rem !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   ExamHistory & MyResults — summary cards on phone
+   -------------------------------------------------------------------------- */
+@media (max-width: 640px) {
+  .eh-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  .my-results-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Account / profile page — detail rows on narrow mobile
+   -------------------------------------------------------------------------- */
+@media (max-width: 480px) {
+  .account-profile-head {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 10px !important;
+  }
+  .account-detail-row {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 6px !important;
+    padding: 10px 0 !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Login / Register forms — safe padding on phones
+   -------------------------------------------------------------------------- */
+@media (max-width: 480px) {
+  .auth-card {
+    padding: 24px 18px !important;
+    border-radius: 14px !important;
+  }
+  .form-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Topbar search — hide placeholder text on very narrow screens
+   -------------------------------------------------------------------------- */
+@media (max-width: 400px) {
+  .fc-topbar-search input::placeholder {
+    font-size: 0 !important;
+  }
+}

@@ -603,15 +603,19 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
       || String(q.chapter_id) === String(c.id)
     ));
 
-    // Prefer a dedicated single-chapter quiz if available
+    // Prefer a dedicated single-chapter quiz if available (strictly exclude multi-chapter milestones)
     const singleAssignment = assignmentQuizzes.find((q) => {
       const ids = Array.isArray(q.chapter_ids) ? q.chapter_ids : [];
-      return ids.length === 1 ? String(ids[0]) === String(c.id) : String(q.chapter_id) === String(c.id);
+      if (ids.length === 1) return String(ids[0]) === String(c.id);
+      if (ids.length > 1) return false;
+      return String(q.chapter_id) === String(c.id);
     }) || null;
 
     const singleTest = testQuizzes.find((q) => {
       const ids = Array.isArray(q.chapter_ids) ? q.chapter_ids : [];
-      return ids.length === 1 ? String(ids[0]) === String(c.id) : String(q.chapter_id) === String(c.id);
+      if (ids.length === 1) return String(ids[0]) === String(c.id);
+      if (ids.length > 1) return false;
+      return String(q.chapter_id) === String(c.id);
     }) || null;
 
     const assignmentAttempts = singleAssignment ? (attemptsByQuiz.get(singleAssignment.id) || []) : [];
@@ -718,7 +722,8 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
     let totalRequirements = 0;
 
     coveredChapters.forEach((ch) => {
-      if (ch.assignment_quiz_id) {
+      // Only count prerequisites that are distinct from this quiz itself
+      if (ch.assignment_quiz_id && Number(ch.assignment_quiz_id) !== Number(q.id)) {
         totalRequirements++;
         if (!ch.assignment_completed) {
           pendingRequirements.push({
@@ -729,7 +734,7 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
           });
         }
       }
-      if (ch.test_quiz_id) {
+      if (ch.test_quiz_id && Number(ch.test_quiz_id) !== Number(q.id)) {
         totalRequirements++;
         if (!ch.test_completed) {
           pendingRequirements.push({
@@ -742,7 +747,9 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
       }
     });
 
-    const requirePrev = q.require_previous_completion !== false;
+    // Milestone locking only applies to EXAM-type quizzes that explicitly require prerequisite completion.
+    // Practice quizzes (assignments) are NEVER locked — candidates can practice at will.
+    const requirePrev = q.type === 'exam' && q.require_previous_completion === true;
     const isMilestoneAchieved = pendingRequirements.length === 0;
     const isLocked = !isStaff && requirePrev && !isMilestoneAchieved;
 

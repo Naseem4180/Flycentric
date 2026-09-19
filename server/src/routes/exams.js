@@ -298,15 +298,21 @@ router.post('/quizzes/:id/start', authenticate, authorize('student'), async (req
       ? quiz.chapter_ids
       : (quiz.chapter_id ? [quiz.chapter_id] : []);
 
-    // 1. Single-chapter test: Requires completing chapter assignment first if an assignment exists and prerequisite lock is enabled
-    if (quiz.require_previous_completion !== false && quiz.type === 'exam' && chapterIds.length === 1) {
+    // Prerequisites only apply to EXAM-type quizzes (chapter tests, milestone tests).
+    // Practice quizzes (assignments) are NEVER gated — students can attempt them freely.
+    const enforcePrereqs = quiz.type === 'exam' && quiz.require_previous_completion === true;
+
+    // 1. Single-chapter test: Requires completing chapter practice assignment first.
+    //    Only fires when this chapter exam has an explicit prerequisite lock set.
+    if (enforcePrereqs && chapterIds.length === 1) {
       const chId = chapterIds[0];
       const assignQuiz = await pool.query(
         `SELECT id FROM quizzes
          WHERE type = 'practice' AND deleted_at IS NULL AND status = 'published'
            AND (chapter_id = $1 OR $1 = ANY(chapter_ids))
+           AND id != $2
          LIMIT 1`,
-        [chId]
+        [chId, quiz.id]
       );
       if (assignQuiz.rows.length) {
         const assignAttempt = await pool.query(
@@ -322,12 +328,15 @@ router.post('/quizzes/:id/start', authenticate, authorize('student'), async (req
       }
     }
 
-    // 2. Cumulative / Milestone test: If require_previous_completion is true (default), requires preceding chapter assignments and tests to be completed
-    if (quiz.require_previous_completion !== false && chapterIds.length > 1) {
-      const coveredQuizzes = await pool.query(
+    // 2. Cumulative / Milestone exam: Only checks chapter PRACTICE (assignment) quizzes
+    //    as prerequisites. Only chapter assignments need to be completed before a milestone.
+    //    Only fires when the milestone exam has require_previous_completion = true.
+    if (enforcePrereqs && chapterIds.length > 1) {
+      const coveredAssignments = await pool.query(
         `SELECT id, type, chapter_id, chapter_ids, title
          FROM quizzes
          WHERE deleted_at IS NULL AND status = 'published'
+           AND type = 'practice'
            AND id != $1
            AND (
              (chapter_id IS NOT NULL AND chapter_id = ANY($2::int[]))
@@ -338,24 +347,26 @@ router.post('/quizzes/:id/start', authenticate, authorize('student'), async (req
            )`,
         [quiz.id, chapterIds]
       );
-      if (coveredQuizzes.rows.length) {
-        const coveredQuizIds = coveredQuizzes.rows.map((q) => q.id);
+      if (coveredAssignments.rows.length) {
+        const coveredIds = coveredAssignments.rows.map((q) => q.id);
         const userAttempts = await pool.query(
           `SELECT DISTINCT quiz_id FROM attempts WHERE user_id = $1 AND quiz_id = ANY($2) AND status = 'submitted'`,
-          [req.user.id, coveredQuizIds]
+          [req.user.id, coveredIds]
         );
         const attemptedSet = new Set(userAttempts.rows.map((r) => r.quiz_id));
-        const missing = coveredQuizzes.rows.filter((q) => !attemptedSet.has(q.id));
+        const missing = coveredAssignments.rows.filter((q) => !attemptedSet.has(q.id));
         if (missing.length > 0) {
           return res.status(403).json({
             error: 'Milestone Locked',
-            message: 'This cumulative milestone test is locked until all preceding chapter assignments and tests have been completed.',
+            message: 'This cumulative milestone test is locked until all preceding chapter assignments have been completed.',
             missing_quizzes: missing.map((m) => ({ id: m.id, title: m.title, type: m.type })),
           });
         }
       }
     }
   }
+
+
 
   // A deliberate start is always a new attempt. Any abandoned attempt is
   // closed first so it cannot keep appearing as an active online session.

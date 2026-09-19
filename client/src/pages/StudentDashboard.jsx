@@ -198,7 +198,7 @@ export default function StudentDashboard() {
               </div>
               <Link to="/analytics" className="btn btn-outline btn-xs" style={{ fontSize: '0.78rem' }}>View analytics →</Link>
             </div>
-            <div className="grid grid-4" style={{ gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 160px), 1fr))', gap: 12 }}>
               <div style={{ padding: '10px 14px', background: 'var(--surface-sunken)', borderRadius: 8, border: '1px solid var(--line)' }}>
                 <span className="muted" style={{ fontSize: '0.75rem', display: 'block' }}>Assignment Avg</span>
                 <strong style={{ fontSize: '1.15rem', color: '#16a34a' }}>{learningMatrix.cumulative_avg_assignment_score != null ? `${learningMatrix.cumulative_avg_assignment_score}%` : '—'}</strong>

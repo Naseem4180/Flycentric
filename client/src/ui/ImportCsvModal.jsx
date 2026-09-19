@@ -343,7 +343,7 @@ export default function ImportCsvModal({
             <p style={{ fontSize: '.73rem', color: 'var(--muted-2)' }}>CSV files only · up to 5 MB</p>
           </div>
           <input
-            ref={inputRef} type="file" accept=".csv,text/csv" hidden
+            ref={inputRef} type="file" accept=".csv,text/csv" hidden style={{ display: 'none' }}
             onChange={(e) => acceptFile(e.target.files?.[0])}
           />
           {!!requiredColumns.length && (

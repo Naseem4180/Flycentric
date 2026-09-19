@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   Lock, Unlock, BookOpen, ChevronLeft, FileCheck2, FileText, Check, Clock, Tag,
   Search, Filter, Sparkles, Layers, ShieldCheck, CheckCircle2, Play, ArrowRight,
-  RotateCcw, Compass, ChevronDown, ChevronUp, AlertCircle, ExternalLink
+  RotateCcw, Compass, ChevronDown, ChevronUp, AlertCircle, ExternalLink, ShoppingCart,
 } from 'lucide-react';
 import { api } from '../api';
 import useAuth from '../context/useAuth';
 import { Modal, Button, PageSkeleton } from '../ui';
+import { addToCart } from '../utils/cart';
+
 
 function scoreTone(pct) {
   if (pct == null) return 'neutral';
@@ -617,6 +619,7 @@ function SubjectCurriculumPanel({
 export default function BundleView() {
   const { id } = useParams();
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [subjects, setSubjects] = useState([]);
   const [openSubjectId, setOpenSubjectId] = useState(null);
   const [bundle, setBundle] = useState(null);
@@ -667,6 +670,12 @@ export default function BundleView() {
     } finally {
       setEnrolling(false);
     }
+  }
+
+  function handleEnrollPaid() {
+    // Add bundle to cart (using the cart utility) then go to checkout
+    if (bundle) addToCart(bundle);
+    navigate('/checkout');
   }
 
   function toggleSubject(subjectId) {
@@ -737,9 +746,10 @@ export default function BundleView() {
                   {enrolling ? 'Enrolling…' : 'Add to My Learning (Free)'}
                 </button>
               ) : (
-                <Link to={`/bundles/${id}`} className="btn btn-primary" style={{ fontWeight: 700 }}>
+                <button className="btn btn-primary" onClick={handleEnrollPaid} style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <ShoppingCart size={16} />
                   Enroll in Course {bundle?.price_inr ? `· ₹${bundle.price_inr}` : ''}
-                </Link>
+                </button>
               )
             )}
             {!fullAccess && (

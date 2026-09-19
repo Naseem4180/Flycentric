@@ -285,7 +285,7 @@ router.get('/dashboard-overview', async (req, res) => {
       coursesCount, activeCoursesCount,
       enrollmentsCount, paidEnrollmentsCount, freeEnrollmentsCount,
       purchasesCount, paymentsStats, refundsStats, revenueStats,
-      academicStats, recentPurchases, recentActivity,
+      academicStats, assignmentRateStats, recentPurchases, recentActivity,
     ] = await Promise.all([
       // Total Students
       pool.query("SELECT COUNT(*)::int AS c FROM users WHERE role = 'student'"),
@@ -335,6 +335,17 @@ router.get('/dashboard-overview', async (req, res) => {
         CROSS JOIN (SELECT COALESCE(AVG(completion_pct), 0) AS completion_pct FROM course_enrollments) ce
         WHERE a.status = 'submitted'
       `),
+      // Assignment completion rate
+      pool.query(`
+        SELECT
+          CASE 
+            WHEN COUNT(DISTINCT q.id) = 0 THEN 0
+            ELSE ROUND((COUNT(DISTINCT a.quiz_id)::numeric / COUNT(DISTINCT q.id)::numeric) * 100, 1)
+          END AS rate
+        FROM quizzes q
+        LEFT JOIN attempts a ON a.quiz_id = q.id AND a.status = 'submitted'
+        WHERE q.type = 'practice' AND q.deleted_at IS NULL
+      `),
       // Recent Purchases table
       pool.query(`
         SELECT p.id, p.user_id, u.name AS student_name, u.email AS student_email,
@@ -381,7 +392,7 @@ router.get('/dashboard-overview', async (req, res) => {
         avgCourseCompletion: Number(academicStats.rows[0]?.avg_course_completion || 0),
         avgQuizScore: Number(academicStats.rows[0]?.avg_quiz_score || 0),
         avgExamScore: Number(academicStats.rows[0]?.avg_exam_score || 0),
-        assignmentCompletion: 78,
+        assignmentCompletion: Number(assignmentRateStats.rows[0]?.rate || 0),
         studentsActiveNow: activeNow.rows[0].c,
         studentsInactive7d: inactive7d.rows[0].c,
       },

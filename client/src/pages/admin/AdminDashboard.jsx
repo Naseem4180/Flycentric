@@ -201,25 +201,29 @@ export default function AdminDashboard() {
             actions={<Link to="/admin/student-analytics" className="card-action-link">Full Insights <ArrowRight size={13} /></Link>}
           />
           <div className="row" style={{ gap: 24, alignItems: 'center', flexWrap: 'wrap', padding: '10px 0' }}>
-            <Gauge value={Number(academic.avgQuizScore || platformData.averageScore) || 70} size={118} />
-            <div className="metric-row" style={{ flex: 1 }}>
+            <Gauge value={Number(academic.avgQuizScore || platformData?.averageScore || 0)} size={118} />
+            <div className="metric-row" style={{ flex: '1 1 240px', minWidth: 0 }}>
               <div className="metric-item">
-                <div className="kpi-num">{academic.avgCourseCompletion || 68}%</div>
+                <div className="kpi-num">{Number(academic.avgCourseCompletion || 0)}%</div>
                 <div className="kpi-label">Avg Course Completion</div>
               </div>
               <div className="metric-item">
-                <div className="kpi-num">{academic.assignmentCompletion || 78}%</div>
+                <div className="kpi-num">{Number(academic.assignmentCompletion || 0)}%</div>
                 <div className="kpi-label">Assignment Rate</div>
               </div>
               <div className="metric-item">
-                <div className="kpi-num">{Math.round((platformData.averageDurationSeconds || 1800) / 60)}m</div>
+                <div className="kpi-num">{platformData?.averageDurationSeconds ? `${Math.round(platformData.averageDurationSeconds / 60)}m` : '0m'}</div>
                 <div className="kpi-label">Avg Test Duration</div>
               </div>
             </div>
           </div>
           <div className="card-foot" style={{ marginTop: 10 }}>
             <span className="muted" style={{ fontSize: '.82rem' }}>
-              Students are tracking standard DGCA 70% passing threshold with 3-hour inactivity auto-submit protection.
+              {(academic.avgQuizScore || platformData?.averageScore) ? (
+                'Students are tracking standard DGCA 70% passing threshold with 3-hour inactivity auto-submit protection.'
+              ) : (
+                'No student test attempts recorded yet. Real-time metrics and pass rates will compute automatically as cadets take tests.'
+              )}
             </span>
           </div>
         </Card>

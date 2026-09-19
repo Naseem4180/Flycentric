@@ -1,10 +1,11 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Tag, CheckCircle2, AlertCircle } from 'lucide-react';
 import { api } from '../api';
-import { readCart, removeFromCart } from '../utils/cart';
+import { readCart, removeFromCart, addToCart } from '../utils/cart';
 
 export default function Checkout() {
+  const { bundleId } = useParams();
   const [bundles, setBundles] = useState(() => readCart());
   const [couponCode, setCouponCode] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState(null);
@@ -13,6 +14,22 @@ export default function Checkout() {
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!bundleId) return;
+    api.get('/content/bundles?status=live')
+      .then((d) => {
+        const found = (d.bundles || []).find((b) => String(b.id) === String(bundleId));
+        if (found) {
+          addToCart(found);
+          setBundles((curr) => {
+            if (curr.some((item) => String(item.id) === String(found.id))) return curr;
+            return [...curr, found];
+          });
+        }
+      })
+      .catch(() => {});
+  }, [bundleId]);
 
   const primaryBundle = bundles[0];
   const originalTotal = bundles.reduce((sum, b) => sum + Number(b.price_inr || 0), 0);

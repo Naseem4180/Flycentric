@@ -75,7 +75,7 @@ export default function AdminExams() {
     return {
       total: list.length,
       published: list.filter((e) => e.status === 'published').length,
-      avgPass: list.length ? Math.round(list.reduce((s, e) => s + (e.pass_percent || 70), 0) / list.length) : 70,
+      avgPass: list.length ? Math.round(list.reduce((s, e) => s + (e.pass_percent || 70), 0) / list.length) : 0,
     };
   }, [exams]);
 

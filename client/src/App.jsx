@@ -130,6 +130,7 @@ function AppRoutes() {
         <Route path="/courses" element={<Landing coursesOnly />} />
         <Route path="/pricing" element={<Pricing />} />
         <Route path="/checkout" element={<Protected roles={['student']}><StudentShell><Checkout /></StudentShell></Protected>} />
+        <Route path="/checkout/:bundleId" element={<Protected roles={['student']}><StudentShell><Checkout /></StudentShell></Protected>} />
         <Route path="/" element={<HomeRoute />} />
         {/* The public homepage rendered INSIDE the student shell, so a signed-in
             student can browse announcements/bundles from the sidebar without

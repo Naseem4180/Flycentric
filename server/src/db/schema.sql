@@ -576,6 +576,7 @@ UPDATE attempts SET last_seen_at = COALESCE(submitted_at, started_at) WHERE last
 ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS chapter_ids INTEGER[] NOT NULL DEFAULT '{}';
 UPDATE quizzes SET chapter_ids = ARRAY[chapter_id]
   WHERE chapter_id IS NOT NULL AND (chapter_ids IS NULL OR cardinality(chapter_ids) = 0);
+ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS require_previous_completion BOOLEAN NOT NULL DEFAULT true;
 
 -- Hot paths for the results/exam-history screens, which filter attempts by
 -- student and then join quizzes for subject/chapter labels.

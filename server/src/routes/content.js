@@ -310,7 +310,7 @@ router.get('/subjects', async (req, res) => {
      FROM subjects s
      LEFT JOIN quizzes qz ON qz.subject_id = s.id AND qz.deleted_at IS NULL
      WHERE ${clauses.join(' AND ')}
-     GROUP BY s.id ORDER BY s.order_index, s.title`,
+     GROUP BY s.id ORDER BY COALESCE(s.order_index, 999999) ASC, s.id ASC`,
     params
   );
   const responseData = { subjects: result.rows };
@@ -550,9 +550,24 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
 
   // Quizzes belonging to this subject, split by mode.
   const quizResult = await pool.query(
-    `SELECT id, title, type, chapter_id, chapter_ids, duration_minutes
+    `SELECT id, title, type, chapter_id, chapter_ids, duration_minutes, require_previous_completion
      FROM quizzes
-     WHERE subject_id = $1 AND deleted_at IS NULL AND status = 'published'
+     WHERE (
+       subject_id = $1
+       OR EXISTS (
+         SELECT 1 FROM chapters ch
+         WHERE ch.deleted_at IS NULL
+           AND (ch.id = ANY(quizzes.chapter_ids) OR ch.id = quizzes.chapter_id)
+           AND ch.subject_id = $1
+       )
+       OR EXISTS (
+         SELECT 1 FROM questions qn
+         WHERE qn.deleted_at IS NULL
+           AND qn.id = ANY(quizzes.question_ids)
+           AND qn.subject_id = $1
+       )
+     )
+       AND deleted_at IS NULL AND status = 'published'
        AND source IS DISTINCT FROM 'memory_bank'`,
     [subjectId]
   );
@@ -576,45 +591,55 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
   }
 
   const fullAccess = req.user.role !== 'student' || await hasSubjectAccess(req.user.id, subjectId);
+  const isStaff = req.user.role === 'admin' || req.user.role === 'instructor';
+
+  const assignmentQuizzes = quizResult.rows.filter((q) => q.type === 'practice');
+  const testQuizzes = quizResult.rows.filter((q) => q.type !== 'practice');
 
   const chapters = chaptersResult.rows.map((c) => {
-    // All quizzes covering this chapter (either single-chapter or part of a multi-chapter quiz)
+    // All quizzes covering this chapter
     const chapterQuizzes = quizResult.rows.filter((q) => (
       (Array.isArray(q.chapter_ids) && q.chapter_ids.some((id) => String(id) === String(c.id)))
       || String(q.chapter_id) === String(c.id)
     ));
 
-    // Prefer a dedicated single-chapter quiz if available, otherwise link any assignment covering this chapter
-    const singleAssignment = chapterQuizzes.find((q) => {
-      if (q.type !== 'practice') return false;
+    // Prefer a dedicated single-chapter quiz if available
+    const singleAssignment = assignmentQuizzes.find((q) => {
       const ids = Array.isArray(q.chapter_ids) ? q.chapter_ids : [];
-      return ids.length === 1 || (!ids.length && String(q.chapter_id) === String(c.id));
-    });
-    const assignment = singleAssignment || chapterQuizzes.find((q) => q.type === 'practice') || null;
+      return ids.length === 1 ? String(ids[0]) === String(c.id) : String(q.chapter_id) === String(c.id);
+    }) || null;
 
-    const singleTest = chapterQuizzes.find((q) => {
-      if (q.type !== 'exam') return false;
+    const singleTest = testQuizzes.find((q) => {
       const ids = Array.isArray(q.chapter_ids) ? q.chapter_ids : [];
-      return ids.length === 1 || (!ids.length && String(q.chapter_id) === String(c.id));
-    });
-    const test = singleTest || chapterQuizzes.find((q) => q.type === 'exam') || null;
+      return ids.length === 1 ? String(ids[0]) === String(c.id) : String(q.chapter_id) === String(c.id);
+    }) || null;
 
-    const chapterAttempts = chapterQuizzes
-      .flatMap((q) => attemptsByQuiz.get(q.id) || [])
+    const assignmentAttempts = singleAssignment ? (attemptsByQuiz.get(singleAssignment.id) || []) : [];
+    const assignmentScores = assignmentAttempts.map((a) => Number(a.score || 0));
+    const assignmentCompleted = assignmentAttempts.length > 0;
+    const assignmentLastScore = assignmentScores.length ? assignmentScores[assignmentScores.length - 1] : null;
+    const assignmentBestScore = assignmentScores.length ? Math.max(...assignmentScores) : null;
+
+    const testAttempts = singleTest ? (attemptsByQuiz.get(singleTest.id) || []) : [];
+    const testScores = testAttempts.map((a) => Number(a.score || 0));
+    const testCompleted = testAttempts.length > 0;
+    const testLastScore = testScores.length ? testScores[testScores.length - 1] : null;
+    const testBestScore = testScores.length ? Math.max(...testScores) : null;
+
+    // Workflow: chapter test is locked until the chapter assignment is completed
+    const testLocked = !isStaff && Boolean(singleAssignment && !assignmentCompleted);
+
+    const allChapterAttempts = assignmentAttempts.concat(testAttempts)
       .sort((a, b) => new Date(a.submitted_at) - new Date(b.submitted_at));
-    const attemptCount = chapterAttempts.length;
-    const scores = chapterAttempts.map((a) => Number(a.score || 0));
-    const lastScore = attemptCount ? scores[scores.length - 1] : null;
-    const bestScore = attemptCount ? Math.max(...scores) : null;
+    const allScores = allChapterAttempts.map((a) => Number(a.score || 0));
+    const lastScore = allScores.length ? allScores[allScores.length - 1] : null;
+    const bestScore = allScores.length ? Math.max(...allScores) : null;
 
     const unlocked = fullAccess || c.is_free;
-    // status drives the left-hand indicator: locked -> padlock,
-    // not_started -> grey square, attempted -> coloured circle.
-    const status = !unlocked ? 'locked' : (attemptCount > 0 ? 'attempted' : 'not_started');
+    const hasAttempted = assignmentCompleted || testCompleted;
+    const status = !unlocked ? 'locked' : (hasAttempted ? 'attempted' : 'not_started');
 
     const hasNotes = !!(c.notes || c.notes_url);
-    const hasExam = !!c.has_exam || !!test;
-    const hasQuiz = !!assignment || chapterQuizzes.length > 0;
 
     return {
       id: c.id,
@@ -624,62 +649,106 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
       notes_url: c.notes_url || null,
       notes: c.notes || null,
       has_notes: hasNotes,
-      has_exam: hasExam,
-      has_quiz: hasQuiz,
+      has_exam: !!singleTest,
+      has_quiz: !!singleAssignment,
       unlocked,
       status,
-      attempt_count: attemptCount,
+      attempt_count: allChapterAttempts.length,
       last_score: lastScore,
       best_score: bestScore,
-      // Full score history, oldest first — the chapter badge shows a trend
-      // arrow (improved / declined) and a tooltip of every past try.
-      score_history: scores,
-      trend: attemptCount >= 2 ? Math.round((lastScore - scores[scores.length - 2]) * 10) / 10 : null,
-      last_attempt_at: attemptCount ? chapterAttempts[attemptCount - 1].submitted_at : null,
-      assignment_quiz_id: assignment ? assignment.id : null,
-      test_quiz_id: test ? test.id : null,
-      quiz_count: chapterQuizzes.length,
+      score_history: allScores,
+      trend: allScores.length >= 2 ? Math.round((lastScore - allScores[allScores.length - 2]) * 10) / 10 : null,
+      last_attempt_at: allChapterAttempts.length ? allChapterAttempts[allChapterAttempts.length - 1].submitted_at : null,
+
+      // Assignment specifics
+      assignment_quiz_id: singleAssignment ? singleAssignment.id : null,
+      assignment_completed: assignmentCompleted,
+      assignment_attempt_count: assignmentAttempts.length,
+      assignment_last_score: assignmentLastScore,
+      assignment_best_score: assignmentBestScore,
+
+      // Test specifics
+      test_quiz_id: singleTest ? singleTest.id : null,
+      test_completed: testCompleted,
+      test_locked: testLocked,
+      test_attempt_count: testAttempts.length,
+      test_last_score: testLastScore,
+      test_best_score: testBestScore,
+
       has_study_material: hasNotes,
     };
   });
 
-  const assignmentQuizzes = quizResult.rows.filter((q) => q.type === 'practice');
-  const testQuizzes = quizResult.rows.filter((q) => q.type === 'exam');
-  // All exams and subject-wide / multi-chapter assessments
-  const assessmentQuizzes = quizResult.rows.filter((q) => {
-    if (q.type === 'exam') return true;
+  const chapterById = new Map(chapters.map((c) => [String(c.id), c]));
+  const chapterPositionById = new Map(chaptersResult.rows.map((c, idx) => [String(c.id), idx]));
+
+  // Cumulative / Milestone tests only (multi-chapter or subject-wide)
+  // Single-chapter tests are excluded here so they are NEVER duplicated as standalone cards
+  const cumulativeQuizzes = quizResult.rows.filter((q) => {
     const ids = (Array.isArray(q.chapter_ids) && q.chapter_ids.length)
       ? q.chapter_ids
       : (q.chapter_id ? [q.chapter_id] : []);
-    return ids.length === 0 || ids.length > 1;
+    return ids.length > 1 || ids.length === 0;
   });
-  const completedAssignments = assignmentQuizzes.filter((q) => (attemptsByQuiz.get(q.id) || []).length).length;
-  const takenTests = assessmentQuizzes.filter((q) => (attemptsByQuiz.get(q.id) || []).length);
 
-  // Position lookup based on curriculum order so a test that spans several chapters
-  // is anchored to the LAST one in the sequence — e.g. a quiz built from Regs 01-06
-  // is inserted into the chapter list right after Regs 06 (between 6 & 7).
-  const chapterPositionById = new Map(chaptersResult.rows.map((c, idx) => [String(c.id), idx]));
-  const tests = assessmentQuizzes.map((q) => {
+  const tests = cumulativeQuizzes.map((q) => {
     const ids = (Array.isArray(q.chapter_ids) && q.chapter_ids.length)
       ? q.chapter_ids.map(String)
       : (q.chapter_id ? [String(q.chapter_id)] : []);
     const knownIds = ids.filter((id) => chapterPositionById.has(id));
-    // Anchor to whichever covered chapter sorts LATEST in the curriculum sequence
+
     let anchorChapterId = null;
     if (knownIds.length) {
       anchorChapterId = knownIds.reduce((best, id) => (
         chapterPositionById.get(id) > chapterPositionById.get(best) ? id : best
       ));
     } else if (chaptersResult.rows.length) {
-      // If quiz is subject-wide, anchor to the very last chapter of the curriculum
       anchorChapterId = String(chaptersResult.rows[chaptersResult.rows.length - 1].id);
     }
+
     const testAttempts = attemptsByQuiz.get(q.id) || [];
     const scores = testAttempts.map((a) => Number(a.score || 0));
+
+    // Milestone completion check across covered chapters
+    const coveredChapters = (knownIds.length ? knownIds : chapters.map((c) => String(c.id)))
+      .map((id) => chapterById.get(id))
+      .filter(Boolean);
+
+    const pendingRequirements = [];
+    let totalRequirements = 0;
+
+    coveredChapters.forEach((ch) => {
+      if (ch.assignment_quiz_id) {
+        totalRequirements++;
+        if (!ch.assignment_completed) {
+          pendingRequirements.push({
+            chapter_id: ch.id,
+            chapter_title: ch.title,
+            type: 'assignment',
+            label: `${ch.title} (Assignment)`,
+          });
+        }
+      }
+      if (ch.test_quiz_id) {
+        totalRequirements++;
+        if (!ch.test_completed) {
+          pendingRequirements.push({
+            chapter_id: ch.id,
+            chapter_title: ch.title,
+            type: 'test',
+            label: `${ch.title} (Test)`,
+          });
+        }
+      }
+    });
+
+    const requirePrev = q.require_previous_completion !== false;
+    const isMilestoneAchieved = pendingRequirements.length === 0;
+    const isLocked = !isStaff && requirePrev && !isMilestoneAchieved;
+
     return {
       id: q.id,
-      title: q.title,
+      title: q.title, // Exact title entered by the instructor/admin
       type: q.type,
       pass_percent: q.pass_percent || 70,
       chapter_ids: ids,
@@ -689,31 +758,69 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
       attempt_count: testAttempts.length,
       last_score: scores.length ? scores[scores.length - 1] : null,
       best_score: scores.length ? Math.max(...scores) : null,
+      require_previous_completion: requirePrev,
+      is_locked: isLocked,
+      is_milestone_achieved: isMilestoneAchieved,
+      pending_requirements: pendingRequirements,
+      total_requirements: totalRequirements,
+      completed_requirements: totalRequirements - pendingRequirements.length,
     };
   });
 
-  // Every average below is built from each quiz's BEST attempt rather than a
-  // flat mean over all attempts, so retaking a quiz and improving raises the
-  // subject score instead of being dragged down by the earlier failed try.
-  const bestPerQuiz = (quizzes) => quizzes
+  // ---------------------------------------------------------------------------
+  // 5 Strict Metrics Calculations:
+  // ---------------------------------------------------------------------------
+  const assignmentQuizIds = new Set(assignmentQuizzes.map((q) => q.id));
+  const testQuizIds = new Set(testQuizzes.map((q) => q.id));
+
+  const allAssignmentAttempts = attemptsResult.rows.filter((a) => assignmentQuizIds.has(a.quiz_id));
+  const allTestAttempts = attemptsResult.rows.filter((a) => testQuizIds.has(a.quiz_id));
+
+  // 1. Overall Score: Average of every assignment attempt + every test attempt
+  const allAttempts = attemptsResult.rows;
+  const overallScore = allAttempts.length
+    ? Math.round((allAttempts.reduce((sum, a) => sum + Number(a.score || 0), 0) / allAttempts.length) * 10) / 10
+    : null;
+
+  // 2. Performance Indicator 1: Average Test Score (all test attempts only)
+  const avgTestScore = allTestAttempts.length
+    ? Math.round((allTestAttempts.reduce((sum, a) => sum + Number(a.score || 0), 0) / allTestAttempts.length) * 10) / 10
+    : null;
+
+  // 3. Performance Indicator 2: Average Best Test Score (best score per individual test)
+  const bestTestScores = testQuizzes
     .map((q) => {
       const scores = (attemptsByQuiz.get(q.id) || []).map((a) => Number(a.score || 0));
       return scores.length ? Math.max(...scores) : null;
     })
     .filter((s) => s != null);
-  const mean = (arr) => (arr.length ? Math.round((arr.reduce((x, y) => x + y, 0) / arr.length) * 10) / 10 : null);
 
-  const avgTestScore = mean(bestPerQuiz(testQuizzes));
-  // Overall score is the average across every attempted quiz in the subject.
-  // Unattempted quizzes are excluded rather than counted as 0 — "you have not
-  // done this yet" is not the same as "you scored zero on this".
-  const overallScore = mean(bestPerQuiz(quizResult.rows)) ?? 0;
+  const avgBestTestScore = bestTestScores.length
+    ? Math.round((bestTestScores.reduce((sum, s) => sum + s, 0) / bestTestScores.length) * 10) / 10
+    : null;
+
+  // 4. Assignment Indicator 1: Average Assignment Score (all assignment attempts only)
+  const avgAssignmentScore = allAssignmentAttempts.length
+    ? Math.round((allAssignmentAttempts.reduce((sum, a) => sum + Number(a.score || 0), 0) / allAssignmentAttempts.length) * 10) / 10
+    : null;
+
+  // 5. Assignment Indicator 2: Average Best Assignment Score (best score per individual assignment)
+  const bestAssignmentScores = assignmentQuizzes
+    .map((q) => {
+      const scores = (attemptsByQuiz.get(q.id) || []).map((a) => Number(a.score || 0));
+      return scores.length ? Math.max(...scores) : null;
+    })
+    .filter((s) => s != null);
+
+  const avgBestAssignmentScore = bestAssignmentScores.length
+    ? Math.round((bestAssignmentScores.reduce((sum, s) => sum + s, 0) / bestAssignmentScores.length) * 10) / 10
+    : null;
+
+  // Completion counters
+  const completedAssignmentsCount = assignmentQuizzes.filter((q) => (attemptsByQuiz.get(q.id) || []).length > 0).length;
+  const completedTestsCount = testQuizzes.filter((q) => (attemptsByQuiz.get(q.id) || []).length > 0).length;
 
   const attemptedChapters = chapters.filter((c) => c.attempt_count > 0).length;
-  // Chapters, not quizzes, are the unit of progress the chapter list below
-  // shows. The header used to count quizzes ("1 of 2") while the list showed
-  // chapters ("1 / 21 done"), so the same screen reported two different
-  // completion figures. Both now read from the chapter count.
   const chaptersPercent = chapters.length ? Math.round((attemptedChapters / chapters.length) * 100) : 0;
 
   res.json({
@@ -721,21 +828,28 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
     chapters,
     tests,
     summary: {
-      assignments_completed: completedAssignments,
+      assignments_completed: completedAssignmentsCount,
       assignments_total: assignmentQuizzes.length,
       assignments_percent: assignmentQuizzes.length
-        ? Math.round((completedAssignments / assignmentQuizzes.length) * 100)
+        ? Math.round((completedAssignmentsCount / assignmentQuizzes.length) * 100)
         : 0,
-      tests_taken: takenTests.length,
+      tests_taken: completedTestsCount,
       tests_total: testQuizzes.length,
-      tests_avg_score: avgTestScore,
+      tests_percent: testQuizzes.length
+        ? Math.round((completedTestsCount / testQuizzes.length) * 100)
+        : 0,
       overall_score: overallScore,
+      avg_test_score: avgTestScore,
+      avg_best_test_score: avgBestTestScore,
+      avg_assignment_score: avgAssignmentScore,
+      avg_best_assignment_score: avgBestAssignmentScore,
       chapters_total: chapters.length,
       chapters_attempted: attemptedChapters,
       chapters_percent: chaptersPercent,
-      // Progress bar + headline both read this, so they can never disagree.
       progress_percent: chaptersPercent,
       total_attempts: attemptsResult.rows.length,
+      total_assignment_attempts: allAssignmentAttempts.length,
+      total_test_attempts: allTestAttempts.length,
       last_activity: attemptsResult.rows.length
         ? attemptsResult.rows[attemptsResult.rows.length - 1].submitted_at
         : null,

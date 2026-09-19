@@ -94,13 +94,23 @@ function useCurriculumRows(chapters, tests) {
       testsByAnchor.get(key).push(t);
     });
     const rows = [];
+    const matchedAnchors = new Set();
     chapters.forEach((c) => {
       rows.push({ kind: 'chapter', chapter: c });
-      (testsByAnchor.get(String(c.id)) || []).forEach((t) => {
-        rows.push({ kind: 'test', test: t, unlocked: c.unlocked });
-      });
+      const anchorKey = String(c.id);
+      if (testsByAnchor.has(anchorKey)) {
+        matchedAnchors.add(anchorKey);
+        testsByAnchor.get(anchorKey).forEach((t) => {
+          rows.push({ kind: 'test', test: t, unlocked: c.unlocked });
+        });
+      }
     });
     const anyUnlocked = chapters.some((c) => c.unlocked);
+    testsByAnchor.forEach((list, key) => {
+      if (!matchedAnchors.has(key)) {
+        list.forEach((t) => rows.push({ kind: 'test', test: t, unlocked: anyUnlocked }));
+      }
+    });
     unanchored.forEach((t) => rows.push({ kind: 'test', test: t, unlocked: anyUnlocked }));
     return rows;
   }, [chapters, tests]);
@@ -118,8 +128,19 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
     assignments_percent: summary?.assignments_percent || 0,
     tests_taken: summary?.tests_taken || 0,
     tests_total: summary?.tests_total || 0,
-    tests_avg_score: summary?.tests_avg_score,
-    overall_score: summary?.overall_score || 0,
+    tests_percent: summary?.tests_percent || 0,
+
+    avg_test_score: summary?.avg_test_score,
+    avg_best_test_score: summary?.avg_best_test_score,
+    total_test_attempts: summary?.total_test_attempts || 0,
+
+    avg_assignment_score: summary?.avg_assignment_score,
+    avg_best_assignment_score: summary?.avg_best_assignment_score,
+    total_assignment_attempts: summary?.total_assignment_attempts || 0,
+
+    overall_score: summary?.overall_score,
+    total_attempts: summary?.total_attempts || 0,
+
     chapters_attempted: summary?.chapters_attempted || 0,
     chapters_total: summary?.chapters_total || chapters.length,
     last_activity: summary?.last_activity,
@@ -162,31 +183,75 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
       {/* ---- Top analytics header ------------------------------------- */}
       <section className="subject-stats-card">
         <div className="subject-stats-row">
+          {/* Block 1: Assignments Completion & Progress Indicators */}
           <div className="subject-stat">
             <span className="subject-stat-label">Assignments</span>
             <strong className="subject-stat-value">
               {safeSummary.assignments_completed}
               <em>/ {safeSummary.assignments_total}</em>
             </strong>
-            <small>{safeSummary.assignments_percent}% complete</small>
+            <small className="subject-stat-sub">{safeSummary.assignments_percent}% completed</small>
+
+            <div className="subject-stat-metrics">
+              <div className="stat-metric-item" title="Flat average of all assignment attempt percentages">
+                <span className="stat-metric-label">Avg Score</span>
+                <span className="stat-metric-val">
+                  {safeSummary.avg_assignment_score != null ? `${Math.round(safeSummary.avg_assignment_score)}%` : '—'}
+                </span>
+              </div>
+              <div className="stat-metric-divider" />
+              <div className="stat-metric-item" title="Average of your best attempt on each assignment">
+                <span className="stat-metric-label">Avg Best</span>
+                <span className="stat-metric-val">
+                  {safeSummary.avg_best_assignment_score != null ? `${Math.round(safeSummary.avg_best_assignment_score)}%` : '—'}
+                </span>
+              </div>
+            </div>
           </div>
+
+          {/* Block 2: Tests & Exams Completion & Performance Indicators */}
           <div className="subject-stat">
-            <span className="subject-stat-label">Tests</span>
+            <span className="subject-stat-label">Tests &amp; Exams</span>
             <strong className="subject-stat-value">
               {safeSummary.tests_taken}
               <em>/ {safeSummary.tests_total}</em>
             </strong>
-            <small>Avg score: {safeSummary.tests_avg_score == null ? '—' : fmtScore(safeSummary.tests_avg_score)}</small>
+            <small className="subject-stat-sub">{safeSummary.tests_percent}% completed</small>
+
+            <div className="subject-stat-metrics">
+              <div className="stat-metric-item" title="Flat average of all test attempt percentages">
+                <span className="stat-metric-label">Avg Test Score</span>
+                <span className="stat-metric-val">
+                  {safeSummary.avg_test_score != null ? `${Math.round(safeSummary.avg_test_score)}%` : '—'}
+                </span>
+              </div>
+              <div className="stat-metric-divider" />
+              <div className="stat-metric-item" title="Average of your best attempt on each test">
+                <span className="stat-metric-label">Avg Best Test</span>
+                <span className="stat-metric-val">
+                  {safeSummary.avg_best_test_score != null ? `${Math.round(safeSummary.avg_best_test_score)}%` : '—'}
+                </span>
+              </div>
+            </div>
           </div>
-          <div className="subject-stat">
-            <span className="subject-stat-label">Overall score</span>
-            <strong className={`subject-stat-value tone-text-${scoreTone(safeSummary.overall_score)}`}>
-              {Math.round(safeSummary.overall_score)}%
-            </strong>
-            <small>
+
+          {/* Block 3: Overall Score (Visually smaller, secondary metric across all attempts) */}
+          <div className="subject-stat subject-stat-overall">
+            <span className="subject-stat-label">Overall Score</span>
+            <div className="subject-stat-overall-badge">
+              <span className={`subject-stat-overall-num ${safeSummary.overall_score != null ? `tone-text-${scoreTone(safeSummary.overall_score)}` : 'tone-text-neutral'}`}>
+                {safeSummary.overall_score != null ? `${Math.round(safeSummary.overall_score)}%` : '—'}
+              </span>
+              <span className="subject-stat-overall-caption">
+                {safeSummary.total_attempts > 0
+                  ? `Across ${safeSummary.total_attempts} total attempt${safeSummary.total_attempts === 1 ? '' : 's'}`
+                  : 'No attempts recorded yet'}
+              </span>
+            </div>
+            <small className="subject-stat-sub">
               {safeSummary.last_activity
-                ? `Last activity ${new Date(safeSummary.last_activity).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
-                : 'No attempts yet'}
+                ? `Last active ${new Date(safeSummary.last_activity).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
+                : 'All assignments & tests combined'}
             </small>
           </div>
         </div>
@@ -199,7 +264,7 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
             />
           </div>
           <div className="subject-progress-meta">
-            <span>{safeSummary.assignments_completed} of {safeSummary.assignments_total} attempted</span>
+            <span>{safeSummary.assignments_completed} of {safeSummary.assignments_total} assignments completed</span>
             <span>{safeSummary.assignments_percent}%</span>
           </div>
         </div>
@@ -250,13 +315,19 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
             )}
             {selectedChapter.assignment_quiz_id && (
               <Link to={`/take-exam/${selectedChapter.assignment_quiz_id}`} className="btn btn-sm btn-outline">
-                <FileCheck2 size={13} /> Start Assignment
+                <FileCheck2 size={13} /> {selectedChapter.assignment_completed ? 'Retake Assignment' : 'Start Assignment'}
               </Link>
             )}
             {selectedChapter.test_quiz_id && (
-              <Link to={`/take-exam/${selectedChapter.test_quiz_id}`} className="btn btn-sm" style={{ background: '#4f46e5', color: '#fff' }}>
-                <BookOpen size={13} /> Start Chapter Exam
-              </Link>
+              selectedChapter.test_locked ? (
+                <button disabled className="btn btn-sm" style={{ opacity: 0.65, cursor: 'not-allowed', background: '#94a3b8', color: '#fff' }}>
+                  <Lock size={13} /> Test Locked (Complete Assignment First)
+                </button>
+              ) : (
+                <Link to={`/take-exam/${selectedChapter.test_quiz_id}`} className="btn btn-sm" style={{ background: '#4f46e5', color: '#fff' }}>
+                  <BookOpen size={13} /> {selectedChapter.test_completed ? 'Retake Chapter Exam' : 'Start Chapter Exam'}
+                </Link>
+              )
             )}
             {!selectedChapter.assignment_quiz_id && !selectedChapter.test_quiz_id && (
               <span
@@ -283,8 +354,8 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
         <div className="curriculum-module-banner-meta">
           <span>{safeSummary.chapters_attempted} / {safeSummary.chapters_total} done</span>
           {' · '}
-          <strong style={{ color: safeSummary.overall_score >= 60 ? '#15803d' : '#d97706', fontWeight: 800 }}>
-            {Math.round(safeSummary.overall_score)}% avg
+          <strong style={{ color: safeSummary.overall_score != null && safeSummary.overall_score >= 60 ? '#15803d' : '#d97706', fontWeight: 800 }}>
+            {safeSummary.overall_score != null ? `${Math.round(safeSummary.overall_score)}% avg` : '— avg'}
           </strong>
         </div>
       </div>
@@ -295,31 +366,9 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
             const t = row.test;
             const isPractice = t.type === 'practice';
             const tested = t.attempt_count > 0;
-            const coveredChapters = chapters.filter((c) => (
-              (Array.isArray(t.chapter_ids) && t.chapter_ids.some((id) => String(id) === String(c.id)))
-              || String(t.chapter_id) === String(c.id)
-            ));
-            const readyCount = coveredChapters.filter((c) => Number(c.last_score || 0) >= 50).length;
-            const totalRequired = coveredChapters.length || 1;
             const isStaff = user?.role === 'admin' || user?.role === 'instructor';
-            const isReady = (isStaff || isPractice || readyCount >= totalRequired) && row.unlocked;
-            const incompleteList = coveredChapters.filter((c) => Number(c.last_score || 0) < 50);
-
-            // Compute friendly coverage text, e.g. "(Chapter 1 to 6)"
-            let coverageText = '';
-            if (coveredChapters.length > 1) {
-              const sorted = [...coveredChapters].sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
-              const firstOrder = sorted[0].order_index || 1;
-              const lastOrder = sorted[sorted.length - 1].order_index || sorted.length;
-              const isConsecutive = sorted.every((ch, i) => (ch.order_index || i + 1) === firstOrder + i);
-              coverageText = isConsecutive
-                ? `(Chapter ${firstOrder} to ${lastOrder})`
-                : `(Chapters ${sorted.map((ch) => ch.order_index || 1).join(', ')})`;
-            } else if (coveredChapters.length === 1) {
-              coverageText = `(${coveredChapters[0].title})`;
-            } else {
-              coverageText = '(Comprehensive Subject Milestone)';
-            }
+            const isLocked = !isStaff && t.is_locked;
+            const isReady = isStaff || !t.is_locked;
 
             return (
               <div
@@ -334,23 +383,34 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
                       <div
                         className="fc-status-pending"
                         style={{
-                          background: isReady ? (isPractice ? '#10b981' : '#22c55e') : '#eab308',
-                          boxShadow: `0 0 0 1.5px ${isReady ? (isPractice ? '#10b981' : '#22c55e') : '#eab308'}`,
+                          background: isReady ? '#22c55e' : '#eab308',
+                          boxShadow: `0 0 0 1.5px ${isReady ? '#22c55e' : '#eab308'}`,
                         }}
                       />
                     )}
                   </div>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      {/* Exact title entered by admin/instructor - never appending chapter lists */}
                       <strong style={{ fontSize: '.94rem', color: 'var(--text)' }}>{t.title}</strong>
-                      {coverageText && (
-                        <span style={{ fontSize: '0.80rem', color: isPractice ? 'var(--success)' : 'var(--warning)', fontWeight: 600 }}>
-                          {coverageText}
+                      <span className="fc-test-badge">
+                        {isPractice ? 'PRACTICE MILESTONE' : 'MILESTONE TEST'}
+                      </span>
+                      {isReady && !isLocked && (
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          background: '#dcfce7',
+                          color: '#15803d',
+                          fontSize: '.72rem',
+                          fontWeight: 700,
+                          padding: '2px 8px',
+                          borderRadius: 999,
+                        }}>
+                          <Check size={11} strokeWidth={3} /> Milestone Achieved · Ready to Launch
                         </span>
                       )}
-                      <span className="fc-test-badge">
-                        {isPractice ? 'ASSIGNMENT' : 'TEST'}
-                      </span>
                     </div>
                   </div>
                 </div>
@@ -364,28 +424,30 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
-                  {!isReady ? (
+                  {isLocked ? (
                     <>
                       <span className="fc-test-locked-pill">
-                        <Lock size={12} /> TEST LOCKED
+                        <Lock size={12} /> MILESTONE LOCKED
                       </span>
-                      <span className="fc-test-ready-counter">
-                        {readyCount} / {totalRequired} ready
-                      </span>
-                      {incompleteList.length > 0 && (
+                      {t.total_requirements > 0 && (
+                        <span className="fc-test-ready-counter">
+                          {t.completed_requirements} / {t.total_requirements} completed
+                        </span>
+                      )}
+                      {t.pending_requirements && t.pending_requirements.length > 0 && (
                         <div className="fc-test-prereqs">
-                          Needs 50%+: {incompleteList.map((ch) => `${ch.title}: ${ch.last_score != null ? Math.round(ch.last_score) + '%' : '0%'}`).join(' · ')}
+                          Needs: {t.pending_requirements.map((r) => (typeof r === 'string' ? r : r.label || r.chapter_title)).slice(0, 2).join(' · ')}{t.pending_requirements.length > 2 ? ` (+${t.pending_requirements.length - 2} more)` : ''}
                         </div>
                       )}
                     </>
                   ) : (
                     <Link
                       to={`/take-exam/${t.id}`}
-                      className={`btn btn-sm ${isPractice ? 'btn-outline cb-btn-quiz' : 'btn-primary'}`}
+                      className="btn btn-sm btn-primary"
                       style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                     >
-                      {isPractice ? <Tag size={13} /> : <FileCheck2 size={13} />}
-                      {tested ? (isPractice ? 'Retake Assignment' : 'Retake Test') : (isPractice ? 'Start Assignment' : 'Start Test')}
+                      <FileCheck2 size={13} />
+                      {tested ? 'Retake Milestone Test' : 'Start Milestone Test'}
                     </Link>
                   )}
                 </div>
@@ -466,7 +528,7 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
                       onClick={() => setViewingNotes(c)}
                       title="Open Full Chapter Study Notes"
                     >
-                      <FileText size={12} style={{ color: '#4f46e5' }} /> NOTES
+                      <FileText size={12} /> NOTES
                     </button>
                   )}
 
@@ -474,22 +536,41 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
                   {c.assignment_quiz_id && c.unlocked && (
                     <Link
                       to={`/take-exam/${c.assignment_quiz_id}`}
-                      className="fc-btn-assign"
-                      title="Start Chapter Practice Assignment"
+                      className={`fc-btn-assign ${c.assignment_completed ? 'completed' : ''}`}
+                      title={c.assignment_completed ? `Assignment completed (${c.assignment_last_score}%). Click to practice again.` : 'Start Chapter Practice Assignment'}
                     >
-                      <Tag size={12} style={{ color: '#16a34a' }} /> ASSIGNMENT
+                      <Tag size={12} /> ASSIGNMENT
+                      {c.assignment_completed && c.assignment_last_score != null && (
+                        <span className="fc-action-score-badge">
+                          {Math.round(c.assignment_last_score)}%
+                        </span>
+                      )}
                     </Link>
                   )}
 
                   {/* Exam Button: shown only if formal chapter exam exists */}
                   {c.test_quiz_id && c.unlocked && (
-                    <Link
-                      to={`/take-exam/${c.test_quiz_id}`}
-                      className="fc-btn-exam"
-                      title="Start Chapter Exam"
-                    >
-                      <BookOpen size={12} /> EXAM
-                    </Link>
+                    c.test_locked ? (
+                      <span
+                        className="fc-btn-exam is-locked"
+                        title="Complete chapter assignment first to unlock this test"
+                      >
+                        <Lock size={12} /> TEST LOCKED
+                      </span>
+                    ) : (
+                      <Link
+                        to={`/take-exam/${c.test_quiz_id}`}
+                        className={`fc-btn-exam ${c.test_completed ? 'completed' : ''}`}
+                        title={c.test_completed ? `Chapter test completed (${c.test_last_score}%). Click to retake.` : 'Start Chapter Exam'}
+                      >
+                        <BookOpen size={12} /> EXAM
+                        {c.test_completed && c.test_last_score != null && (
+                          <span className="fc-action-score-badge">
+                            {Math.round(c.test_last_score)}%
+                          </span>
+                        )}
+                      </Link>
+                    )
                   )}
 
                   {/* Assessment Not Available if neither assignment nor exam quiz has been created yet */}

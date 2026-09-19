@@ -31,7 +31,7 @@ export default function SessionExpiredModal() {
         </div>
         <div className="modal-body">
           <p style={{ margin: 0, fontSize: '.87rem', color: 'var(--muted)' }}>
-            Your session has been idle for a while and could not be renewed automatically.
+            Your session could not be renewed automatically.
             Sign in again to pick up where you left off — your saved work is safe.
           </p>
         </div>

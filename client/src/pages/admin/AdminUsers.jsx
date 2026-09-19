@@ -276,6 +276,7 @@ export default function AdminUsers() {
                             ? <Button size="xs" variant="success-soft" icon={RotateCcw} onClick={() => askSuspend(u)}>Reactivate</Button>
                             : <Button size="xs" variant="warning-soft" icon={Ban} onClick={() => askSuspend(u)}>Suspend</Button>}
                           <RowMenu items={[
+                            ...(u.role === 'student' ? [{ label: 'Open 360° Cadet Record', icon: GraduationCap, onClick: () => { window.location.href = `/admin/students/${u.id}`; } }] : []),
                             { label: 'View analytics', icon: GraduationCap, onClick: () => { window.location.href = `/admin/student-analytics?student=${u.id}`; } },
                             { label: 'Copy email', icon: Building2, onClick: () => { navigator.clipboard?.writeText(u.email); toast.info('Email copied', u.email); } },
                           ]} />
@@ -309,6 +310,36 @@ export default function AdminUsers() {
         )}
       >
         <form onSubmit={submit}>
+          {editing && editing.role === 'student' && (
+            <div style={{
+              marginBottom: 16,
+              padding: '10px 14px',
+              borderRadius: 8,
+              background: 'rgba(79, 70, 229, 0.08)',
+              border: '1px solid rgba(79, 70, 229, 0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+            }}>
+              <div>
+                <strong style={{ fontSize: '0.82rem', color: 'var(--text)', display: 'block' }}>
+                  Full 360° Cadet Record Available
+                </strong>
+                <span style={{ fontSize: '0.74rem', color: 'var(--muted)' }}>
+                  Manage course enrollments, batch assignments, exam attempts &amp; analytics.
+                </span>
+              </div>
+              <a
+                href={`/admin/students/${editing.id}`}
+                className="btn btn-sm btn-primary"
+                style={{ flexShrink: 0, padding: '4px 12px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              >
+                <GraduationCap size={14} /> Open 360° Record
+              </a>
+            </div>
+          )}
+
           {/* Section 1: Blue Card - User Identity */}
           <div className="form-card-box form-card-blue">
             <div className="form-card-header-row">

@@ -68,7 +68,11 @@ export function AuthProvider({ children }) {
         setUser(d.user);
         setAuthVersion((v) => v + 1);
       })
-      .catch(() => { if (active) clearSession(); })
+      .catch((err) => {
+        if (active && (err?.status === 401 || err?.status === 403 || /token|session|unauthor/i.test(err?.message || ''))) {
+          clearSession();
+        }
+      })
       .finally(() => { if (active) setLoading(false); });
 
     return () => { active = false; };

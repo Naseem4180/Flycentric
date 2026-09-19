@@ -177,10 +177,13 @@ router.post('/login', loginLimiter, async (req, res) => {
         }
       }
 
-      // Invalidate old sessions and refresh tokens for student
-      await pool.query('UPDATE user_sessions SET is_active = false WHERE user_id = $1', [user.id]);
-      await pool.query('DELETE FROM refresh_tokens WHERE user_id = $1', [user.id]);
-      clearAllSessionCache();
+      // Invalidate old sessions for student if forced logout was confirmed
+      if (forceLogout) {
+        await pool.query('UPDATE user_sessions SET is_active = false WHERE user_id = $1', [user.id]);
+        clearAllSessionCache();
+      }
+      // Clean up only expired refresh tokens
+      await pool.query('DELETE FROM refresh_tokens WHERE expires_at < now()');
     }
 
     // Issue new session for current browser
@@ -268,9 +271,11 @@ router.post('/google', async (req, res) => {
         }
       }
 
-      await pool.query('UPDATE user_sessions SET is_active = false WHERE user_id = $1', [user.id]);
-      await pool.query('DELETE FROM refresh_tokens WHERE user_id = $1', [user.id]);
-      clearAllSessionCache();
+      if (forceLogout) {
+        await pool.query('UPDATE user_sessions SET is_active = false WHERE user_id = $1', [user.id]);
+        clearAllSessionCache();
+      }
+      await pool.query('DELETE FROM refresh_tokens WHERE expires_at < now()');
     }
 
     const sessionToken = crypto.randomBytes(32).toString('hex');
@@ -295,16 +300,42 @@ router.post('/refresh', async (req, res) => {
   if (!refreshToken) return res.status(400).json({ error: 'refreshToken required' });
   try {
     const payload = verifyRefreshToken(refreshToken);
-    const stored = await pool.query('SELECT * FROM refresh_tokens WHERE token = $1 AND user_id = $2', [refreshToken, payload.sub]);
-    if (!stored.rows.length) return res.status(401).json({ error: 'Refresh token not recognized' });
     const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [payload.sub]);
     const user = userResult.rows[0];
     if (!user) return res.status(401).json({ error: 'User not found' });
+    if (user.status !== 'active') return res.status(401).json({ error: 'Account is inactive' });
+
+    // Ensure the refresh token is registered in the database
+    const stored = await pool.query('SELECT * FROM refresh_tokens WHERE token = $1 AND user_id = $2', [refreshToken, payload.sub]);
+    if (!stored.rows.length) {
+      const expDate = payload.exp ? new Date(payload.exp * 1000) : new Date(Date.now() + 30 * 24 * 3600 * 1000);
+      await pool.query(
+        `INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)`,
+        [user.id, refreshToken, expDate]
+      ).catch(() => {});
+    }
+
     const activeSess = await pool.query('SELECT id FROM user_sessions WHERE user_id = $1 AND is_active = true ORDER BY last_active_at DESC LIMIT 1', [user.id]);
-    const sessionId = activeSess.rows.length ? activeSess.rows[0].id : null;
+    let sessionId = activeSess.rows.length ? activeSess.rows[0].id : null;
+    if (!sessionId && user.role === 'student') {
+      const sessionToken = crypto.randomBytes(32).toString('hex');
+      const newSession = await pool.query(
+        `INSERT INTO user_sessions (user_id, session_token, user_agent, ip_address, is_active)
+         VALUES ($1, $2, $3, $4, true) RETURNING id`,
+        [user.id, sessionToken, req.headers['user-agent'] || null, req.ip || null]
+      );
+      sessionId = newSession.rows[0].id;
+    } else if (sessionId) {
+      await pool.query('UPDATE user_sessions SET last_active_at = now(), is_active = true WHERE id = $1', [sessionId]);
+    }
+    if (sessionId) {
+      invalidateSessionCache(sessionId);
+    }
     const accessToken = signAccessToken(user, sessionId);
-    res.json({ accessToken });
+    delete user.password_hash;
+    res.json({ accessToken, refreshToken, user });
   } catch (err) {
+    console.warn('[AUTH REFRESH FAILED]:', err.message);
     res.status(401).json({ error: 'Invalid refresh token' });
   }
 });

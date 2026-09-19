@@ -35,6 +35,7 @@ export default function AdminQuizzes() {
     attempt_limit: 0,
     status: 'draft',
     question_count: 10,
+    require_previous_completion: true,
   });
   const [saving, setSaving] = useState(false);
   const [availableQuestions, setAvailableQuestions] = useState([]);
@@ -120,6 +121,7 @@ export default function AdminQuizzes() {
         attempt_limit: quiz.attempt_limit || 0,
         status: quiz.status || 'draft',
         question_count: Array.isArray(quiz.question_ids) ? quiz.question_ids.length : 10,
+        require_previous_completion: quiz.require_previous_completion ?? true,
       });
       setSelectedQuestions(Array.isArray(quiz.question_ids) ? quiz.question_ids : []);
     } else {
@@ -134,6 +136,7 @@ export default function AdminQuizzes() {
         attempt_limit: 0,
         status: 'draft',
         question_count: 10,
+        require_previous_completion: true,
       });
       setSelectedQuestions([]);
     }
@@ -169,6 +172,7 @@ export default function AdminQuizzes() {
         duration_minutes: form.type === 'practice' ? null : Number(form.duration_minutes) || 30,
         attempt_limit: Number(form.attempt_limit) || 0,
         status: form.status,
+        require_previous_completion: form.require_previous_completion ?? true,
         question_ids: qIds,
       };
 
@@ -479,6 +483,19 @@ export default function AdminQuizzes() {
                   <option value="published">Published (Live to students)</option>
                 </select>
               </div>
+
+              {form.chapter_ids && form.chapter_ids.length > 1 && (
+                <div className="field" style={{ marginTop: 12 }}>
+                  <label>Prerequisite Completion</label>
+                  <select
+                    value={form.require_previous_completion !== false ? 'yes' : 'no'}
+                    onChange={(e) => setForm({ ...form, require_previous_completion: e.target.value === 'yes' })}
+                  >
+                    <option value="yes">Required (Students must complete all covered chapter assignments &amp; tests)</option>
+                    <option value="no">Not Required (Milestone test unlocked immediately)</option>
+                  </select>
+                </div>
+              )}
             </div>
 
             {form.subject_id && availableQuestions.length > 0 && (

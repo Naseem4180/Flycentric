@@ -387,9 +387,7 @@ export default function AppTopbar({ onToggleSidebar, quickLinks = [], onNotifica
 
               <div className="fc-avatar-menu-body">
                 <Link className="fc-panel-item fc-menu-item" to={settingsPath} onClick={() => setOpenPanel(null)}>
-                  <div className="fc-item-pod pod-indigo">
-                    <User size={15} />
-                  </div>
+                  <User size={18} className="fc-menu-icon icon-indigo" />
                   <div className="fc-item-text">
                     <span className="fc-item-title">Profile &amp; account</span>
                     <span className="fc-item-sub">Personal details &amp; password</span>
@@ -398,9 +396,7 @@ export default function AppTopbar({ onToggleSidebar, quickLinks = [], onNotifica
                 </Link>
 
                 <button className="fc-panel-item fc-menu-item" onClick={() => { toggle(); setOpenPanel(null); }}>
-                  <div className={`fc-item-pod ${theme === 'dark' ? 'pod-amber' : 'pod-indigo'}`}>
-                    {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
-                  </div>
+                  {theme === 'dark' ? <Sun size={18} className="fc-menu-icon icon-amber" /> : <Moon size={18} className="fc-menu-icon icon-indigo" />}
                   <div className="fc-item-text">
                     <span className="fc-item-title">{theme === 'dark' ? 'Day mode' : 'Night mode'}</span>
                     <span className="fc-item-sub">{theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}</span>
@@ -411,9 +407,7 @@ export default function AppTopbar({ onToggleSidebar, quickLinks = [], onNotifica
                 </button>
 
                 <Link className="fc-panel-item fc-menu-item" to={settingsPath} onClick={() => setOpenPanel(null)}>
-                  <div className="fc-item-pod pod-sky">
-                    <Settings size={15} />
-                  </div>
+                  <Settings size={18} className="fc-menu-icon icon-sky" />
                   <div className="fc-item-text">
                     <span className="fc-item-title">Settings</span>
                     <span className="fc-item-sub">{isAdmin ? 'System configuration' : 'Preferences'}</span>
@@ -424,9 +418,7 @@ export default function AppTopbar({ onToggleSidebar, quickLinks = [], onNotifica
                 <div className="fc-menu-divider" />
 
                 <button className="fc-panel-item fc-menu-item fc-menu-item-danger" onClick={handleLogout}>
-                  <div className="fc-item-pod pod-rose">
-                    <LogOut size={15} />
-                  </div>
+                  <LogOut size={18} className="fc-menu-icon icon-rose" />
                   <div className="fc-item-text">
                     <span className="fc-item-title">Log out</span>
                     <span className="fc-item-sub">End active session</span>

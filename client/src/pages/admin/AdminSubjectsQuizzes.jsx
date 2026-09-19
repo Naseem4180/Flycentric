@@ -29,6 +29,7 @@ import {
 const BLANK_QUIZ = {
   title: '', type: 'practice', duration_minutes: 30, pass_percent: 70, question_ids: [],
   status: 'draft', allow_review_after_submit: true, chapter_ids: [],
+  require_previous_completion: true,
 };
 
 export default function AdminSubjectsQuizzes() {
@@ -66,6 +67,13 @@ export default function AdminSubjectsQuizzes() {
   const [chapterEditing, setChapterEditing] = useState(null);
   const [savingChapter, setSavingChapter] = useState(false);
 
+  // Chapter notes dialog
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [notesChapter, setNotesChapter] = useState(null);
+  const [notesContent, setNotesContent] = useState('');
+  const [notesUrl, setNotesUrl] = useState('');
+  const [savingNotes, setSavingNotes] = useState(false);
+
   // Quiz dialog
   const [quizOpen, setQuizOpen] = useState(false);
   const [quizEditing, setQuizEditing] = useState(null);
@@ -74,6 +82,8 @@ export default function AdminSubjectsQuizzes() {
   const [savingQuiz, setSavingQuiz] = useState(false);
   const [pickerSearch, setPickerSearch] = useState('');
   const [pickerDifficulty, setPickerDifficulty] = useState('');
+  const [pickerSubjectFilter, setPickerSubjectFilter] = useState('current');
+  const [showOtherSubjectChapters, setShowOtherSubjectChapters] = useState(false);
   const [quizModalExpanded, setQuizModalExpanded] = useState(false);
   const [expandedQuestionIds, setExpandedQuestionIds] = useState(new Set());
   const [confirm, setConfirm] = useState(null);
@@ -96,7 +106,12 @@ export default function AdminSubjectsQuizzes() {
       }));
       setCourses(bundles.map((b, i) => ({ ...b, subjects: links[i] })));
       setSubjectBundleIds(memberships);
-      setSubjects(allSubjects.map((s) => ({ ...s, unlinked: !linkedIds.has(String(s.id)) })));
+      const formattedSubjects = allSubjects.map((s) => ({ ...s, unlinked: !linkedIds.has(String(s.id)) }));
+      setSubjects(formattedSubjects);
+      setActive((prev) => {
+        if (!prev) return prev;
+        return formattedSubjects.find((s) => String(s.id) === String(prev.id)) || prev;
+      });
 
       // Keep the page usable while an older API process is still running or a
       // deployment does not yet expose the global chapter endpoint.
@@ -151,7 +166,9 @@ export default function AdminSubjectsQuizzes() {
 
   /* ------------------------------ derived ------------------------------- */
   const activeChapters = useMemo(
-    () => chapters.filter((c) => String(c.subject_id) === String(active?.id)),
+    () => (chapters || [])
+      .filter((c) => String(c.subject_id) === String(active?.id))
+      .sort((a, b) => (Number(a.order_index) || 0) - (Number(b.order_index) || 0) || a.id - b.id),
     [chapters, active]
   );
 
@@ -192,10 +209,11 @@ export default function AdminSubjectsQuizzes() {
   }, [allQuestions]);
 
   // Quizzes grouped by chapter. Single-chapter quizzes show under their chapter.
-  // Multi-chapter quizzes are anchored to the LATEST chapter in sequence, matching
-  // their position in the student curriculum.
+  // Multi-chapter / milestone quizzes are anchored after the latest chapter in sequence.
+  // Quizzes spanning multiple subjects or not anchored to this subject's chapters appear under unassigned/subject-wide.
   const quizzesByChapter = useMemo(() => {
     const map = {};
+    const milestoneMap = {};
     const unassigned = [];
     (quizzes || []).forEach((q) => {
       const ids = (q.chapter_ids && q.chapter_ids.length)
@@ -203,34 +221,45 @@ export default function AdminSubjectsQuizzes() {
         : (q.chapter_id ? [String(q.chapter_id)] : []);
       if (!ids.length) { unassigned.push(q); return; }
       if (ids.length === 1) {
-        (map[ids[0]] = map[ids[0]] || []).push(q);
+        if (activeChapters.some((c) => String(c.id) === ids[0])) {
+          (map[ids[0]] = map[ids[0]] || []).push(q);
+        } else {
+          unassigned.push(q);
+        }
       } else {
         const activeMap = new Map(activeChapters.map((c, idx) => [String(c.id), idx]));
         const known = ids.filter((id) => activeMap.has(id));
-        let anchorId = ids[ids.length - 1];
         if (known.length) {
-          anchorId = known.reduce((best, id) => (activeMap.get(id) > activeMap.get(best) ? id : best));
+          const anchorId = known.reduce((best, id) => (activeMap.get(id) > activeMap.get(best) ? id : best));
+          (milestoneMap[anchorId] = milestoneMap[anchorId] || []).push(q);
+        } else {
+          unassigned.push(q);
         }
-        (map[anchorId] = map[anchorId] || []).push(q);
       }
     });
-    return { map, unassigned };
+    return { map, milestoneMap, unassigned };
   }, [quizzes, activeChapters]);
 
-  // The question pool follows the chapters ticked in the dialog. With none
-  // ticked it falls back to everything belonging to this subject, so a quiz
-  // that deliberately spans the whole subject is still easy to build.
+  // The question pool follows the chapters ticked in the dialog, or the chosen subject filter.
   const pickerQuestions = useMemo(() => {
     const selected = new Set(quizForm.chapter_ids.map(String));
     const activeChapterIds = new Set(activeChapters.map((c) => String(c.id)));
     let pool;
-    if (selected.size && (activeChapters.length === 0 || selected.size < activeChapters.length)) {
-      pool = allQuestions.filter((q) => selected.has(String(q.chapter_id || '')));
+    if (pickerSubjectFilter === 'all') {
+      pool = selected.size
+        ? allQuestions.filter((q) => selected.has(String(q.chapter_id || '')) || !q.chapter_id)
+        : allQuestions;
+    } else if (pickerSubjectFilter && pickerSubjectFilter !== 'current') {
+      pool = allQuestions.filter((q) => String(q.subject_id || '') === String(pickerSubjectFilter));
     } else {
-      pool = allQuestions.filter((q) => (
-        String(q.subject_id || '') === String(active?.id || '')
-        || activeChapterIds.has(String(q.chapter_id || ''))
-      ));
+      if (selected.size && (activeChapters.length === 0 || selected.size < activeChapters.length)) {
+        pool = allQuestions.filter((q) => selected.has(String(q.chapter_id || '')));
+      } else {
+        pool = allQuestions.filter((q) => (
+          String(q.subject_id || '') === String(active?.id || '')
+          || activeChapterIds.has(String(q.chapter_id || ''))
+        ));
+      }
     }
     if (pickerDifficulty) {
       pool = pool.filter((q) => String(q.difficulty || '').toLowerCase() === pickerDifficulty.toLowerCase());
@@ -238,7 +267,7 @@ export default function AdminSubjectsQuizzes() {
     const term = pickerSearch.trim().toLowerCase();
     if (!term) return pool;
     return pool.filter((q) => (q.question_text || '').toLowerCase().includes(term) || String(q.id).includes(term));
-  }, [allQuestions, quizForm.chapter_ids, activeChapters, active, pickerSearch, pickerDifficulty]);
+  }, [allQuestions, quizForm.chapter_ids, activeChapters, active, pickerSearch, pickerDifficulty, pickerSubjectFilter]);
 
   const chapterTitleById = useMemo(
     () => Object.fromEntries(chapters.map((c) => [String(c.id), c.title])),
@@ -473,7 +502,7 @@ export default function AdminSubjectsQuizzes() {
     setChapterOpen(true);
   }
 
-  async function saveChapter(e) {
+    async function saveChapter(e) {
     e?.preventDefault();
     const title = chapterTitle.trim();
     if (!title) { toast.warning('Chapter name is required'); return; }
@@ -481,7 +510,9 @@ export default function AdminSubjectsQuizzes() {
     try {
       const payload = {
         title,
-        order_index: Number(chapterOrderId) || 1,
+        order_index: Number.isFinite(Number(chapterOrderId)) && Number(chapterOrderId) > 0
+          ? Number(chapterOrderId)
+          : (chapterEditing?.order_index || 1),
         notes: chapterNotes.trim() || null,
         notes_url: chapterNotesUrl.trim() || null,
         has_exam: chapterHasExam,
@@ -514,6 +545,36 @@ export default function AdminSubjectsQuizzes() {
       );
     } finally {
       setSavingChapter(false);
+    }
+  }
+
+  function openNotesDialog(chapter) {
+    setNotesChapter(chapter);
+    setNotesContent(chapter?.notes || '');
+    setNotesUrl(chapter?.notes_url || '');
+    setNotesOpen(true);
+  }
+
+  async function saveNotes(e) {
+    e?.preventDefault();
+    if (!notesChapter) return;
+    setSavingNotes(true);
+    try {
+      const payload = {
+        title: notesChapter.title,
+        order_index: notesChapter.order_index ?? 1,
+        notes: notesContent.trim() || null,
+        notes_url: notesUrl.trim() || null,
+        has_exam: notesChapter.has_exam,
+      };
+      await api.patch(`/content/chapters/${notesChapter.id}`, payload);
+      toast.success('Study notes saved', notesChapter.title);
+      setNotesOpen(false);
+      await loadTree();
+    } catch (err) {
+      toast.error('Could not save notes', err.message);
+    } finally {
+      setSavingNotes(false);
     }
   }
 
@@ -565,6 +626,7 @@ export default function AdminSubjectsQuizzes() {
       question_ids: (quiz.question_ids || []).map(Number),
       status: quiz.status || 'draft',
       allow_review_after_submit: quiz.allow_review_after_submit ?? true,
+      require_previous_completion: quiz.require_previous_completion ?? true,
       ...overrides,
     };
   }
@@ -633,6 +695,7 @@ export default function AdminSubjectsQuizzes() {
         question_ids: quizForm.question_ids,
         status: quizForm.status,
         allow_review_after_submit: quizForm.allow_review_after_submit,
+        require_previous_completion: quizForm.require_previous_completion ?? true,
         chapter_ids: quizForm.chapter_ids.map(Number),
         duration_minutes: quizForm.type === 'exam' ? Number(quizForm.duration_minutes) : null,
       };
@@ -975,126 +1038,200 @@ export default function AdminSubjectsQuizzes() {
                 activeChapters.map((c) => {
                   const key = String(c.id);
                   const chapterQuizzes = quizzesByChapter.map[key] || [];
+                  const milestonesAfterChapter = quizzesByChapter.milestoneMap[key] || [];
                   const isOpen = openChapters[key] ?? false;
                   return (
-                    <div className="cb-chapter" key={c.id}>
-                      <div
-                        className="cb-chapter-row"
-                        onClick={() => setOpenChapters((prev) => ({ ...prev, [key]: !isOpen }))}
-                        role="button"
-                        tabIndex={0}
-                        aria-expanded={isOpen}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            setOpenChapters((prev) => ({ ...prev, [key]: !isOpen }));
-                          }
-                        }}
-                      >
-                        <GripVertical size={14} className="muted cb-chapter-drag" />
-                        <ChevronDown size={16} className={`cb-chapter-caret ${isOpen ? 'open' : ''}`} />
-                        <span className="chapter-num-badge">
-                          {String(c.order_index || 1).padStart(2, '0')}
-                        </span>
-                        <span className="cb-chapter-name">{c.title}</span>
-                        <div className="cb-chapter-badges">
-                          {(c.notes || c.notes_url) && (
-                            <span className="badge" style={{ fontSize: '0.68rem', background: '#e0f2fe', color: '#0369a1', fontWeight: 600 }}>
-                              <FileText size={10} style={{ marginRight: 2, verticalAlign: -1 }} /> Notes
-                            </span>
-                          )}
-                          {c.has_exam && (
-                            <span className="badge" style={{ fontSize: '0.68rem', background: '#fef3c7', color: '#92400e', fontWeight: 600 }}>
-                              Exam
-                            </span>
-                          )}
-                        </div>
-                        <span className="cb-chapter-count">
-                          {chapterQuizzes.length} {chapterQuizzes.length === 1 ? 'quiz' : 'quizzes'}
-                          {' · '}{questionCountByChapter[key] || 0} Qs
-                        </span>
-
-                        <div className="cb-chapter-row-actions" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            type="button"
-                            className="btn btn-xs cb-btn-quiz"
-                            onClick={() => openQuiz(null, c.id, 'practice')}
-                            title="Create practice quiz for this chapter"
-                          >
-                            <Plus size={12} /> Quiz
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-xs cb-btn-exam"
-                            onClick={() => openQuiz(null, c.id, 'exam')}
-                            title="Create exam for this chapter"
-                          >
-                            <Plus size={12} /> Exam
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-xs btn-ghost"
-                            onClick={() => openChapterDialog(c)}
-                            title="Edit chapter title and notes"
-                          >
-                            <Pencil size={12} />
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-xs btn-ghost text-danger"
-                            onClick={() => askDeleteChapter(c)}
-                            title="Delete chapter"
-                          >
-                            <Trash2 size={12} />
-                          </button>
-                        </div>
-                      </div>
-
-                      {isOpen && (
-                        <div className="cb-chapter-body">
-                          {quizzes === null ? (
-                            <p className="muted" style={{ fontSize: '.8rem' }}>Loading quizzes…</p>
-                          ) : chapterQuizzes.length ? (
-                            chapterQuizzes.map(renderQuizRow)
-                          ) : (
-                            <div className="cb-chapter-empty-inline">
-                              <span className="muted" style={{ fontSize: '.8rem' }}>
-                                No quizzes or exams assigned to this chapter yet.
+                    <div key={c.id} className="cb-chapter-container">
+                      <div className="cb-chapter">
+                        <div
+                          className="cb-chapter-row"
+                          onClick={() => setOpenChapters((prev) => ({ ...prev, [key]: !isOpen }))}
+                          role="button"
+                          tabIndex={0}
+                          aria-expanded={isOpen}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setOpenChapters((prev) => ({ ...prev, [key]: !isOpen }));
+                            }
+                          }}
+                        >
+                          <GripVertical size={14} className="muted cb-chapter-drag" />
+                          <ChevronDown size={16} className={`cb-chapter-caret ${isOpen ? 'open' : ''}`} />
+                          <span className="chapter-num-badge">
+                            {String(c.order_index || 1).padStart(2, '0')}
+                          </span>
+                          <span className="cb-chapter-name">{c.title}</span>
+                          <div className="cb-chapter-badges">
+                            {(c.notes || c.notes_url) && (
+                              <span className="badge" style={{ fontSize: '0.68rem', background: '#e0f2fe', color: '#0369a1', fontWeight: 700, padding: '2px 8px', borderRadius: 999 }}>
+                                <FileText size={10} style={{ marginRight: 3, verticalAlign: -1 }} /> Notes Added
                               </span>
-                              <div className="row" style={{ gap: 6 }}>
+                            )}
+                            {c.has_exam && (
+                              <span className="badge" style={{ fontSize: '0.68rem', background: '#fef3c7', color: '#92400e', fontWeight: 600 }}>
+                                Exam
+                              </span>
+                            )}
+                          </div>
+                          <span className="cb-chapter-count">
+                            {chapterQuizzes.length} {chapterQuizzes.length === 1 ? 'quiz' : 'quizzes'}
+                            {' · '}{questionCountByChapter[key] || 0} Qs
+                          </span>
+
+                          <div className="cb-chapter-row-actions" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              className="btn btn-xs cb-btn-quiz"
+                              onClick={() => openQuiz(null, c.id, 'practice')}
+                              title="Create practice quiz for this chapter"
+                            >
+                              <Plus size={12} /> Quiz
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-xs cb-btn-exam"
+                              onClick={() => openQuiz(null, c.id, 'exam')}
+                              title="Create exam for this chapter"
+                            >
+                              <Plus size={12} /> Exam
+                            </button>
+                            <button
+                              type="button"
+                              className={`btn btn-xs ${(c.notes || c.notes_url) ? 'cb-btn-notes is-active' : 'cb-btn-notes'}`}
+                              onClick={() => openNotesDialog(c)}
+                              title={(c.notes || c.notes_url) ? 'Edit study notes and document link' : 'Add study notes or document link for this chapter'}
+                            >
+                              {(c.notes || c.notes_url) ? <Check size={12} /> : <Plus size={12} />}
+                              {(c.notes || c.notes_url) ? 'Notes' : 'Notes'}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-xs btn-ghost"
+                              onClick={() => openChapterDialog(c)}
+                              title="Edit chapter title and order"
+                            >
+                              <Pencil size={12} />
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-xs btn-ghost text-danger"
+                              onClick={() => askDeleteChapter(c)}
+                              title="Delete chapter"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {isOpen && (
+                          <div className="cb-chapter-body">
+                            {(c.notes || c.notes_url) && (
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  padding: '8px 12px',
+                                  marginBottom: 6,
+                                  borderRadius: 8,
+                                  background: 'rgba(56, 189, 248, 0.08)',
+                                  border: '1px solid rgba(56, 189, 248, 0.22)',
+                                  fontSize: '0.8rem',
+                                }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
+                                  <FileText size={14} style={{ color: '#0284c7', flexShrink: 0 }} />
+                                  <span style={{ fontWeight: 600, color: 'var(--text)' }}>Study Notes:</span>
+                                  <span className="muted" style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                                    {c.notes ? `${c.notes.slice(0, 70)}${c.notes.length > 70 ? '…' : ''}` : c.notes_url}
+                                  </span>
+                                </div>
                                 <button
                                   type="button"
-                                  className="btn btn-xs cb-btn-quiz"
-                                  onClick={() => openQuiz(null, c.id, 'practice')}
+                                  className="btn btn-xs btn-ghost"
+                                  onClick={() => openNotesDialog(c)}
+                                  style={{ flexShrink: 0, padding: '2px 8px', fontSize: '0.74rem' }}
                                 >
-                                  <Plus size={12} /> Add Quiz
-                                </button>
-                                <button
-                                  type="button"
-                                  className="btn btn-xs cb-btn-exam"
-                                  onClick={() => openQuiz(null, c.id, 'exam')}
-                                >
-                                  <Plus size={12} /> Add Exam
+                                  <Pencil size={11} style={{ marginRight: 4 }} /> Edit Notes
                                 </button>
                               </div>
+                            )}
+                            {quizzes === null ? (
+                              <p className="muted" style={{ fontSize: '.8rem' }}>Loading quizzes…</p>
+                            ) : chapterQuizzes.length ? (
+                              chapterQuizzes.map(renderQuizRow)
+                            ) : (
+                              <div className="cb-chapter-empty-inline">
+                                <span className="muted" style={{ fontSize: '.8rem' }}>
+                                  No quizzes or exams assigned to this chapter yet.
+                                </span>
+                                <div className="row" style={{ gap: 6 }}>
+                                  <button
+                                    type="button"
+                                    className="btn btn-xs cb-btn-quiz"
+                                    onClick={() => openQuiz(null, c.id, 'practice')}
+                                  >
+                                    <Plus size={12} /> Add Quiz
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn btn-xs cb-btn-exam"
+                                    onClick={() => openQuiz(null, c.id, 'exam')}
+                                  >
+                                    <Plus size={12} /> Add Exam
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn btn-xs cb-btn-notes"
+                                    onClick={() => openNotesDialog(c)}
+                                  >
+                                    {(c.notes || c.notes_url) ? <Check size={12} /> : <Plus size={12} />}
+                                    {(c.notes || c.notes_url) ? 'Edit Notes' : 'Add Notes'}
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {milestonesAfterChapter.map((mQuiz) => {
+                        const mChapterCount = (mQuiz.chapter_ids && mQuiz.chapter_ids.length) || (mQuiz.chapter_id ? 1 : 0);
+                        return (
+                          <div
+                            key={`milestone-${mQuiz.id}`}
+                            style={{
+                              margin: '10px 0 16px 20px',
+                              padding: '10px 14px',
+                              borderRadius: 10,
+                              background: 'var(--surface-sunken, #f8fafc)',
+                              border: '1.5px dashed var(--accent, #e11d48)',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 8,
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.74rem', fontWeight: 700, color: 'var(--accent, #e11d48)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                              <Award size={14} /> Milestone Assessment · Covers {mChapterCount} Chapters
                             </div>
-                          )}
-                        </div>
-                      )}
+                            {renderQuizRow(mQuiz)}
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })
               )}
             </section>
 
-            {/* Subject-wide quizzes: not filed under any single chapter. They
-                used to be effectively invisible in the old flat table. */}
+            {/* Subject-wide & Multi-subject quizzes */}
             {Boolean(quizzesByChapter?.unassigned?.length) && (
               <section className="cb-section">
                 <div className="cb-section-head">
                   <ListChecks size={15} className="muted" />
-                  <h3>Subject-wide quizzes</h3>
-                  <span className="muted" style={{ fontSize: '.76rem' }}>Not tied to a single chapter.</span>
+                  <h3>Subject-Wide &amp; Multi-Subject Exams</h3>
+                  <span className="muted" style={{ fontSize: '.76rem' }}>Comprehensive exams covering multiple subjects or full curriculum.</span>
                 </div>
                 <div className="cb-chapter-body" style={{ paddingLeft: 16 }}>
                   {(quizzesByChapter?.unassigned || []).map(renderQuizRow)}
@@ -1823,25 +1960,87 @@ Chapter 4: CAR Section 2`}
               )}
             </div>
 
-            {/* Dynamic sequence location notice */}
-            {selectedAnchorChapter && quizForm.chapter_ids.length > 1 && (
+            {/* Milestone Curriculum Placement & Prerequisite Setting */}
+            {quizForm.chapter_ids.length > 1 && (
               <div style={{
-                marginTop: 4,
-                padding: '8px 12px',
-                background: '#ffffff',
-                border: `1px solid ${quizForm.type === 'practice' ? '#86efac' : '#bfdbfe'}`,
-                borderRadius: 8,
-                fontSize: '0.78rem',
-                color: quizForm.type === 'practice' ? '#166534' : '#1e40af',
-                fontWeight: 600,
+                marginTop: 10,
+                padding: '12px 14px',
+                background: 'var(--surface-alt, rgba(15, 23, 42, 0.03))',
+                border: '1px solid var(--border, #e2e8f0)',
+                borderRadius: 10,
                 display: 'flex',
-                alignItems: 'center',
-                gap: 8,
+                flexDirection: 'column',
+                gap: 10,
               }}>
-                <Sparkles size={15} style={{ color: quizForm.type === 'practice' ? '#16a34a' : '#2563eb', flexShrink: 0 }} />
-                <span>
-                  Will appear in Student Curriculum directly after <strong>#{selectedAnchorChapter.order_index} {selectedAnchorChapter.title}</strong> (between Chapter {selectedAnchorChapter.order_index} &amp; {Number(selectedAnchorChapter.order_index || 1) + 1}) as an inter-chapter milestone.
-                </span>
+                {selectedAnchorChapter && (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    fontSize: '0.82rem',
+                    color: 'var(--text)',
+                  }}>
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 26,
+                      height: 26,
+                      borderRadius: 6,
+                      background: quizForm.type === 'practice' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(59, 130, 246, 0.15)',
+                      color: quizForm.type === 'practice' ? '#16a34a' : '#2563eb',
+                      flexShrink: 0,
+                    }}>
+                      <Sparkles size={14} />
+                    </div>
+                    <div>
+                      <span>Curriculum Placement: Placed directly after </span>
+                      <strong style={{ color: 'var(--text)' }}>
+                        {selectedAnchorChapter.title}
+                      </strong>
+                      <span className="muted" style={{ marginLeft: 6, fontSize: '0.75rem' }}>
+                        ({quizForm.chapter_ids.length} chapters milestone)
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  paddingTop: 8,
+                  borderTop: '1px dashed var(--border, #e2e8f0)',
+                  flexWrap: 'wrap',
+                }}>
+                  <div>
+                    <strong style={{ fontSize: '0.82rem', display: 'block', color: 'var(--text)' }}>
+                      Require Preceding Chapter Completion
+                    </strong>
+                    <span style={{ fontSize: '0.74rem', color: 'var(--muted)' }}>
+                      Students must complete preceding chapter quizzes before this test unlocks.
+                    </span>
+                  </div>
+                  <div style={{ display: 'inline-flex', gap: 6, flexShrink: 0 }}>
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${quizForm.require_previous_completion !== false ? 'btn-primary' : 'btn-outline'}`}
+                      style={{ padding: '4px 12px', fontSize: '0.75rem', borderRadius: 6 }}
+                      onClick={() => setQuizForm((f) => ({ ...f, require_previous_completion: true }))}
+                    >
+                      Strict (Locked)
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${quizForm.require_previous_completion === false ? 'btn-primary' : 'btn-outline'}`}
+                      style={{ padding: '4px 12px', fontSize: '0.75rem', borderRadius: 6 }}
+                      onClick={() => setQuizForm((f) => ({ ...f, require_previous_completion: false }))}
+                    >
+                      Open (Unlocked)
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -2047,6 +2246,47 @@ Chapter 4: CAR Section 2`}
                 This subject has no chapters yet — the quiz will cover the whole subject.
               </p>
             )}
+
+            {/* Multi-Subject Chapter Inclusion Toggle */}
+            <div style={{ marginTop: 8 }}>
+              <button
+                type="button"
+                className="btn btn-ghost btn-xs"
+                style={{ fontSize: '0.78rem', color: 'var(--primary)', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                onClick={() => setShowOtherSubjectChapters((v) => !v)}
+              >
+                <Layers size={13} />
+                {showOtherSubjectChapters ? 'Hide chapters from other subjects' : '+ Include chapters from other subjects (Multi-Subject Exam)'}
+              </button>
+            </div>
+
+            {showOtherSubjectChapters && (
+              <div style={{ marginTop: 8, padding: 12, background: 'var(--surface-alt, rgba(15,23,42,0.03))', borderRadius: 8, border: '1px solid var(--border)' }}>
+                <span style={{ fontSize: '0.76rem', fontWeight: 700, color: 'var(--text)', display: 'block', marginBottom: 8 }}>
+                  Chapters from other curriculum subjects:
+                </span>
+                <div className="cb-chapter-picker" style={{ maxHeight: 200, overflowY: 'auto' }}>
+                  {chapters.filter((c) => String(c.subject_id) !== String(active?.id)).map((c) => {
+                    const isChecked = quizForm.chapter_ids.includes(String(c.id));
+                    return (
+                      <label className={`cb-chapter-option ${isChecked ? 'is-selected' : ''}`} key={c.id}>
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleChapterSelection(c.id)}
+                        />
+                        <span>
+                          <strong>[{c.subject_title || 'Subject'}]</strong> {c.title}
+                        </span>
+                        <span className="cb-chapter-option-count">
+                          {questionCountByChapter[String(c.id)] || 0} questions
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="field">
@@ -2082,7 +2322,23 @@ Chapter 4: CAR Section 2`}
                   onChange={(e) => setPickerSearch(e.target.value)}
                 />
               </div>
-              <div style={{ minWidth: 160 }}>
+              <div style={{ minWidth: 170 }}>
+                <select
+                  value={pickerSubjectFilter}
+                  onChange={(e) => setPickerSubjectFilter(e.target.value)}
+                  style={{ height: 38, fontSize: '0.82rem', padding: '0 10px', borderRadius: 8 }}
+                  aria-label="Filter questions by subject"
+                >
+                  <option value="current">Current Subject ({active?.title || 'Active'})</option>
+                  <option value="all">All Subjects (Multi-Subject Pool)</option>
+                  {(subjects || []).filter((s) => s.id !== active?.id).map((s) => (
+                    <option key={s.id} value={String(s.id)}>
+                      {s.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ minWidth: 140 }}>
                 <select
                   value={pickerDifficulty}
                   onChange={(e) => setPickerDifficulty(e.target.value)}
@@ -2250,6 +2506,111 @@ Chapter 4: CAR Section 2`}
               <small className="muted">Showing the first 400 matches — narrow the search to see more.</small>
             )}
             {quizErrors.questions && <small className="field-error">{quizErrors.questions}</small>}
+          </div>
+        </form>
+      </Modal>
+
+      {/* ----------------- Dedicated Chapter Study Notes Dialog ----------------- */}
+      <Modal
+        open={notesOpen}
+        onClose={() => setNotesOpen(false)}
+        size="balanced"
+        title={(
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{
+              width: 38,
+              height: 38,
+              borderRadius: 10,
+              background: 'linear-gradient(135deg, #0284c7 0%, #06b6d4 100%)',
+              color: '#ffffff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 4px 10px rgba(2, 132, 199, 0.25)',
+              flexShrink: 0,
+            }}>
+              <FileText size={20} />
+            </div>
+            <div>
+              <div style={{ fontSize: '1.08rem', fontWeight: 800, color: '#0f172a' }}>
+                Chapter Study Notes &amp; Handouts
+              </div>
+              <div style={{ fontSize: '0.76rem', color: '#64748b', fontWeight: 500 }}>
+                {notesChapter ? `${notesChapter.title} · #${notesChapter.order_index || 1}` : 'Attach study materials for students.'}
+              </div>
+            </div>
+          </div>
+        )}
+        footer={(
+          <>
+            <Button variant="outline" onClick={() => setNotesOpen(false)}>Cancel</Button>
+            <Button variant="primary" onClick={saveNotes} loading={savingNotes}>
+              Save Notes
+            </Button>
+          </>
+        )}
+      >
+        <form onSubmit={saveNotes}>
+          <div style={{
+            background: 'var(--surface-alt)',
+            border: '1px solid var(--border)',
+            borderRadius: 12,
+            padding: '16px 18px',
+            marginBottom: 16,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <BookOpen size={14} /> Written Study Notes &amp; Formulas
+              </span>
+              {(notesContent || notesUrl) && (
+                <span className="badge" style={{ background: '#dcfce7', color: '#15803d', fontWeight: 700, fontSize: '0.72rem' }}>
+                  ✓ Content Ready
+                </span>
+              )}
+            </div>
+            <div className="field">
+              <label htmlFor="modal-chapter-notes-body" style={{ fontSize: '0.80rem', fontWeight: 700, color: 'var(--text)', marginBottom: 5 }}>
+                Written Notes (Markdown / Text)
+              </label>
+              <textarea
+                id="modal-chapter-notes-body"
+                className="input"
+                rows={7}
+                value={notesContent}
+                onChange={(e) => setNotesContent(e.target.value)}
+                placeholder="Enter comprehensive chapter notes, key regulatory points, formulas, summaries..."
+                style={{ fontSize: '0.84rem', lineHeight: 1.6 }}
+              />
+              <small style={{ color: 'var(--muted)', fontSize: '0.73rem', display: 'block', marginTop: 4 }}>
+                Students will see a [NOTES] button on their curriculum card to read these notes.
+              </small>
+            </div>
+          </div>
+
+          <div style={{
+            background: 'var(--surface-alt)',
+            border: '1px solid var(--border)',
+            borderRadius: 12,
+            padding: '16px 18px',
+          }}>
+            <div className="field">
+              <label htmlFor="modal-chapter-notes-url" style={{ fontSize: '0.80rem', fontWeight: 700, color: 'var(--text)', marginBottom: 5 }}>
+                External Document / PDF Study Material URL
+              </label>
+              <div className="input-with-icon">
+                <ExternalLink size={14} style={{ color: 'var(--primary)' }} />
+                <input
+                  id="modal-chapter-notes-url"
+                  className="input"
+                  value={notesUrl}
+                  onChange={(e) => setNotesUrl(e.target.value)}
+                  placeholder="https://drive.google.com/... or https://domain.com/handout.pdf"
+                />
+              </div>
+              <small style={{ color: 'var(--muted)', fontSize: '0.73rem', display: 'block', marginTop: 4 }}>
+                Direct document or handout link for students to download or view.
+              </small>
+            </div>
           </div>
         </form>
       </Modal>

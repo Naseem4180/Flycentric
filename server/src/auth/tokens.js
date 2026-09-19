@@ -5,7 +5,7 @@ function signAccessToken(user, sessionId = null) {
   return jwt.sign(
     { sub: user.id, role: user.role, institution_id: user.institution_id, sid },
     process.env.JWT_ACCESS_SECRET,
-    { expiresIn: process.env.ACCESS_TOKEN_TTL || '15m' }
+    { expiresIn: process.env.ACCESS_TOKEN_TTL || '2h' }
   );
 }
 

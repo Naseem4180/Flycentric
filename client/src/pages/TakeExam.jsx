@@ -200,7 +200,7 @@ export default function TakeExam() {
     let stopped = false;
     const ping = () => {
       if (stopped || submittedRef.current) return;
-      api.post(`/exams/attempts/${attempt.id}/heartbeat`).catch(() => {});
+      api.post(`/exams/attempts/${attempt.id}/heartbeat`, {}, { silent: true }).catch(() => {});
     };
 
     ping();

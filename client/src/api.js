@@ -8,8 +8,8 @@ const isLocalHost = ['localhost', '127.0.0.1'].includes(window.location.hostname
 export const BASE_URL = configuredApiUrl
   || (isLocalHost ? `${window.location.protocol}//${window.location.hostname}:4000/api` : '/api');
 
-let accessToken = null;
-let refreshToken = null;
+let accessToken = typeof window !== 'undefined' ? localStorage.getItem('fc_access') : null;
+let refreshToken = typeof window !== 'undefined' ? localStorage.getItem('fc_refresh') : null;
 let onUnauthorized = () => {};
 let onSessionExpired = () => {};
 let onTokensRefreshed = () => {};
@@ -25,8 +25,8 @@ export function setTokens(access, refresh) {
 }
 
 export function loadTokens() {
-  accessToken = localStorage.getItem('fc_access');
-  refreshToken = localStorage.getItem('fc_refresh');
+  accessToken = typeof window !== 'undefined' ? localStorage.getItem('fc_access') : null;
+  refreshToken = typeof window !== 'undefined' ? localStorage.getItem('fc_refresh') : null;
   return { accessToken, refreshToken };
 }
 
@@ -49,14 +49,11 @@ export function getAccessToken() {
   return accessToken;
 }
 
-// Silent token refresh. The server has always exposed /auth/refresh and the
-// client has always stored a 30-day refresh token — it just never used them,
-// so every access token expiry (15 minutes) hard-logged the user out and the
-// app came back with no data. This exchanges the refresh token for a new
-// access token in the background; the caller then retries its request once.
+// Silent token refresh. Exchanges the stored refresh token for a new access
+// token in the background; the caller then retries its request once.
 async function refreshAccessToken() {
   if (refreshInFlight) return refreshInFlight;
-  const stored = refreshToken || localStorage.getItem('fc_refresh');
+  const stored = refreshToken || (typeof window !== 'undefined' ? localStorage.getItem('fc_refresh') : null);
   if (!stored) return null;
 
   refreshInFlight = (async () => {
@@ -66,17 +63,30 @@ async function refreshAccessToken() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken: stored }),
       });
-      if (!res.ok) return null;
+      if (!res.ok) {
+        // Only trigger hard session expiration if the refresh token itself is dead (401/403).
+        // Temporary 5xx errors or network glitches should NOT kill user sessions.
+        if (res.status === 401 || res.status === 403) {
+          const isExamRoute = typeof window !== 'undefined' && (
+            window.location.pathname.includes('/take-exam') ||
+            window.location.pathname.includes('/exam')
+          );
+          if (!isExamRoute) {
+            onSessionExpired();
+            onUnauthorized();
+          }
+        }
+        return null;
+      }
       const data = await res.json();
       if (!data?.accessToken) return null;
       setTokens(data.accessToken, data.refreshToken || stored);
       onTokensRefreshed(data.user || null);
       return data.accessToken;
     } catch {
+      // Network failure — do not force log out; return null so caller can decide
       return null;
     } finally {
-      // Cleared on the next tick so concurrent callers all observe the same
-      // settled promise before a fresh one can be started.
       setTimeout(() => { refreshInFlight = null; }, 0);
     }
   })();
@@ -87,7 +97,8 @@ async function refreshAccessToken() {
 async function fire(path, { method, body, isForm, auth }) {
   const headers = {};
   if (!isForm) headers['Content-Type'] = 'application/json';
-  if (auth && accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+  const token = accessToken || (typeof window !== 'undefined' ? localStorage.getItem('fc_access') : null);
+  if (auth && token) headers['Authorization'] = `Bearer ${token}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
 
@@ -106,27 +117,30 @@ async function fire(path, { method, body, isForm, auth }) {
   }
 }
 
-async function request(path, { method = 'GET', body, isForm = false, auth = true, _retried = false } = {}) {
+async function request(path, { method = 'GET', body, isForm = false, auth = true, silent = false, _retried = false } = {}) {
   let res = await fire(path, { method, body, isForm, auth });
+
+  const isExamRoute = typeof window !== 'undefined' && (
+    window.location.pathname.includes('/take-exam') ||
+    window.location.pathname.includes('/exam')
+  );
 
   // Graceful session handling. A 401 no longer means "log out immediately".
   // First try a silent refresh and replay the request once; only if that
-  // fails do we treat the session as genuinely over, and even then we hand
-  // off to a modal rather than a hard redirect that loses the user's work.
+  // fails do we treat the session as genuinely over.
   if (res.status === 401 && auth && !_retried) {
     const isAuthCall = path.startsWith('/auth/refresh') || path.startsWith('/auth/login');
     if (!isAuthCall) {
       const fresh = await refreshAccessToken();
       if (fresh) {
-        res = await fire(path, { method, body, isForm, auth });
-      } else {
-        onSessionExpired();
-        onUnauthorized();
+        return request(path, { method, body, isForm, auth, silent, _retried: true });
       }
     }
-  } else if (res.status === 401 && auth) {
-    onSessionExpired();
-    onUnauthorized();
+  } else if (res.status === 401 && auth && _retried) {
+    if (!silent && !isExamRoute) {
+      onSessionExpired();
+      onUnauthorized();
+    }
   }
 
   const contentType = res.headers.get('content-type') || '';

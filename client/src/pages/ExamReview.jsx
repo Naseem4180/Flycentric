@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
-import { X, MessageCircleQuestion, ChevronDown, Flag as FlagIcon, RotateCcw, EyeOff } from 'lucide-react';
+import {
+  X, MessageCircleQuestion, ChevronDown, ChevronUp, Flag as FlagIcon, RotateCcw, EyeOff,
+  BookOpen, ListChecks, ArrowLeft, CheckCircle2, XCircle, HelpCircle, Clock, BarChart3, Filter
+} from 'lucide-react';
 import { api } from '../api';
 import { PageSkeleton } from '../ui';
 
@@ -52,6 +55,10 @@ export default function ExamReview() {
   const [reportBusy, setReportBusy] = useState(false);
   const [reportError, setReportError] = useState('');
 
+  // UX Upgrade state: filters, navigator, pacing chart toggle
+  const [activeFilter, setActiveFilter] = useState('all'); // 'all' | 'wrong' | 'correct' | 'skipped'
+  const [showPacingChart, setShowPacingChart] = useState(false);
+  const [highlightedQId, setHighlightedQId] = useState(null);
 
   useEffect(() => {
     api.get(`/exams/attempts/${attemptId}/review`).then(setData).catch((e) => setError(e.message));
@@ -71,9 +78,7 @@ export default function ExamReview() {
     }
   };
 
-  // Opens the report picker. This used to be two chained window.prompt()
-  // calls taking free text, which is both poor UX and now invalid — the
-  // server validates the reason against a fixed list.
+  // Opens the report picker.
   function reportIssue(questionId) {
     setReportFor(questionId);
     setReportReason('appeared_in_exam_exact');
@@ -107,10 +112,6 @@ export default function ExamReview() {
     }
   }
 
-  // Contextual Instructor Doubt Submission: a slide-over that keeps the
-  // exact question (text + options + the student's own answer) visible
-  // alongside the message box, instead of a bare textarea with no context —
-  // and without leaving this review page.
   function openDoubtPanel(row) {
     setDoubtPanel(row);
     setDoubtText('');
@@ -123,10 +124,7 @@ export default function ExamReview() {
     setDoubtSent(true);
   }
 
-  if (error) return <div className="page"><div className="container"><div className="error-banner">{error}</div></div></div>;
-  if (!data) return <div className="page"><div className="container"><PageSkeleton label="Loading review" /></div></div>;
-
-  const { attempt, quiz, review, reviewLocked, summary, questionTimings = {} } = data;
+  const { attempt, quiz, review = [], reviewLocked, summary, questionTimings = {} } = data || {};
   const stats = summary || {
     total: review.length,
     attempted: review.filter((r) => r.attempted).length,
@@ -135,32 +133,115 @@ export default function ExamReview() {
     incorrect: review.filter((r) => r.attempted && r.is_correct === false).length,
   };
 
+  const avgTimeSeconds = useMemo(() => {
+    if (!review || !review.length) return 0;
+    const times = review.map((r) => questionTimings[r.id] ?? 0).filter((t) => t > 0);
+    if (!times.length) return 0;
+    return Math.round(times.reduce((a, b) => a + b, 0) / times.length);
+  }, [review, questionTimings]);
+
+  const filteredReview = useMemo(() => {
+    if (!review) return [];
+    if (activeFilter === 'wrong') {
+      return review.filter((r) => r.attempted && r.is_correct === false);
+    }
+    if (activeFilter === 'correct') {
+      return review.filter((r) => r.is_correct === true);
+    }
+    if (activeFilter === 'skipped') {
+      return review.filter((r) => !r.attempted);
+    }
+    return review;
+  }, [review, activeFilter]);
+
+  const jumpToQuestion = (qId) => {
+    setActiveFilter('all');
+    setHighlightedQId(qId);
+    setTimeout(() => {
+      const el = document.getElementById(`review-q-${qId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      setTimeout(() => setHighlightedQId(null), 2000);
+    }, 60);
+  };
+
+  if (error) return <div className="page"><div className="container"><div className="error-banner">{error}</div></div></div>;
+  if (!data) return <div className="page"><div className="container"><PageSkeleton label="Loading review" /></div></div>;
+
+  const targetSubId = quiz.subject_id || quiz.resolved_subject_id;
+  const subjectTargetUrl = targetSubId ? `/subjects/${targetSubId}` : '/my-subjects';
+  const isPassed = attempt.score >= quiz.pass_percent;
+
   return (
     <div className="page">
       <div className="container container-narrow">
-        <div className="card review-summary-card">
+        {/* Navigation Breadcrumb / Top Bar */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <Link to={subjectTargetUrl} className="btn btn-ghost btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+            <ArrowLeft size={15} /> Go to Subject &amp; Quizzes
+          </Link>
+          <div className="row" style={{ gap: 8 }}>
+            <Link to="/quizzes" className="btn btn-ghost btn-sm">
+              <ListChecks size={14} /> Practice Quizzes
+            </Link>
+            <Link to="/my-results" className="btn btn-ghost btn-sm">
+              All Results
+            </Link>
+          </div>
+        </div>
+
+        {/* Hero Scorecard */}
+        <div className="card review-summary-card" style={{ padding: '24px 28px', borderRadius: 16 }}>
           <div className="review-summary-main">
-            <span style={{ fontSize: '.85rem', fontWeight: 600, color: 'var(--muted)' }}>{quiz.title}</span>
-            <h2 className="review-summary-title">
-              {attempt.score >= quiz.pass_percent ? 'Passed' : 'Not passed yet'}
-            </h2>
-            <p className="muted">{attempt.correct_count} of {attempt.total_questions} correct · pass mark {quiz.pass_percent}%</p>
-            {/* Skipped questions are called out explicitly: a student who
-                answered 10 of 30 should see why their score looks low. */}
-            <div className="review-stat-row">
-              <span className="review-stat review-stat-correct">{stats.correct} correct</span>
-              <span className="review-stat review-stat-wrong">{stats.incorrect} wrong</span>
-              <span className="review-stat review-stat-skipped">{stats.skipped} skipped</span>
+            <span style={{ fontSize: '.85rem', fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>
+              {quiz.title}
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <h2 className="review-summary-title" style={{ margin: 0, fontSize: '1.75rem', fontWeight: 800 }}>
+                {isPassed ? 'Assessment Passed' : 'Not Passed Yet'}
+              </h2>
+              <span className="badge" style={{
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                padding: '4px 10px',
+                borderRadius: 999,
+                background: isPassed ? '#dcfce7' : '#fee2e2',
+                color: isPassed ? '#166534' : '#991b1b',
+              }}>
+                {attempt.score}% · Pass mark {quiz.pass_percent}%
+              </span>
             </div>
-            {/* Retake sits with the result, so the obvious next action after
-                seeing a score is one tap away instead of a hunt through
-                My Subjects for the quiz again. */}
+            <p className="muted" style={{ margin: '6px 0 12px', fontSize: '0.88rem' }}>
+              You answered {attempt.correct_count} of {attempt.total_questions} questions correctly.
+            </p>
+
+            <div className="review-stat-row" style={{ marginBottom: 16 }}>
+              <span className="review-stat review-stat-correct" style={{ fontSize: '0.78rem', padding: '5px 12px' }}>
+                ✓ {stats.correct} correct
+              </span>
+              <span className="review-stat review-stat-wrong" style={{ fontSize: '0.78rem', padding: '5px 12px' }}>
+                ✕ {stats.incorrect} wrong
+              </span>
+              <span className="review-stat review-stat-skipped" style={{ fontSize: '0.78rem', padding: '5px 12px' }}>
+                ○ {stats.skipped} skipped
+              </span>
+              <span className="review-stat" style={{ fontSize: '0.78rem', padding: '5px 12px', background: 'var(--surface-sunken, #f1f5f9)', color: 'var(--ink-soft, #64748b)' }}>
+                <Clock size={12} style={{ display: 'inline', verticalAlign: -1, marginRight: 4 }} />
+                Avg {formatSeconds(avgTimeSeconds)} / Q
+              </span>
+            </div>
+
             <div className="review-summary-actions">
               <button type="button" className="btn btn-primary btn-sm" onClick={() => navigate(`/take-exam/${quiz.id}`)}>
-                <RotateCcw size={14} /> Retake this quiz
+                <RotateCcw size={14} /> Retake Quiz
               </button>
-              <Link to="/my-results" className="btn btn-outline btn-sm">All results</Link>
-              <Link to="/quizzes" className="btn btn-outline btn-sm">More quizzes</Link>
+              <Link to={subjectTargetUrl} className="btn btn-outline btn-sm">
+                <BookOpen size={14} /> Go to Subject & Quizzes
+              </Link>
+              <Link to="/quizzes" className="btn btn-outline btn-sm">
+                <ListChecks size={14} /> Practice Quizzes
+              </Link>
             </div>
           </div>
           <Gauge value={parseFloat(attempt.score)} passThreshold={quiz.pass_percent} />
@@ -176,92 +257,302 @@ export default function ExamReview() {
           </div>
         )}
 
-        <TpqHeatmap review={review} questionTimings={questionTimings} />
+        {/* Question Grid Navigator Matrix */}
+        <div className="card" style={{ marginBottom: 20, padding: '16px 20px', borderRadius: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
+            <div>
+              <strong style={{ fontSize: '.92rem' }}>Question Navigator</strong>
+              <span className="muted" style={{ fontSize: '.76rem', marginLeft: 8 }}>
+                Click any question number to scroll directly to it
+              </span>
+            </div>
+            <div className="row" style={{ gap: 12, fontSize: '.74rem' }}>
+              <span className="row" style={{ gap: 4 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} /> Correct ({stats.correct})
+              </span>
+              <span className="row" style={{ gap: 4 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444' }} /> Incorrect ({stats.incorrect})
+              </span>
+              <span className="row" style={{ gap: 4 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#94a3b8' }} /> Skipped ({stats.skipped})
+              </span>
+              <button
+                type="button"
+                className="btn btn-ghost btn-xs"
+                style={{ marginLeft: 6, fontSize: '.74rem', padding: '2px 8px' }}
+                onClick={() => setShowPacingChart((p) => !p)}
+              >
+                <BarChart3 size={12} /> {showPacingChart ? 'Hide Pacing Chart' : 'View Pacing Chart'}
+              </button>
+            </div>
+          </div>
 
-        <div className="stack">
-          {review.map((r, idx) => {
-            const timeSpent = questionTimings[r.id] ?? null;
-            const band = tpqBand(timeSpent);
-            // The server only sends the answer key for questions this student
-            // actually answered; `revealed` tells us which case we're in.
-            const revealed = r.revealed !== false && !reviewLocked;
-            const skipped = r.attempted === false;
-            return (
-              <div className={`card review-question-card ${skipped ? 'is-skipped' : ''}`} key={r.id}>
-                <div className="review-question-head">
-                  <p className="review-question-text">{idx + 1}. {r.question_text}</p>
-                  <span className={`tpq-chip ${band.cls}`} title={`${formatSeconds(timeSpent)} spent on this question`}>
-                    {formatSeconds(timeSpent)}
-                  </span>
-                </div>
-                {skipped && (
-                  <div className="review-skipped-note">
-                    <EyeOff size={14} />
-                    <span>You skipped this one, so the answer stays hidden — attempt it on your next try to unlock the explanation.</span>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(38px, 1fr))',
+            gap: 6,
+            maxHeight: 180,
+            overflowY: 'auto',
+            padding: '4px 2px',
+          }}>
+            {review.map((r, idx) => {
+              const isCorrect = r.is_correct === true;
+              const isWrong = r.attempted && r.is_correct === false;
+              const isSkipped = !r.attempted;
+              const bg = isCorrect ? '#ecfdf5' : isWrong ? '#fef2f2' : '#f8fafc';
+              const color = isCorrect ? '#047857' : isWrong ? '#b91c1c' : '#64748b';
+              const border = isCorrect ? '#a7f3d0' : isWrong ? '#fecaca' : '#e2e8f0';
+              const timeSpent = questionTimings[r.id] ?? null;
+
+              return (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => jumpToQuestion(r.id)}
+                  title={`Question ${idx + 1}: ${isCorrect ? 'Correct' : isWrong ? 'Incorrect' : 'Skipped'} (${formatSeconds(timeSpent)})`}
+                  style={{
+                    height: 34,
+                    borderRadius: 7,
+                    border: `1px solid ${border}`,
+                    background: bg,
+                    color,
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    transition: 'all 0.12s ease',
+                  }}
+                >
+                  {idx + 1}
+                </button>
+              );
+            })}
+          </div>
+
+          {showPacingChart && (
+            <div style={{ marginTop: 16, borderTop: '1px solid var(--line, #e2e8f0)', paddingTop: 14 }}>
+              <TpqHeatmap review={review} questionTimings={questionTimings} />
+            </div>
+          )}
+        </div>
+
+        {/* Filter Tabs Bar */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 12,
+          marginBottom: 16,
+          padding: '4px 2px',
+        }}>
+          <div className="row" style={{ gap: 8 }}>
+            <button
+              type="button"
+              className={`btn btn-sm ${activeFilter === 'all' ? 'btn-primary' : 'btn-outline'}`}
+              onClick={() => setActiveFilter('all')}
+              style={{ borderRadius: 999, fontSize: '0.8rem' }}
+            >
+              All ({review.length})
+            </button>
+            <button
+              type="button"
+              className={`btn btn-sm ${activeFilter === 'wrong' ? 'btn-primary' : 'btn-outline'}`}
+              onClick={() => setActiveFilter('wrong')}
+              style={{
+                borderRadius: 999,
+                fontSize: '0.8rem',
+                ...(activeFilter === 'wrong' ? { background: '#ef4444', borderColor: '#ef4444', color: '#fff' } : { color: '#dc2626' })
+              }}
+            >
+              <XCircle size={13} /> Incorrect ({stats.incorrect})
+            </button>
+            <button
+              type="button"
+              className={`btn btn-sm ${activeFilter === 'correct' ? 'btn-primary' : 'btn-outline'}`}
+              onClick={() => setActiveFilter('correct')}
+              style={{
+                borderRadius: 999,
+                fontSize: '0.8rem',
+                ...(activeFilter === 'correct' ? { background: '#10b981', borderColor: '#10b981', color: '#fff' } : { color: '#059669' })
+              }}
+            >
+              <CheckCircle2 size={13} /> Correct ({stats.correct})
+            </button>
+            <button
+              type="button"
+              className={`btn btn-sm ${activeFilter === 'skipped' ? 'btn-primary' : 'btn-outline'}`}
+              onClick={() => setActiveFilter('skipped')}
+              style={{ borderRadius: 999, fontSize: '0.8rem' }}
+            >
+              <HelpCircle size={13} /> Skipped ({stats.skipped})
+            </button>
+          </div>
+          <span className="muted" style={{ fontSize: '0.82rem' }}>
+            Showing {filteredReview.length} of {review.length} questions
+          </span>
+        </div>
+
+        {/* Questions List */}
+        <div className="stack" style={{ gap: 16 }}>
+          {filteredReview.length === 0 ? (
+            <div className="card" style={{ textAlign: 'center', padding: '36px 20px' }}>
+              <p className="muted" style={{ margin: 0 }}>No questions match the current filter.</p>
+              <button type="button" className="btn btn-outline btn-sm" style={{ marginTop: 12 }} onClick={() => setActiveFilter('all')}>
+                Show All Questions
+              </button>
+            </div>
+          ) : (
+            filteredReview.map((r) => {
+              const originalIndex = review.findIndex((item) => item.id === r.id);
+              const qNum = originalIndex >= 0 ? originalIndex + 1 : 1;
+              const timeSpent = questionTimings[r.id] ?? null;
+              const band = tpqBand(timeSpent);
+              const revealed = r.revealed !== false && !reviewLocked;
+              const skipped = r.attempted === false;
+              const isCorrect = r.is_correct === true;
+              const isWrong = r.attempted && r.is_correct === false;
+              const isHighlighted = highlightedQId === r.id;
+
+              return (
+                <div
+                  id={`review-q-${r.id}`}
+                  className={`card review-question-card ${skipped ? 'is-skipped' : ''}`}
+                  key={r.id}
+                  style={{
+                    borderRadius: 14,
+                    transition: 'box-shadow 0.25s ease, border-color 0.25s ease',
+                    ...(isHighlighted ? { boxShadow: '0 0 0 3px #e11d48', borderColor: '#e11d48' } : {}),
+                  }}
+                >
+                  <div className="review-question-head" style={{ alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{
+                        fontWeight: 800,
+                        fontSize: '0.82rem',
+                        padding: '3px 8px',
+                        borderRadius: 6,
+                        background: 'var(--surface-sunken, #f1f5f9)',
+                        color: 'var(--ink, #1e293b)'
+                      }}>
+                        Question {qNum}
+                      </span>
+                      {skipped ? (
+                        <span className="badge" style={{ fontSize: '0.72rem', background: '#f1f5f9', color: '#64748b' }}>
+                          Skipped
+                        </span>
+                      ) : isCorrect ? (
+                        <span className="badge" style={{ fontSize: '0.72rem', background: '#dcfce7', color: '#166534', fontWeight: 700 }}>
+                          ✓ Correct
+                        </span>
+                      ) : (
+                        <span className="badge" style={{ fontSize: '0.72rem', background: '#fee2e2', color: '#991b1b', fontWeight: 700 }}>
+                          ✕ Incorrect
+                        </span>
+                      )}
+                    </div>
+                    <span className={`tpq-chip ${band.cls}`} title={`${formatSeconds(timeSpent)} spent on this question`}>
+                      <Clock size={11} style={{ display: 'inline', verticalAlign: -1, marginRight: 3 }} />
+                      {formatSeconds(timeSpent)}
+                    </span>
                   </div>
-                )}
-                <div className="stack" style={{ marginTop: 10 }}>
-                  {(r.options || []).map((opt) => {
-                    let cls = '';
-                    if (revealed) {
-                      if (opt.key === r.correct_option) cls = 'correct';
-                      else if (opt.key === r.your_answer) cls = 'incorrect';
-                    } else if (opt.key === r.your_answer) {
-                      cls = 'selected';
-                    }
-                    // Distractor Error Breakdown: an expandable note under any
-                    // wrong option that has an admin-authored rationale,
-                    // instead of only ever revealing the correct answer.
-                    const isWrongOption = revealed && opt.key !== r.correct_option;
-                    const accordionKey = `${r.id}-${opt.key}`;
-                    return (
-                      <div key={opt.key}>
-                        <div className={`option-row ${cls}`}>
-                          <span className="option-key">{opt.key}</span>
-                          <span>{opt.text}</span>
-                          {opt.key === r.your_answer && <span className="muted" style={{ marginLeft: 'auto', fontSize: '0.75rem' }}>your answer</span>}
-                          {isWrongOption && opt.rationale && (
-                            <button
-                              type="button"
-                              className="distractor-toggle"
-                              onClick={() => setOpenAccordion((prev) => ({ ...prev, [accordionKey]: !prev[accordionKey] }))}
-                            >
-                              <FlagIcon size={12} /> Why is this wrong?
-                              <ChevronDown size={13} className={openAccordion[accordionKey] ? 'rotated' : ''} />
-                            </button>
+
+                  <p className="review-question-text" style={{ fontSize: '0.96rem', marginTop: 12, lineHeight: 1.55 }}>
+                    {r.question_text}
+                  </p>
+
+                  {skipped && (
+                    <div className="review-skipped-note">
+                      <EyeOff size={14} />
+                      <span>You skipped this one, so the answer stays hidden — attempt it on your next try to unlock the explanation.</span>
+                    </div>
+                  )}
+
+                  <div className="stack" style={{ marginTop: 12, gap: 8 }}>
+                    {(r.options || []).map((opt) => {
+                      let cls = '';
+                      if (revealed) {
+                        if (opt.key === r.correct_option) cls = 'correct';
+                        else if (opt.key === r.your_answer) cls = 'incorrect';
+                      } else if (opt.key === r.your_answer) {
+                        cls = 'selected';
+                      }
+                      const isWrongOption = revealed && opt.key !== r.correct_option;
+                      const accordionKey = `${r.id}-${opt.key}`;
+                      return (
+                        <div key={opt.key}>
+                          <div className={`option-row ${cls}`}>
+                            <span className="option-key">{opt.key}</span>
+                            <span>{opt.text}</span>
+                            {opt.key === r.your_answer && <span className="muted" style={{ marginLeft: 'auto', fontSize: '0.75rem' }}>your answer</span>}
+                            {isWrongOption && opt.rationale && (
+                              <button
+                                type="button"
+                                className="distractor-toggle"
+                                onClick={() => setOpenAccordion((prev) => ({ ...prev, [accordionKey]: !prev[accordionKey] }))}
+                              >
+                                <FlagIcon size={12} /> Why is this wrong?
+                                <ChevronDown size={13} className={openAccordion[accordionKey] ? 'rotated' : ''} />
+                              </button>
+                            )}
+                          </div>
+                          {isWrongOption && opt.rationale && openAccordion[accordionKey] && (
+                            <div className="distractor-explanation">
+                              <FlagIcon size={13} className="distractor-flag" />
+                              <p>{opt.rationale}</p>
+                            </div>
                           )}
                         </div>
-                        {isWrongOption && opt.rationale && openAccordion[accordionKey] && (
-                          <div className="distractor-explanation">
-                            <FlagIcon size={13} className="distractor-flag" />
-                            <p>{opt.rationale}</p>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
+
+                  {revealed && r.explanation && (
+                    <div style={{
+                      marginTop: 14,
+                      padding: '12px 14px',
+                      borderRadius: 8,
+                      background: 'var(--surface-sunken, #f8fafc)',
+                      border: '1px solid var(--line, #e2e8f0)',
+                      fontSize: '0.86rem',
+                      lineHeight: 1.5,
+                    }}>
+                      <strong style={{ color: 'var(--ink, #0f172a)' }}>Explanation: </strong>
+                      <span className="muted">{r.explanation}</span>
+                    </div>
+                  )}
+
+                  <div className="row" style={{ marginTop: 14, gap: 8 }}>
+                    <button className="btn btn-outline btn-sm" onClick={() => toggleBookmark(r.id)}>
+                      {bookmarked[r.id] ? '★ Bookmarked' : '☆ Add to Memory Bank'}
+                    </button>
+                    <button className="btn btn-outline btn-sm" onClick={() => reportIssue(r.id)} disabled={reportSentFor[r.id]}>
+                      {reportSentFor[r.id] ? 'Reported' : 'Report an issue'}
+                    </button>
+                    <button className="btn btn-outline btn-sm" onClick={() => openDoubtPanel(r)}>
+                      <MessageCircleQuestion size={13} /> Ask my instructor
+                    </button>
+                  </div>
                 </div>
-                {revealed && r.explanation && <p className="muted" style={{ marginTop: 10 }}><strong>Why:</strong> {r.explanation}</p>}
-                <div className="row" style={{ marginTop: 10 }}>
-                  <button className="btn btn-outline btn-sm" onClick={() => toggleBookmark(r.id)}>
-                    {bookmarked[r.id] ? '★ Bookmarked' : '☆ Add to Memory Bank'}
-                  </button>
-                  <button className="btn btn-outline btn-sm" onClick={() => reportIssue(r.id)} disabled={reportSentFor[r.id]}>
-                    {reportSentFor[r.id] ? 'Reported' : 'Report an issue'}
-                  </button>
-                  <button className="btn btn-outline btn-sm" onClick={() => openDoubtPanel(r)}>
-                    <MessageCircleQuestion size={13} /> Ask my instructor
-                  </button>
-                </div>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
-        <div className="review-footer-actions">
+
+        {/* Footer Actions */}
+        <div className="review-footer-actions" style={{ marginTop: 28, padding: '20px 0', borderTop: '1px solid var(--line, #e2e8f0)' }}>
           <button type="button" className="btn btn-primary" onClick={() => navigate(`/take-exam/${quiz.id}`)}>
             <RotateCcw size={15} /> Retake this quiz
           </button>
-          <Link to="/" className="btn btn-dark">Back to dashboard</Link>
+          <Link to={subjectTargetUrl} className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <BookOpen size={15} /> Go to Subject &amp; Quizzes
+          </Link>
+          <Link to="/quizzes" className="btn btn-outline">
+            <ListChecks size={15} /> Practice Quizzes
+          </Link>
+          <Link to="/" className="btn btn-ghost">Back to dashboard</Link>
         </div>
       </div>
 
@@ -391,7 +682,7 @@ function TpqHeatmap({ review, questionTimings }) {
           <span className="row" style={{ gap: 4 }}><span className="tpq-legend-dot tpq-stuck" /> Overthought (&gt;{STUCK_SECONDS}s)</span>
         </div>
       </div>
-      <div className="tpq-heatmap">
+      <div className="tpq-heatmap" style={{ maxHeight: 260, overflowY: 'auto', paddingRight: 6 }}>
         {rows.map((r) => {
           const band = tpqBand(r.seconds || null);
           const widthPct = Math.max(3, Math.min(100, (r.seconds / max) * 100));

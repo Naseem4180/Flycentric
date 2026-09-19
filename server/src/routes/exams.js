@@ -27,7 +27,7 @@ function normalizeChapterIds(chapterIds, legacyChapterId) {
 router.post('/quizzes', authenticate, authorize('admin', 'instructor'), async (req, res) => {
   const {
     bundle_id, chapter_id, chapter_ids, subject_id, title, type, duration_minutes, pass_percent, attempt_limit, question_ids,
-    status, show_explanations, allow_review_after_submit,
+    status, show_explanations, allow_review_after_submit, require_previous_completion,
   } = req.body;
   // A quiz can now draw from SEVERAL chapters. chapter_ids[] is the source of
   // truth; chapter_id is derived from its first entry purely so older
@@ -67,12 +67,13 @@ router.post('/quizzes', authenticate, authorize('admin', 'instructor'), async (r
     durationMinutes = Math.round(parsedDuration);
   }
   const result = await pool.query(
-    `INSERT INTO quizzes (bundle_id, chapter_id, chapter_ids, subject_id, title, type, duration_minutes, pass_percent, attempt_limit, question_ids, created_by, status, show_explanations, allow_review_after_submit)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+    `INSERT INTO quizzes (bundle_id, chapter_id, chapter_ids, subject_id, title, type, duration_minutes, pass_percent, attempt_limit, question_ids, created_by, status, show_explanations, allow_review_after_submit, require_previous_completion)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
     [bundle_id || null, primaryChapterId, chapterIds, subject_id || null, title, type, durationMinutes, pass_percent || 70,
      attempt_limit || 0, question_ids, req.user.id, initialStatus,
      forcedShowExplanations,
-     allow_review_after_submit != null ? !!allow_review_after_submit : true]
+     allow_review_after_submit != null ? !!allow_review_after_submit : true,
+     require_previous_completion != null ? !!require_previous_completion : true]
   );
   res.status(201).json({ quiz: result.rows[0] });
 });
@@ -82,7 +83,24 @@ router.get('/quizzes', authenticate, async (req, res) => {
   const clauses = ['q.deleted_at IS NULL'];
   const params = [];
   if (chapter_id) { params.push(chapter_id); clauses.push(`q.chapter_id = $${params.length}`); }
-  if (subject_id) { params.push(subject_id); clauses.push(`q.subject_id = $${params.length}`); }
+  if (subject_id) {
+    params.push(subject_id);
+    clauses.push(`(
+      q.subject_id = $${params.length}
+      OR EXISTS (
+        SELECT 1 FROM chapters ch
+        WHERE ch.deleted_at IS NULL
+          AND (ch.id = ANY(q.chapter_ids) OR ch.id = q.chapter_id)
+          AND ch.subject_id = $${params.length}
+      )
+      OR EXISTS (
+        SELECT 1 FROM questions qn
+        WHERE qn.deleted_at IS NULL
+          AND qn.id = ANY(q.question_ids)
+          AND qn.subject_id = $${params.length}
+      )
+    )`);
+  }
   if (type) { params.push(type); clauses.push(`q.type = $${params.length}`); }
   if (bundle_id) {
     // A quiz belongs to a bundle either directly (legacy) or via its subject
@@ -118,7 +136,7 @@ router.get('/quizzes', authenticate, async (req, res) => {
   const meParam = `$${params.length}`;
   const result = await pool.query(
         `SELECT q.id, q.bundle_id, q.chapter_id, q.chapter_ids, q.subject_id, q.title, q.type, q.duration_minutes, q.pass_percent, q.attempt_limit,
-          q.status, q.show_explanations, q.allow_review_after_submit, q.source,
+          q.status, q.show_explanations, q.allow_review_after_submit, q.require_previous_completion, q.source,
           q.question_ids, COALESCE(array_length(q.question_ids,1), 0) AS question_count, q.created_at,
           s.title AS subject_title, s.order_index AS subject_order_index, c.title AS chapter_title,
           (SELECT COALESCE(json_agg(json_build_object('id', ch.id, 'title', ch.title) ORDER BY ch.order_index, ch.id), '[]'::json)
@@ -154,7 +172,7 @@ router.get('/quizzes', authenticate, async (req, res) => {
 });
 
 router.patch('/quizzes/:id', authenticate, authorize('admin', 'instructor'), async (req, res) => {
-  const { question_ids, title, type, duration_minutes, pass_percent, attempt_limit, status, allow_review_after_submit, chapter_id, chapter_ids } = req.body;
+  const { question_ids, title, type, duration_minutes, pass_percent, attempt_limit, status, allow_review_after_submit, chapter_id, chapter_ids, require_previous_completion } = req.body;
   if (type && !['practice', 'exam'].includes(type)) {
     return res.status(400).json({ error: "type must be 'practice' or 'exam'" });
   }
@@ -178,11 +196,14 @@ router.patch('/quizzes/:id', authenticate, authorize('admin', 'instructor'), asy
        show_explanations = COALESCE($8, show_explanations),
        allow_review_after_submit = COALESCE($9, allow_review_after_submit),
        chapter_ids = CASE WHEN $10::boolean THEN $11::int[] ELSE chapter_ids END,
-       chapter_id   = CASE WHEN $10::boolean THEN $12::integer ELSE chapter_id END
-     WHERE id = $13 AND deleted_at IS NULL RETURNING *`,
+       chapter_id   = CASE WHEN $10::boolean THEN $12::integer ELSE chapter_id END,
+       require_previous_completion = CASE WHEN $13::boolean THEN $14::boolean ELSE require_previous_completion END
+     WHERE id = $15 AND deleted_at IS NULL RETURNING *`,
     [question_ids || null, title || null, type || null, duration_minutes || null, pass_percent || null, attempt_limit ?? null,
      status || null, forcedShowExplanations, allow_review_after_submit ?? null,
-     chapterTouched, nextChapterIds, nextPrimaryChapterId, req.params.id]
+     chapterTouched, nextChapterIds, nextPrimaryChapterId,
+     require_previous_completion !== undefined, !!require_previous_completion,
+     req.params.id]
   );
   if (!result.rows.length) return res.status(404).json({ error: 'Quiz not found' });
   res.json({ quiz: result.rows[0] });
@@ -268,6 +289,71 @@ router.post('/quizzes/:id/start', authenticate, authorize('student'), async (req
           attempt_id: activeEx.id
         }
       });
+    }
+  }
+
+  // Prerequisite enforcement for student candidates:
+  if (req.user.role === 'student') {
+    const chapterIds = Array.isArray(quiz.chapter_ids) && quiz.chapter_ids.length
+      ? quiz.chapter_ids
+      : (quiz.chapter_id ? [quiz.chapter_id] : []);
+
+    // 1. Single-chapter test: Requires completing chapter assignment first if an assignment exists and prerequisite lock is enabled
+    if (quiz.require_previous_completion !== false && quiz.type === 'exam' && chapterIds.length === 1) {
+      const chId = chapterIds[0];
+      const assignQuiz = await pool.query(
+        `SELECT id FROM quizzes
+         WHERE type = 'practice' AND deleted_at IS NULL AND status = 'published'
+           AND (chapter_id = $1 OR $1 = ANY(chapter_ids))
+         LIMIT 1`,
+        [chId]
+      );
+      if (assignQuiz.rows.length) {
+        const assignAttempt = await pool.query(
+          "SELECT 1 FROM attempts WHERE user_id = $1 AND quiz_id = $2 AND status = 'submitted' LIMIT 1",
+          [req.user.id, assignQuiz.rows[0].id]
+        );
+        if (!assignAttempt.rows.length) {
+          return res.status(403).json({
+            error: 'Prerequisite Required',
+            message: 'Please complete the chapter assignment first before attempting the chapter test.',
+          });
+        }
+      }
+    }
+
+    // 2. Cumulative / Milestone test: If require_previous_completion is true (default), requires preceding chapter assignments and tests to be completed
+    if (quiz.require_previous_completion !== false && chapterIds.length > 1) {
+      const coveredQuizzes = await pool.query(
+        `SELECT id, type, chapter_id, chapter_ids, title
+         FROM quizzes
+         WHERE deleted_at IS NULL AND status = 'published'
+           AND id != $1
+           AND (
+             (chapter_id IS NOT NULL AND chapter_id = ANY($2::int[]))
+             OR (chapter_ids IS NOT NULL AND chapter_ids && $2::int[] AND (
+               COALESCE(cardinality(chapter_ids), 0) <= 1
+               OR (chapter_ids <@ $2::int[] AND COALESCE(cardinality(chapter_ids), 0) < cardinality($2::int[]))
+             ))
+           )`,
+        [quiz.id, chapterIds]
+      );
+      if (coveredQuizzes.rows.length) {
+        const coveredQuizIds = coveredQuizzes.rows.map((q) => q.id);
+        const userAttempts = await pool.query(
+          `SELECT DISTINCT quiz_id FROM attempts WHERE user_id = $1 AND quiz_id = ANY($2) AND status = 'submitted'`,
+          [req.user.id, coveredQuizIds]
+        );
+        const attemptedSet = new Set(userAttempts.rows.map((r) => r.quiz_id));
+        const missing = coveredQuizzes.rows.filter((q) => !attemptedSet.has(q.id));
+        if (missing.length > 0) {
+          return res.status(403).json({
+            error: 'Milestone Locked',
+            message: 'This cumulative milestone test is locked until all preceding chapter assignments and tests have been completed.',
+            missing_quizzes: missing.map((m) => ({ id: m.id, title: m.title, type: m.type })),
+          });
+        }
+      }
     }
   }
 
@@ -540,8 +626,22 @@ router.get('/attempts/:id/review', authenticate, async (req, res) => {
   }
   if (attempt.status !== 'submitted') return res.status(409).json({ error: 'Attempt not yet submitted' });
 
-  const quizResult = await pool.query('SELECT * FROM quizzes WHERE id = $1', [attempt.quiz_id]);
+  const quizResult = await pool.query(
+    `SELECT *,
+       COALESCE(subject_id, (
+         SELECT ch.subject_id FROM chapters ch
+         WHERE ch.deleted_at IS NULL AND (ch.id = ANY(quizzes.chapter_ids) OR ch.id = quizzes.chapter_id)
+         LIMIT 1
+       ), (
+         SELECT qn.subject_id FROM questions qn
+         WHERE qn.deleted_at IS NULL AND qn.id = ANY(quizzes.question_ids)
+         LIMIT 1
+       )) AS resolved_subject_id
+     FROM quizzes WHERE id = $1`,
+    [attempt.quiz_id]
+  );
   const quiz = quizResult.rows[0];
+  if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
   const liveResult = await pool.query(
     'SELECT id, question_text, question_type, options, correct_option, explanation FROM questions WHERE id = ANY($1)',
     [quiz.question_ids]

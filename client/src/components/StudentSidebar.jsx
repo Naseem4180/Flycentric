@@ -112,11 +112,8 @@ export default function StudentSidebar({ collapsed, onNavigate }) {
                 }}
                 title={collapsed ? item.label : undefined}
               >
-                <div className="nav-icon-pod">
-                  <Icon size={16} strokeWidth={2.2} />
-                </div>
+                <Icon size={17} strokeWidth={2} className="nav-icon" />
                 {!collapsed && <span className="nav-link-label">{item.label}</span>}
-                <span className="admin-subnav-active-glow" aria-hidden="true" />
               </NavLink>
             );
           }
@@ -144,27 +141,23 @@ export default function StudentSidebar({ collapsed, onNavigate }) {
                   title={collapsed ? item.label : undefined}
                   aria-expanded={isOpen}
                 >
-                  <div className="nav-icon-pod">
-                    <Icon size={16} strokeWidth={2.2} className="header-icon" />
-                  </div>
+                  <Icon size={17} strokeWidth={2} className="header-icon" />
                   {!collapsed && <span className="accordion-label">{item.label}</span>}
                   {!collapsed && (
-                    <ChevronDown size={14} strokeWidth={2.5} className="accordion-chevron" />
+                    <ChevronDown size={14} strokeWidth={2} className="accordion-chevron" />
                   )}
                 </button>
 
                 {isOpen && !collapsed && (
                   <div className="admin-accordion-body" role="group" aria-label={item.label}>
-                    {item.children.map(({ to, label, icon: ChildIcon }) => (
+                    {item.children.map(({ to, label }) => (
                       <NavLink
                         key={to}
                         to={to}
                         onClick={onNavigate}
                         className={({ isActive }) => `admin-subnav-link ${isActive ? 'active' : ''}`}
                       >
-                        {ChildIcon && <ChildIcon size={14} strokeWidth={2} className="admin-subnav-icon" />}
                         <span className="admin-subnav-label">{label}</span>
-                        <span className="admin-subnav-active-glow" aria-hidden="true" />
                       </NavLink>
                     ))}
                   </div>

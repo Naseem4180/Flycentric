@@ -6,7 +6,7 @@ const rateLimit = require('express-rate-limit');
 // times doesn't collide with signup traffic from the same IP.
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: process.env.NODE_ENV === 'production' ? 5 : 100,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many login attempts. Please try again in a few minutes.' },

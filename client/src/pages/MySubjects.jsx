@@ -176,12 +176,7 @@ export default function MySubjects() {
 
       {/* KPI Overview Summary Banner */}
       {subjects.length > 0 && (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-          gap: 12,
-          marginBottom: 20,
-        }}>
+        <div className="student-kpi-grid">
           <div className="card" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
             <div style={{ width: 42, height: 42, borderRadius: 10, background: 'rgba(99, 102, 241, 0.12)', color: '#4f46e5', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <BookOpen size={20} />
@@ -227,9 +222,9 @@ export default function MySubjects() {
       {/* Interactive Search & Filter Toolbar */}
       {subjects.length > 0 && (
         <div className="card" style={{ padding: '12px 16px', marginBottom: 22 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div className="student-toolbar-row">
             {/* Search */}
-            <div className="input-with-icon" style={{ flex: 1, minWidth: 240 }}>
+            <div className="input-with-icon" style={{ flex: 1, minWidth: 220, width: '100%' }}>
               <Search size={15} />
               <input
                 className="input"
@@ -260,12 +255,12 @@ export default function MySubjects() {
             </div>
 
             {/* Sort */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-              <span className="muted" style={{ fontSize: '0.78rem' }}>Sort:</span>
+            <div className="student-toolbar-sort">
+              <span>Sort:</span>
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
-                style={{ height: 32, fontSize: '0.78rem', padding: '0 8px', borderRadius: 6 }}
+                aria-label="Sort by"
               >
                 <option value="order">Curriculum Sequence</option>
                 <option value="progress">Highest Progress</option>
@@ -287,7 +282,7 @@ export default function MySubjects() {
         }}>
           {filteredSubjects.map((s) => {
             const Icon = getSubjectIcon(s.title);
-            const cleanDesc = s.description ? s.description.replace(/<[^>]*>?/gm, '').trim() : 'Master DGCA syllabus concepts, practice untimed questions, and take official mock tests.';
+            const cleanDesc = s.description ? s.description.replace(/<[^>]*>?/gm, '').trim() : '';
 
             return (
               <div
@@ -322,9 +317,6 @@ export default function MySubjects() {
                       <Icon size={20} />
                     </div>
                     <div>
-                      <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                        DGCA Ground School
-                      </span>
                       <h3 style={{ margin: 0, fontSize: '1.12rem', fontWeight: 800, color: 'var(--text)' }}>
                         {s.title}
                       </h3>
@@ -349,18 +341,20 @@ export default function MySubjects() {
                 </div>
 
                 {/* Description */}
-                <p className="muted" style={{
-                  fontSize: '0.82rem',
-                  lineHeight: 1.5,
-                  margin: '0 0 16px 0',
-                  display: '-webkit-box',
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: 'vertical',
-                  overflow: 'hidden',
-                  minHeight: '2.5em',
-                }}>
-                  {cleanDesc}
-                </p>
+                {cleanDesc ? (
+                  <p className="muted" style={{
+                    fontSize: '0.82rem',
+                    lineHeight: 1.5,
+                    margin: '0 0 16px 0',
+                    display: '-webkit-box',
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden',
+                    minHeight: '2.5em',
+                  }}>
+                    {cleanDesc}
+                  </p>
+                ) : null}
 
                 {/* Progress Bar */}
                 <div style={{ marginBottom: 14 }}>

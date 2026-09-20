@@ -179,6 +179,7 @@ CREATE TABLE IF NOT EXISTS exam_appearances (
   subject_id INTEGER REFERENCES subjects(id),
   exam_center TEXT,
   exam_date DATE,
+  appearance_code TEXT,
   note TEXT,
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','confirmed','dismissed')),
   created_at TIMESTAMPTZ DEFAULT now()

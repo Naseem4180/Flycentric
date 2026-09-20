@@ -183,9 +183,9 @@ export default function AdminBundlesPricing() {
       ) : error ? (
         <Card><ErrorState title="Unable to load bundles" description="We couldn't retrieve your bundles right now." onRetry={load} /></Card>
       ) : bundles.length ? (
-        <div className="grid grid-3">
+        <div className="grid grid-3" style={{ alignItems: 'stretch' }}>
           {bundles.map((b) => (
-            <Card key={b.id} className="bundle-card">
+            <Card key={b.id} className="bundle-card" style={{ height: '100%', boxSizing: 'border-box', marginBottom: 0, display: 'flex', flexDirection: 'column' }}>
               <div className="flex-between" style={{ alignItems: 'flex-start', marginBottom: 10 }}>
                 <div style={{ minWidth: 0 }}>
                   <h3 style={{ margin: 0, fontSize: '1rem' }}>{b.title}</h3>
@@ -194,10 +194,13 @@ export default function AdminBundlesPricing() {
                 <StatusBadge status={b.status === 'live' ? 'live' : 'draft'} />
               </div>
 
-              {mostSubjects?.id === b.id && <Badge tone="pink" className="mb-0">Most complete</Badge>}
+              {/* Reserve space for badge so non-badge cards stay aligned */}
+              <div style={{ minHeight: 28, marginBottom: 2 }}>
+                {mostSubjects?.id === b.id && <Badge tone="pink" className="mb-0">Most complete</Badge>}
+              </div>
 
-                <div className="bundle-price" style={{ margin: '10px 0 14px' }}>
-                  {b.is_free || Number(b.price_inr || 0) === 0 ? 'Free' : `₹${Number(b.price_inr).toLocaleString('en-IN')}`}
+              <div className="bundle-price" style={{ margin: '6px 0 14px' }}>
+                {b.is_free || Number(b.price_inr || 0) === 0 ? 'Free' : `₹${Number(b.price_inr).toLocaleString('en-IN')}`}
               </div>
 
               {b.description && <p className="muted" style={{ fontSize: '.81rem', marginTop: -6 }}>{b.description}</p>}
@@ -214,7 +217,7 @@ export default function AdminBundlesPricing() {
                 </div>
               </div>
 
-              <div className="btn-group" style={{ marginTop: 16 }}>
+              <div className="btn-group" style={{ marginTop: 'auto', paddingTop: 16 }}>
                 <Button size="xs" icon={Pencil} onClick={() => openForm(b)}>Edit</Button>
                 <Button size="xs" icon={Eye} onClick={() => setPreview(b)}>Preview</Button>
                 <Button

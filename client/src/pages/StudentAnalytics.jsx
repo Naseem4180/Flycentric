@@ -246,23 +246,15 @@ export default function StudentAnalytics() {
         {error && <div className="error-banner" style={{ marginBottom: 20 }}>{error}</div>}
 
         {/* PRIMARY FLIGHT INSTRUMENTS STRIP (4 MODERN KPI CARDS) */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-          gap: 16,
-          marginBottom: 28,
-        }}>
+        <div className="analytics-instruments-grid">
 
           {/* INSTRUMENT 1: PREDICTIVE READINESS GAUGE */}
-          <div style={{
+          <div className="analytics-instrument-card" style={{
             background: 'var(--surface)',
             borderRadius: 16,
             border: '1px solid var(--border)',
             padding: '20px 22px',
             boxShadow: 'var(--shadow-card)',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
             position: 'relative',
             overflow: 'hidden',
           }}>
@@ -285,7 +277,7 @@ export default function StudentAnalytics() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 18, margin: '8px 0' }}>
               <Gauge value={readinessScore ?? (overall.avg_score ? parseFloat(overall.avg_score) : 0)} size={92} />
               <div>
-                <div style={{ fontSize: '1.8rem', fontWeight: 900, color: 'var(--text)', lineHeight: 1.1 }}>
+                <div style={{ fontSize: '1.8rem', fontWeight: 900, color: 'var(--text)', lineHeight: 1 }}>
                   {readinessScore != null ? `${readinessScore}%` : overall.avg_score ? `${overall.avg_score}%` : '—'}
                 </div>
                 <div style={{ fontSize: '0.78rem', color: 'var(--muted)', marginTop: 4 }}>
@@ -328,15 +320,12 @@ export default function StudentAnalytics() {
           </div>
 
           {/* INSTRUMENT 2: OFFICIAL CBT EXAM PERFORMANCE */}
-          <div style={{
+          <div className="analytics-instrument-card" style={{
             background: 'var(--surface)',
             borderRadius: 16,
             border: '1px solid var(--border)',
             padding: '20px 22px',
             boxShadow: 'var(--shadow-card)',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <span style={{ fontSize: '0.74rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -380,15 +369,12 @@ export default function StudentAnalytics() {
           </div>
 
           {/* INSTRUMENT 3: LEARNING MATRIX (PRACTICE ASSIGNMENTS) */}
-          <div style={{
+          <div className="analytics-instrument-card" style={{
             background: 'var(--surface)',
             borderRadius: 16,
             border: '1px solid var(--border)',
             padding: '20px 22px',
             boxShadow: 'var(--shadow-card)',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <span style={{ fontSize: '0.74rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -432,15 +418,12 @@ export default function StudentAnalytics() {
           </div>
 
           {/* INSTRUMENT 4: PERFORMANCE INDICATOR (PRACTICE TESTS) */}
-          <div style={{
+          <div className="analytics-instrument-card" style={{
             background: 'var(--surface)',
             borderRadius: 16,
             border: '1px solid var(--border)',
             padding: '20px 22px',
             boxShadow: 'var(--shadow-card)',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <span style={{ fontSize: '0.74rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -486,16 +469,19 @@ export default function StudentAnalytics() {
         </div>
 
         {/* COCKPIT TABS NAVIGATION */}
-        <div style={{
+        <div className="student-tabs-rail" style={{
           display: 'flex',
           gap: 8,
           borderBottom: '2px solid var(--border)',
           marginBottom: 24,
           overflowX: 'auto',
+          WebkitOverflowScrolling: 'touch',
           paddingBottom: 2,
+          flexWrap: 'nowrap',
         }}>
           <button
             type="button"
+            className="student-tab-btn"
             onClick={() => setActiveTab('overview')}
             style={{
               display: 'inline-flex',
@@ -510,6 +496,9 @@ export default function StudentAnalytics() {
               color: activeTab === 'overview' ? 'var(--primary)' : 'var(--muted)',
               borderBottom: activeTab === 'overview' ? '3px solid var(--primary)' : '3px solid transparent',
               marginBottom: -2,
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+              minWidth: 'max-content',
               transition: 'all 0.15s ease',
             }}
           >
@@ -518,6 +507,7 @@ export default function StudentAnalytics() {
 
           <button
             type="button"
+            className="student-tab-btn"
             onClick={() => setActiveTab('mastery')}
             style={{
               display: 'inline-flex',
@@ -532,6 +522,9 @@ export default function StudentAnalytics() {
               color: activeTab === 'mastery' ? 'var(--primary)' : 'var(--muted)',
               borderBottom: activeTab === 'mastery' ? '3px solid var(--primary)' : '3px solid transparent',
               marginBottom: -2,
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+              minWidth: 'max-content',
               transition: 'all 0.15s ease',
             }}
           >
@@ -545,6 +538,7 @@ export default function StudentAnalytics() {
 
           <button
             type="button"
+            className="student-tab-btn"
             onClick={() => setActiveTab('weakTopics')}
             style={{
               display: 'inline-flex',
@@ -559,6 +553,9 @@ export default function StudentAnalytics() {
               color: activeTab === 'weakTopics' ? 'var(--primary)' : 'var(--muted)',
               borderBottom: activeTab === 'weakTopics' ? '3px solid var(--primary)' : '3px solid transparent',
               marginBottom: -2,
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+              minWidth: 'max-content',
               transition: 'all 0.15s ease',
             }}
           >
@@ -572,6 +569,7 @@ export default function StudentAnalytics() {
 
           <button
             type="button"
+            className="student-tab-btn"
             onClick={() => setActiveTab('history')}
             style={{
               display: 'inline-flex',
@@ -586,6 +584,9 @@ export default function StudentAnalytics() {
               color: activeTab === 'history' ? 'var(--primary)' : 'var(--muted)',
               borderBottom: activeTab === 'history' ? '3px solid var(--primary)' : '3px solid transparent',
               marginBottom: -2,
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+              minWidth: 'max-content',
               transition: 'all 0.15s ease',
             }}
           >

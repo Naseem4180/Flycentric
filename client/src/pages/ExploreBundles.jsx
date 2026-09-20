@@ -133,9 +133,9 @@ export default function ExploreBundles() {
       {/* Advanced Filter and Search Toolbar */}
       <div className="card" style={{ padding: '14px 18px', marginBottom: 24 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div className="student-toolbar-row">
             {/* Search Input */}
-            <div className="input-with-icon" style={{ flex: 1, minWidth: 'min(100%, 220px)' }}>
+            <div className="input-with-icon" style={{ flex: 1, minWidth: 220, width: '100%' }}>
               <Search size={15} />
               <input
                 className="input"
@@ -171,12 +171,12 @@ export default function ExploreBundles() {
             </div>
 
             {/* Sort Dropdown */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-              <span className="muted" style={{ fontSize: '0.78rem' }}>Sort:</span>
+            <div className="student-toolbar-sort">
+              <span>Sort:</span>
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
-                style={{ height: 32, fontSize: '0.78rem', padding: '0 8px', borderRadius: 6 }}
+                aria-label="Sort by"
               >
                 <option value="featured">Featured First</option>
                 <option value="price_asc">Price: Low to High</option>
@@ -226,6 +226,7 @@ export default function ExploreBundles() {
           gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 300px), 1fr))',
           gap: 18,
           marginBottom: 36,
+          alignItems: 'stretch',
         }}>
           {visible.map((b) => {
             const free = b.is_free || !Number(b.price_inr);
@@ -245,6 +246,9 @@ export default function ExploreBundles() {
                   position: 'relative',
                   boxShadow: '0 2px 8px rgba(0, 0, 0, 0.03)',
                   transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+                  height: '100%',
+                  boxSizing: 'border-box',
+                  marginBottom: 0,
                 }}
               >
                 {/* Card Top: Badges */}

@@ -153,12 +153,7 @@ export default function StudentQuizzes() {
       {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
       {/* KPI Stats Strip */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
-        gap: 12,
-        marginBottom: 20,
-      }}>
+      <div className="student-kpi-grid">
         <div className="card" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
           <div style={{ width: 42, height: 42, borderRadius: 10, background: 'rgba(99, 102, 241, 0.1)', color: '#4f46e5', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <FileQuestion size={20} />
@@ -210,8 +205,8 @@ export default function StudentQuizzes() {
       <div className="card" style={{ padding: '14px 18px', marginBottom: 22 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {/* Row 1: Search, Subject Filter, Sort */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-            <div className="input-with-icon" style={{ flex: 1, minWidth: 260 }}>
+          <div className="student-toolbar-row">
+            <div className="input-with-icon" style={{ flex: 1, minWidth: 220, width: '100%' }}>
               <Search size={15} />
               <input
                 className="input"
@@ -221,12 +216,12 @@ export default function StudentQuizzes() {
               />
             </div>
 
-            <div style={{ minWidth: 180 }}>
+            <div style={{ minWidth: 160, flex: 1 }}>
               <select
                 className="input"
                 value={subjectId}
                 onChange={(e) => setSubjectId(e.target.value)}
-                style={{ height: 38, fontSize: '0.82rem' }}
+                style={{ height: 36, fontSize: '0.82rem', fontWeight: 500, width: '100%', borderRadius: 8 }}
                 aria-label="Filter by subject"
               >
                 <option value="all">All Curriculum Subjects</option>
@@ -234,12 +229,12 @@ export default function StudentQuizzes() {
               </select>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-              <span className="muted" style={{ fontSize: '0.78rem' }}>Sort:</span>
+            <div className="student-toolbar-sort">
+              <span>Sort:</span>
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
-                style={{ height: 34, fontSize: '0.78rem', padding: '0 8px', borderRadius: 6 }}
+                aria-label="Sort by"
               >
                 <option value="curriculum">Curriculum Sequence</option>
                 <option value="score_high">Highest Score First</option>
@@ -358,8 +353,9 @@ export default function StudentQuizzes() {
                 {!isCollapsed && (
                   <div style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))',
                     gap: 16,
+                    alignItems: 'stretch',
                   }}>
                     {group.quizzes.map((q) => {
                       const attempts = q.my_attempt_count || 0;
@@ -383,6 +379,9 @@ export default function StudentQuizzes() {
                             borderLeft: `4px solid ${isPractice ? '#10b981' : '#6366f1'}`,
                             position: 'relative',
                             boxShadow: '0 2px 6px rgba(0, 0, 0, 0.02)',
+                            height: '100%',
+                            boxSizing: 'border-box',
+                            marginBottom: 0,
                           }}
                         >
                           {/* Card Header: Mode Badge + Score Badge */}

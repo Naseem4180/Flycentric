@@ -80,6 +80,73 @@ async function validateQuestionPayload({ question_type, difficulty, subject_id, 
   return null;
 }
 
+// Automatically syncs questions into chapter practice assignments:
+// - If an assignment already exists for the chapter, appends the new question IDs.
+// - If no assignment exists yet (new chapter/subject), creates and publishes one.
+async function syncQuestionsToChapterQuiz(db, chapterId, questionIds, userId = 1) {
+  if (!chapterId || !questionIds || !questionIds.length) return null;
+
+  try {
+    const existingQuizRes = await db.query(
+      `SELECT id, question_ids FROM quizzes
+       WHERE chapter_id = $1 AND type = 'practice' AND deleted_at IS NULL
+       ORDER BY id ASC LIMIT 1`,
+      [chapterId]
+    );
+
+    if (existingQuizRes.rows.length) {
+      const quiz = existingQuizRes.rows[0];
+      const existingSet = new Set((quiz.question_ids || []).map(Number));
+      let added = false;
+      for (const qid of questionIds) {
+        const num = Number(qid);
+        if (num > 0 && !existingSet.has(num)) {
+          existingSet.add(num);
+          added = true;
+        }
+      }
+      if (added) {
+        await db.query(
+          `UPDATE quizzes
+           SET question_ids = $1, updated_at = NOW()
+           WHERE id = $2`,
+          [Array.from(existingSet), quiz.id]
+        );
+      }
+      return quiz.id;
+    } else {
+      const chapterRes = await db.query(
+        `SELECT id, title, subject_id FROM chapters WHERE id = $1 AND deleted_at IS NULL`,
+        [chapterId]
+      );
+      if (!chapterRes.rows.length) return null;
+      const chapter = chapterRes.rows[0];
+      const cleanTitle = String(chapter.title || 'Chapter').trim();
+      const quizTitle = `${cleanTitle} Assignment`;
+
+      const validQIds = questionIds.map(Number).filter((n) => n > 0);
+      const newQuizRes = await db.query(
+        `INSERT INTO quizzes (
+          title, type, subject_id, chapter_id, chapter_ids,
+          question_ids, pass_percent, status, source,
+          require_previous_completion, allow_review_after_submit, show_explanations,
+          created_by
+        ) VALUES (
+          $1, 'practice', $2, $3, ARRAY[$3::int],
+          $4, 70, 'published', 'auto_import',
+          false, true, true,
+          $5
+        ) RETURNING id`,
+        [quizTitle, chapter.subject_id, chapter.id, validQIds, userId || 1]
+      );
+      return newQuizRes.rows[0]?.id;
+    }
+  } catch (err) {
+    console.warn(`[syncQuestionsToChapterQuiz] Error syncing to chapter ${chapterId}:`, err.message);
+    return null;
+  }
+}
+
 // List / search / filter
 // `keywords` supports the Mark FAQ / Report Exam Question screens: a
 // comma-separated list of terms, OR-matched against the question text (e.g.
@@ -104,18 +171,36 @@ router.get('/', async (req, res) => {
   if (is_faq) { params.push(is_faq === 'true'); clauses.push(`q.is_faq = $${params.length}`); }
   if (q) { params.push(q); clauses.push(`to_tsvector('english', q.question_text) @@ plainto_tsquery($${params.length})`); }
   if (keywords) {
-    const terms = keywords.split(',').map((t) => t.trim()).filter(Boolean);
+    const raw = String(keywords).trim();
+    const cleanId = raw.replace(/^#/, '');
+    const allTerms = raw.includes(',')
+      ? raw.split(',').map((t) => t.trim()).filter(Boolean)
+      : raw.split(/\s+/).map((t) => t.trim()).filter(Boolean);
+    // Limit to maximum 5 keywords
+    const terms = allTerms.slice(0, 5);
     if (terms.length) {
-      const orClauses = terms.map((term) => { params.push(`%${term}%`); return `q.question_text ILIKE $${params.length}`; });
+      const orClauses = [];
+      if (/^\d+$/.test(cleanId)) {
+        params.push(parseInt(cleanId, 10));
+        orClauses.push(`q.id = $${params.length}`);
+      }
+      for (const term of terms) {
+        params.push(`%${term}%`);
+        orClauses.push(`q.question_text ILIKE $${params.length}`);
+      }
       clauses.push(`(${orClauses.join(' OR ')})`);
     }
   }
   params.push(limit); params.push(offset);
   const query = `
-    SELECT q.*, s.title AS subject_title, c.title AS chapter_title
+    SELECT q.*,
+           COALESCE(q.subject_id, c.subject_id) AS subject_id,
+           COALESCE(s.title, cs.title) AS subject_title,
+           c.title AS chapter_title
     FROM questions q
     LEFT JOIN subjects s ON s.id = q.subject_id
     LEFT JOIN chapters c ON c.id = q.chapter_id
+    LEFT JOIN subjects cs ON cs.id = c.subject_id
     WHERE ${clauses.join(' AND ')}
     ORDER BY q.id DESC LIMIT $${params.length - 1} OFFSET $${params.length}
   `;
@@ -125,19 +210,65 @@ router.get('/', async (req, res) => {
 
 // ---- Mark FAQ ----------------------------------------------------------------
 router.post('/:id/faq', authenticate, authorize('admin'), async (req, res) => {
-  const { is_faq } = req.body;
-  const result = await pool.query('UPDATE questions SET is_faq = $1 WHERE id = $2 AND deleted_at IS NULL RETURNING *', [is_faq !== false, req.params.id]);
+  const { is_faq, month, year, appearance_code } = req.body;
+  let code = appearance_code ? String(appearance_code).trim() : null;
+  if (!code && month && year) {
+    const mm = String(month).padStart(2, '0');
+    const yy = String(year).slice(-2);
+    code = `${mm}${yy}`;
+  }
+
+  let result;
+  if (is_faq === false) {
+    result = await pool.query(
+      'UPDATE questions SET is_faq = false WHERE id = $1 AND deleted_at IS NULL RETURNING *',
+      [req.params.id]
+    );
+  } else {
+    if (code) {
+      result = await pool.query(
+        `UPDATE questions 
+         SET is_faq = true,
+             appearances = CASE 
+               WHEN $1 = ANY(COALESCE(appearances, '{}'::text[])) THEN appearances
+               ELSE array_append(COALESCE(appearances, '{}'::text[]), $1)
+             END
+         WHERE id = $2 AND deleted_at IS NULL RETURNING *`,
+        [code, req.params.id]
+      );
+    } else {
+      result = await pool.query(
+        'UPDATE questions SET is_faq = true WHERE id = $1 AND deleted_at IS NULL RETURNING *',
+        [req.params.id]
+      );
+    }
+  }
+
   if (!result.rows.length) return res.status(404).json({ error: 'Question not found' });
   res.json({ question: result.rows[0] });
 });
 
 // ---- Report Exam Question (student flags a question appeared in a real exam) --
 router.post('/:id/appearance', authenticate, async (req, res) => {
-  const { exam_center, exam_date, note, subject_id } = req.body;
+  const { exam_center, exam_date, note, subject_id, month, year, appearance_code } = req.body;
+  let code = appearance_code ? String(appearance_code).trim() : null;
+  if (!code && month && year) {
+    const mm = String(month).padStart(2, '0');
+    const yy = String(year).slice(-2);
+    code = `${mm}${yy}`;
+  } else if (!code && exam_date) {
+    const d = new Date(exam_date);
+    if (!isNaN(d.getTime())) {
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const yy = String(d.getFullYear()).slice(-2);
+      code = `${mm}${yy}`;
+    }
+  }
+
   const result = await pool.query(
-    `INSERT INTO exam_appearances (question_id, reported_by, subject_id, exam_center, exam_date, note)
-     VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-    [req.params.id, req.user.id, subject_id || null, exam_center || null, exam_date || null, note || null]
+    `INSERT INTO exam_appearances (question_id, reported_by, subject_id, exam_center, exam_date, appearance_code, note, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,'pending') RETURNING *`,
+    [req.params.id, req.user.id, subject_id || null, exam_center || null, exam_date || null, code || null, note || null]
   );
   res.status(201).json({ appearance: result.rows[0] });
 });
@@ -145,7 +276,7 @@ router.post('/:id/appearance', authenticate, async (req, res) => {
 router.get('/appearances/queue', authenticate, authorize('admin'), async (req, res) => {
   const { status = 'pending' } = req.query;
   const result = await pool.query(
-    `SELECT ea.*, q.question_text, q.is_faq, u.name AS reporter_name, u.email AS reporter_email, s.title AS subject_title
+    `SELECT ea.*, q.question_text, q.is_faq, q.appearances, u.name AS reporter_name, u.email AS reporter_email, s.title AS subject_title
      FROM exam_appearances ea
      JOIN questions q ON q.id = ea.question_id
      JOIN users u ON u.id = ea.reported_by
@@ -161,6 +292,37 @@ router.patch('/appearances/:id', authenticate, authorize('admin'), async (req, r
   if (!['pending', 'confirmed', 'dismissed'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
   const result = await pool.query('UPDATE exam_appearances SET status = $1 WHERE id = $2 RETURNING *', [status, req.params.id]);
   if (!result.rows.length) return res.status(404).json({ error: 'Appearance report not found' });
+  
+  const appearance = result.rows[0];
+  if (status === 'confirmed') {
+    let code = appearance.appearance_code;
+    if (!code && appearance.exam_date) {
+      const d = new Date(appearance.exam_date);
+      if (!isNaN(d.getTime())) {
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const yy = String(d.getFullYear()).slice(-2);
+        code = `${mm}${yy}`;
+      }
+    }
+    if (code) {
+      await pool.query(
+        `UPDATE questions
+         SET is_faq = true,
+             appearances = CASE
+               WHEN $1 = ANY(COALESCE(appearances, '{}'::text[])) THEN appearances
+               ELSE array_append(COALESCE(appearances, '{}'::text[]), $1)
+             END
+         WHERE id = $2 AND deleted_at IS NULL`,
+        [code, appearance.question_id]
+      );
+    } else {
+      await pool.query(
+        'UPDATE questions SET is_faq = true WHERE id = $1 AND deleted_at IS NULL',
+        [appearance.question_id]
+      );
+    }
+  }
+
   res.json({ appearance: result.rows[0] });
 });
 
@@ -209,6 +371,13 @@ router.post('/', authenticate, authorize('admin', 'instructor'), async (req, res
   const question = result.rows[0];
   await pool.query('UPDATE questions SET root_question_id = $1 WHERE id = $1', [question.id]);
   question.root_question_id = question.id; // keep the API response in sync with the row we just backfilled
+
+  if (chapter_id) {
+    await syncQuestionsToChapterQuiz(pool, Number(chapter_id), [question.id], req.user.id).catch((err) => {
+      console.warn('Failed to sync single question to chapter quiz', err);
+    });
+  }
+
   res.status(201).json({ question });
 });
 
@@ -481,6 +650,15 @@ router.post('/bulk/import', authenticate, authorize('admin'), upload.single('fil
           [clean, 'live']
         );
         id = ins.rows[0]?.id || null;
+        if (id) {
+          // Auto-link new subject to all active bundles so students can access it in My Subjects
+          await client.query(
+            `INSERT INTO bundle_subjects (bundle_id, subject_id)
+             SELECT b.id, $1 FROM bundles b WHERE b.deleted_at IS NULL
+             ON CONFLICT DO NOTHING`,
+            [id]
+          );
+        }
       }
 
       if (id) subjectCache.set(key, id);
@@ -539,6 +717,7 @@ router.post('/bulk/import', authenticate, authorize('admin'), upload.single('fil
     }
 
     const seenHashesThisFile = new Map();
+    const importedByChapter = new Map(); // chapterId -> questionId[]
 
     for (const row of records) {
       const fileRow = row.__row;
@@ -638,9 +817,23 @@ router.post('/bulk/import', authenticate, authorize('admin'), upload.single('fil
           hash,
         ]
       );
-      await client.query('UPDATE questions SET root_question_id = $1 WHERE id = $1', [createdRow.rows[0].id]);
+      const newQuestionId = createdRow.rows[0].id;
+      await client.query('UPDATE questions SET root_question_id = $1 WHERE id = $1', [newQuestionId]);
+      if (chapterId) {
+        const cId = Number(chapterId);
+        if (!importedByChapter.has(cId)) importedByChapter.set(cId, []);
+        importedByChapter.get(cId).push(newQuestionId);
+      }
       imported += 1;
     }
+
+    // Automatically sync newly imported questions into chapter practice assignments:
+    // 1. If an assignment already exists for the chapter, append new questions.
+    // 2. If it is a new chapter without an assignment, auto-create and publish one.
+    for (const [chId, qIds] of importedByChapter.entries()) {
+      await syncQuestionsToChapterQuiz(client, chId, qIds, req.user.id);
+    }
+
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK');

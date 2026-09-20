@@ -16,8 +16,8 @@ async function fetchMasteryRows(studentId, subjectId) {
   if (subjectId) { params.push(subjectId); subjectClause = `AND s.id = $${params.length}`; }
   const result = await pool.query(
     `SELECT
-       COALESCE(qq.tags[1], 'Untagged') AS subtopic,
-      c.id AS chapter_id, COALESCE(c.title, 'Uncategorized') AS chapter_title,
+       COALESCE(NULLIF(qq.tags[1], ''), c.title, 'General') AS subtopic,
+       c.id AS chapter_id, COALESCE(c.title, 'Uncategorized') AS chapter_title,
        s.id AS subject_id, COALESCE(s.title, 'Unassigned') AS subject_title,
        SUM(st.attempt_count)::int AS total_attempts,
        SUM(st.correct_count)::int AS total_correct
@@ -453,6 +453,47 @@ router.get('/me', authenticate, async (req, res) => {
     basedOnAttempts: recentScores.length,
   };
 
+  // Also fetch all available syllabus subtopics in scope to show unexplored topics
+  const allSubtopicsResult = await pool.query(
+    `SELECT DISTINCT
+       COALESCE(NULLIF(qq.tags[1], ''), c.title, 'General') AS subtopic,
+       c.id AS chapter_id, COALESCE(c.title, 'Uncategorized') AS chapter_title,
+       s.id AS subject_id, COALESCE(s.title, 'Unassigned') AS subject_title
+     FROM questions qq
+     JOIN quizzes q ON qq.id = ANY(q.question_ids) AND q.deleted_at IS NULL AND q.status = 'published' AND q.source IS DISTINCT FROM 'memory_bank'
+     LEFT JOIN chapters c ON c.id = qq.chapter_id
+     LEFT JOIN subjects s ON s.id = COALESCE(qq.subject_id, c.subject_id, q.subject_id)
+     WHERE qq.deleted_at IS NULL AND qq.is_latest = true ${coverageSubjectClause}
+       AND (
+         $1::int IN (SELECT id FROM users WHERE role IN ('admin', 'instructor'))
+         OR EXISTS (
+           SELECT 1 FROM bundle_access ba
+           WHERE ba.user_id = $1
+             AND (ba.bundle_id = q.bundle_id
+                  OR q.subject_id IN (SELECT subject_id FROM bundle_subjects WHERE bundle_id = ba.bundle_id)
+                  OR s.id IN (SELECT subject_id FROM bundle_subjects WHERE bundle_id = ba.bundle_id))
+         )
+       )`,
+    coverageParams
+  );
+
+  const attemptedKeySet = new Set(subtopicMastery.map((m) => `${m.subject_id || 'none'}::${m.chapter_id || 'none'}::${m.subtopic}`));
+  const notExploredTopics = allSubtopicsResult.rows
+    .filter((r) => !attemptedKeySet.has(`${r.subject_id || 'none'}::${r.chapter_id || 'none'}::${r.subtopic}`))
+    .map((r) => ({
+      subtopic: r.subtopic,
+      chapter_id: r.chapter_id,
+      chapter_title: r.chapter_title,
+      subject_id: r.subject_id,
+      subject_title: r.subject_title,
+      total_attempts: 0,
+      total_correct: 0,
+      mastery_pct: null,
+      classification: 'not_attempted',
+    }));
+
+  const allTopics = [...subtopicMastery, ...notExploredTopics];
+
   res.json({
     overall: overall.rows[0] || { attempts: 0, quizzes_attempted: 0, avg_score: null, best_score: null, avg_best_score: null },
     examMode: overall.rows[0] || { attempts: 0, quizzes_attempted: 0, avg_score: null, best_score: null, avg_best_score: null },
@@ -460,7 +501,9 @@ router.get('/me', authenticate, async (req, res) => {
     performanceIndicator,
     recentAttempts: byQuiz.rows,
     weakTopics,
-    masteryBySubtopic: subtopicMastery,
+    masteryBySubtopic: allTopics,
+    exploredSubtopics: subtopicMastery,
+    notExploredTopics,
     masteryBySubject: subjectMastery,
     batchAverageBySubject: batchAverage,
     readiness,

@@ -1,358 +1,802 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import {
+  Compass, BookOpen, Cloud, Layers, Plane, Wrench, Sparkles,
+  Calendar, Flame, FileText, CheckCircle2, BarChart2, Trophy,
+  AlertTriangle, TrendingUp, ChevronDown, ChevronUp, ChevronRight,
+  ArrowRight, LayoutGrid, Award, Radio, GraduationCap,
+} from 'lucide-react';
 import { api } from '../api';
 import useAuth from '../context/useAuth';
-import ReadinessGauge from '../components/ReadinessGauge';
-import { addToCart } from '../utils/cart';
-import { Badge, StatusBadge } from '../ui';
+import { PageSkeleton, Badge } from '../ui';
 
-// Same bands, applied to a plain score/readiness number: low / average / good
-// / strong, each mapped to a theme color so performance reads at a glance
-// instead of everything being the same neutral ink color.
-function scoreBand(pct) {
-  if (pct == null) return { color: 'var(--ink-soft)', text: '—' };
-  if (pct < 40) return { color: 'var(--danger)', text: 'Low' };
-  if (pct < 60) return { color: 'var(--warning)', text: 'Average' };
-  if (pct < 80) return { color: 'var(--blue)', text: 'Good' };
-  return { color: 'var(--success)', text: 'Strong' };
+function getSubjectIcon(title = '') {
+  const t = title.toLowerCase();
+  if (t.includes('nav') || t.includes('map')) return Compass;
+  if (t.includes('met') || t.includes('weather')) return Cloud;
+  if (t.includes('reg') || t.includes('law')) return BookOpen;
+  if (t.includes('tech') || t.includes('gen') || t.includes('engine')) return Wrench;
+  if (t.includes('inst') || t.includes('radio')) return Radio;
+  return Plane;
 }
 
-function scoreTone(pct) {
-  if (pct == null) return 'slate';
-  if (pct < 40) return 'red';
-  if (pct < 60) return 'orange';
-  if (pct < 80) return 'blue';
-  return 'green';
+function formatActivityDate(dateString) {
+  if (!dateString) return '—';
+  const d = new Date(dateString);
+  if (isNaN(d.getTime())) return '—';
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const itemDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.round((today - itemDate) / (1000 * 60 * 60 * 24));
+
+  const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+  if (diffDays === 0) return `Today, ${timeStr}`;
+  if (diffDays === 1) return 'Yesterday';
+  if (now.getFullYear() === d.getFullYear()) {
+    return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+  }
+  return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function getScoreColor(score) {
+  if (score == null) return 'var(--muted)';
+  const num = Number(score);
+  if (num < 40) return '#ef4444';
+  if (num < 60) return '#f59e0b';
+  if (num < 75) return '#0284c7';
+  return '#10b981';
 }
 
 export default function StudentDashboard() {
-  const [bundles, setBundles] = useState([]);
-  const [quizzes, setQuizzes] = useState([]);
-  const [attempts, setAttempts] = useState([]);
-  const [accessIds, setAccessIds] = useState(new Set());
-  const [weakTopics, setWeakTopics] = useState([]);
-  const [masteryTopics, setMasteryTopics] = useState([]);
-  const [readiness, setReadiness] = useState(null);
-  const [learningMatrix, setLearningMatrix] = useState(null);
-  const [performanceIndicator, setPerformanceIndicator] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const { user, authVersion } = useAuth();
   const navigate = useNavigate();
 
+  const [bundles, setBundles] = useState([]);
+  const [subjects, setSubjects] = useState([]);
+  const [quizzes, setQuizzes] = useState([]);
+  const [attempts, setAttempts] = useState([]);
+  const [masteryTopics, setMasteryTopics] = useState([]);
+  const [selectedSubjectId, setSelectedSubjectId] = useState('');
+  const [unstartedExpanded, setUnstartedExpanded] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
   useEffect(() => {
-    Promise.all([api.get('/content/bundles?status=live'), api.get('/exams/quizzes'), api.get('/exams/attempts/mine'), api.get('/analytics/me'), api.get('/payments/my-access')])
-      .then(([b, q, a, m, access]) => {
-        setBundles(b.bundles);
-        setAccessIds(new Set((access.bundles || []).map((bundle) => String(bundle.id))));
-        setQuizzes(q.quizzes);
-        setAttempts(a.attempts);
-        setLearningMatrix(m.learningMatrix || null);
-        setPerformanceIndicator(m.performanceIndicator || null);
-        // Students only ever get their OWN weak topics here — this is the
-        // "limited view" version of Topic Mastery: no strong/average
-        // breakdown, no other students' data, just what to focus on next.
-        // (The full weak+strong breakdown with every criterion is an
-        // admin-only view — see AdminStudentInsights.)
-        setWeakTopics(m.weakTopics || []);
-        setMasteryTopics(m.masteryBySubtopic || []);
-        // Predictive Readiness Gauge — computed server-side (see
-        // routes/analytics.js) from recent accuracy + subtopic coverage +
-        // consistency, not just a raw average of past scores.
-        setReadiness(m.readiness || null);
+    let active = true;
+    setLoading(true);
+
+    const fullAccess = user && user.role !== 'student';
+    const fetchSubjects = fullAccess
+      ? api.get('/content/subjects').catch(() => ({ subjects: [] }))
+      : api.get('/payments/my-access').then(async (access) => {
+          const bundleIds = (access?.bundles || []).map((b) => b.id);
+          const results = await Promise.all(
+            bundleIds.map((id) => api.get(`/content/bundles/${id}/subjects`).catch(() => ({ subjects: [] })))
+          );
+          const seen = new Map();
+          results.forEach((r) => (r?.subjects || []).forEach((s) => seen.set(s.id, s)));
+          return { subjects: Array.from(seen.values()) };
+        }).catch(() => ({ subjects: [] }));
+
+    Promise.all([
+      api.get('/content/bundles?status=live').catch(() => ({ bundles: [] })),
+      api.get('/exams/quizzes').catch(() => ({ quizzes: [] })),
+      api.get('/exams/attempts/mine').catch(() => ({ attempts: [] })),
+      api.get('/analytics/me').catch(() => ({})),
+      fetchSubjects,
+    ])
+      .then(([bData, qData, aData, mData, sData]) => {
+        if (!active) return;
+        setBundles(bData.bundles || []);
+        setQuizzes(qData.quizzes || []);
+        setAttempts(aData.attempts || []);
+        setMasteryTopics(mData.masteryBySubtopic || []);
+        const subList = sData.subjects || [];
+        setSubjects(subList);
+
+        if (subList.length > 0) {
+          const subAttempts = (aData.attempts || []).filter((a) => a.status === 'submitted' && a.subject_id);
+          if (subAttempts.length > 0) {
+            setSelectedSubjectId(String(subAttempts[0].subject_id));
+          } else {
+            setSelectedSubjectId(String(subList[0].id));
+          }
+        }
       })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-    // authVersion re-runs this once auth has settled, so the dashboard can
-    // never render empty because its requests fired before the token existed.
-  }, [authVersion]);
+      .catch((e) => {
+        if (!active) return;
+        setError(e.message || 'Failed to load dashboard data');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
 
+    return () => { active = false; };
+  }, [authVersion, user]);
 
-  if (loading) return <div className="page"><div className="container dashboard-skeleton"><i /><i /><i /></div></div>;
+  const quizzesById = useMemo(() => {
+    const map = {};
+    quizzes.forEach((q) => { map[q.id] = q; });
+    return map;
+  }, [quizzes]);
 
-  // "Completed" means submitted AND actually answered something — a student
-  // who opened a quiz and submitted it blank shouldn't drag their average
-  // down. Practice attempts are strictly separated from Exam calculations.
-  const answeredCount = (attempt) => (
-    attempt.answered_count != null
-      ? Number(attempt.answered_count)
-      : Object.keys(attempt.answers || {}).length
-  );
-  const completed = attempts.filter((attempt) => attempt.status === 'submitted' && attempt.quiz_type !== 'practice' && answeredCount(attempt) > 0);
-  const visibleAttempts = completed;
-  const average = completed.length ? Math.round(completed.reduce((sum, attempt) => sum + Number(attempt.score || 0), 0) / completed.length) : 0;
-  const totalCorrect = completed.reduce((sum, attempt) => sum + Number(attempt.correct_count || 0), 0);
-  const nextQuiz = quizzes[0];
-  const enrolledBundles = bundles.filter((bundle) => accessIds.has(String(bundle.id)));
-  // Dynamic Visibility for Paid vs. Free Content: a student who already
-  // holds a paid (non-free) bundle has "purchased a premium course" — free
-  // bundles are then hidden from the explore/dashboard list entirely, to
-  // reduce clutter, rather than competing for attention with what they paid for.
-  const hasPaidSubscription = enrolledBundles.some((bundle) => !bundle.is_free && Number(bundle.price_inr) > 0);
-  const exploreBundles = bundles.filter((bundle) => {
-    if (accessIds.has(String(bundle.id))) return false;
-    const bundleIsFree = bundle.is_free || !Number(bundle.price_inr);
-    if (hasPaidSubscription && bundleIsFree) return false;
-    return true;
-  });
+  const submittedAttempts = useMemo(() => {
+    return attempts
+      .filter((a) => a.status === 'submitted')
+      .sort((a, b) => new Date(b.submitted_at || 0) - new Date(a.submitted_at || 0));
+  }, [attempts]);
 
-  async function enrollFree(bundle) {
-    try {
-      await api.post('/payments/enroll-free', { bundle_id: bundle.id });
-      setAccessIds((previous) => new Set([...previous, String(bundle.id)]));
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
-  function addPaidBundle(bundle) {
-    addToCart(bundle);
-    navigate('/checkout');
-  }
-
-  // Real study streak: consecutive calendar days (up to today) that have at
-  // least one submitted attempt. No attempts today/yesterday breaks the streak.
-  const studyStreak = (() => {
+  const studyStreak = useMemo(() => {
     const days = new Set(
-      completed
+      submittedAttempts
         .filter((a) => a.submitted_at)
         .map((a) => new Date(a.submitted_at).toDateString())
     );
     if (!days.size) return 0;
     let streak = 0;
     const cursor = new Date();
-    // allow the streak to still count if today has no activity yet but yesterday does
     if (!days.has(cursor.toDateString())) cursor.setDate(cursor.getDate() - 1);
     while (days.has(cursor.toDateString())) {
       streak += 1;
       cursor.setDate(cursor.getDate() - 1);
     }
     return streak;
-  })();
+  }, [submittedAttempts]);
 
-  // Real flight XP: 10 points per correct answer, entirely derived from
-  // actual exam performance — no fixed starting bonus.
-  const flightXp = totalCorrect * 10;
-  const readinessBand = scoreBand(completed.length ? average : null);
-  const masteryTotals = masteryTopics.reduce((totals, topic) => ({
-    attempts: totals.attempts + Number(topic.total_attempts || 0),
-    correct: totals.correct + Number(topic.total_correct || 0),
-  }), { attempts: 0, correct: 0 });
-  const masteryPercent = masteryTotals.attempts
-    ? Math.round((masteryTotals.correct / masteryTotals.attempts) * 100)
-    : null;
-  const masteryCounts = masteryTopics.reduce((counts, topic) => {
-    counts[topic.classification] = (counts[topic.classification] || 0) + 1;
-    return counts;
-  }, { weak: 0, mid: 0, strong: 0, not_attempted: 0 });
+  const practiceAttempts = useMemo(() => {
+    return submittedAttempts.filter((a) => a.quiz_type === 'practice' || quizzesById[a.quiz_id]?.type === 'practice');
+  }, [submittedAttempts, quizzesById]);
+
+  const examAttempts = useMemo(() => {
+    return submittedAttempts.filter((a) => a.quiz_type === 'exam' || quizzesById[a.quiz_id]?.type === 'exam');
+  }, [submittedAttempts, quizzesById]);
+
+  const practiceAvg = useMemo(() => {
+    if (!practiceAttempts.length) return null;
+    return Math.round(practiceAttempts.reduce((sum, a) => sum + Number(a.score || 0), 0) / practiceAttempts.length);
+  }, [practiceAttempts]);
+
+  const examAvg = useMemo(() => {
+    if (!examAttempts.length) return null;
+    return Math.round(examAttempts.reduce((sum, a) => sum + Number(a.score || 0), 0) / examAttempts.length);
+  }, [examAttempts]);
+
+  const { activeSubjects, unstartedSubjects } = useMemo(() => {
+    const active = [];
+    const unstarted = [];
+
+    subjects.forEach((s) => {
+      const subAttempts = submittedAttempts.filter(
+        (a) => String(a.subject_id) === String(s.id) || String(quizzesById[a.quiz_id]?.subject_id) === String(s.id)
+      );
+
+      const subQuizzes = quizzes.filter((q) => String(q.subject_id) === String(s.id));
+      const subPracticeQuizzes = subQuizzes.filter((q) => q.type === 'practice');
+      const totalPracticeCount = subPracticeQuizzes.length || (subQuizzes.length ? subQuizzes.length : 1);
+
+      const completedPracticeIds = new Set(
+        subAttempts
+          .filter((a) => a.quiz_type === 'practice' || quizzesById[a.quiz_id]?.type === 'practice')
+          .map((a) => a.quiz_id)
+      );
+      const completedPracticeCount = completedPracticeIds.size;
+      const progressPercent = totalPracticeCount > 0
+        ? Math.min(100, Math.round((completedPracticeCount / totalPracticeCount) * 100))
+        : 0;
+
+      const subPractice = subAttempts.filter((a) => a.quiz_type === 'practice' || quizzesById[a.quiz_id]?.type === 'practice');
+      const subExams = subAttempts.filter((a) => a.quiz_type === 'exam' || quizzesById[a.quiz_id]?.type === 'exam');
+
+      const sPracticeAvg = subPractice.length
+        ? Math.round(subPractice.reduce((acc, a) => acc + Number(a.score || 0), 0) / subPractice.length)
+        : null;
+      const sExamAvg = subExams.length
+        ? Math.round(subExams.reduce((acc, a) => acc + Number(a.score || 0), 0) / subExams.length)
+        : null;
+
+      const lastActiveRaw = subAttempts.length ? subAttempts[0].submitted_at : null;
+      const bundleSubtext = s.exam_type || s.category || 'DGCA CPL';
+
+      const enriched = {
+        ...s,
+        bundleSubtext,
+        completedCount: completedPracticeCount,
+        totalCount: totalPracticeCount,
+        progressPercent,
+        practiceAvg: sPracticeAvg,
+        examAvg: sExamAvg,
+        lastActive: formatActivityDate(lastActiveRaw),
+        lastActiveRaw,
+        attemptsCount: subAttempts.length,
+      };
+
+      if (subAttempts.length > 0) {
+        active.push(enriched);
+      } else {
+        unstarted.push(enriched);
+      }
+    });
+
+    active.sort((a, b) => new Date(b.lastActiveRaw || 0) - new Date(a.lastActiveRaw || 0));
+    return { activeSubjects: active, unstartedSubjects: unstarted };
+  }, [subjects, submittedAttempts, quizzes, quizzesById]);
+
+  const currentTopicInsights = useMemo(() => {
+    const targetSubjectId = selectedSubjectId || (subjects.length ? String(subjects[0].id) : '');
+    const scoped = masteryTopics.filter(
+      (m) => !targetSubjectId || String(m.subject_id) === String(targetSubjectId)
+    );
+
+    const weak = [];
+    const neutral = [];
+    const strong = [];
+    const unexplored = [];
+
+    scoped.forEach((t) => {
+      const cls = t.classification;
+      if (cls === 'weak' || (t.mastery_pct != null && t.mastery_pct <= 40)) {
+        weak.push(t);
+      } else if (cls === 'mid' || (t.mastery_pct != null && t.mastery_pct > 40 && t.mastery_pct < 80)) {
+        neutral.push(t);
+      } else if (cls === 'strong' || (t.mastery_pct != null && t.mastery_pct >= 80)) {
+        strong.push(t);
+      } else {
+        unexplored.push(t);
+      }
+    });
+
+    return { weak, neutral, strong, unexplored };
+  }, [masteryTopics, selectedSubjectId, subjects]);
+
+  const firstName = user?.name ? user.name.split(' ')[0] : 'Student';
+
+  if (loading) {
+    return (
+      <div className="admin-main-inner sd-container">
+        <PageSkeleton label="Loading your flight deck" />
+      </div>
+    );
+  }
 
   return (
-    <div className="page">
-      <div className="container">
-        <section className="flight-hero">
-          <div className="hero-copy">
-            <h1>Good to see you, {user?.name?.split(' ')[0] || 'Pilot'}.</h1>
-            <p>Your next focused session is ready. Build confident decisions, one question at a time.</p>
-            <Link to="/explore" className="btn btn-accent">Explore courses <span>→</span></Link>
+    <div className="admin-main-inner sd-container">
+        {/* 1. Compact Welcome Header */}
+        <header className="sd-header">
+          <div>
+            <h1 className="sd-header-title">Good to see you, {firstName}.</h1>
+            <p className="sd-header-sub">Pick up where you left off.</p>
           </div>
-          <div className="hero-gauge-wrap">
-            <ReadinessGauge score={readiness?.score} band={readiness?.band} size={168} sub="readiness" />
-          </div>
-        </section>
-
-        {/* Predictive Readiness breakdown — the 3 signals the gauge above is
-            weighted from (recent accuracy 50%, subtopic coverage 30%,
-            consistency 20%), so "why is my readiness X%" is never a black
-            box. Only rendered once there's at least one submitted attempt. */}
-        {readiness?.score != null && (
-          <div className="readiness-breakdown">
-            <div className="readiness-breakdown-item">
-              <span>Recent accuracy</span>
-              <strong>{readiness.components.recentAccuracy != null ? `${Math.round(readiness.components.recentAccuracy)}%` : '—'}</strong>
-            </div>
-            <div className="readiness-breakdown-item">
-              <span>Subtopic coverage</span>
-              <strong>{readiness.components.subtopicCoverage != null ? `${Math.round(readiness.components.subtopicCoverage)}%` : '—'}</strong>
-            </div>
-            <div className="readiness-breakdown-item">
-              <span>Consistency</span>
-              <strong>{readiness.components.consistency != null ? `${Math.round(readiness.components.consistency)}%` : '—'}</strong>
-            </div>
-          </div>
-        )}
-
-        <section className="mission-strip">
-          <div><span>Study streak</span><strong>{studyStreak} <em>{studyStreak === 1 ? 'day' : 'days'}</em></strong></div>
-          <div><span>Exam average</span><strong style={completed.length ? { color: readinessBand.color } : undefined}>{completed.length ? average : '—'} <em>{completed.length ? '%' : 'start a mock'}</em></strong></div>
-          <div><span>Flight XP</span><strong>{flightXp} <em>points</em></strong></div>
-          <div><span>Official exams</span><strong>{completed.length} <em>submitted</em></strong></div>
-        </section>
-
-        {/* Learning Matrix & Performance Indicator Strip (Requirements 2 & 3) */}
-        {learningMatrix && (
-          <section className="card" style={{ marginTop: 18, padding: '16px 20px', borderRadius: 12, border: '1px solid var(--line)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
-              <div>
-                <strong style={{ fontSize: '1rem', fontWeight: 800 }}>Practice Learning Matrix &amp; Performance Indicator</strong>
-                <p className="muted" style={{ fontSize: '0.8rem', margin: '2px 0 0' }}>Practice and assessment analytics strictly separated from official exam data.</p>
-              </div>
-              <Link to="/analytics" className="btn btn-outline btn-xs" style={{ fontSize: '0.78rem' }}>View analytics →</Link>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 160px), 1fr))', gap: 12 }}>
-              <div style={{ padding: '10px 14px', background: 'var(--surface-sunken)', borderRadius: 8, border: '1px solid var(--line)' }}>
-                <span className="muted" style={{ fontSize: '0.75rem', display: 'block' }}>Assignment Avg</span>
-                <strong style={{ fontSize: '1.15rem', color: '#16a34a' }}>{learningMatrix.cumulative_avg_assignment_score != null ? `${learningMatrix.cumulative_avg_assignment_score}%` : '—'}</strong>
-                <small className="muted" style={{ display: 'block', fontSize: '0.7rem', marginTop: 2 }}>Cumulative average</small>
-              </div>
-              <div style={{ padding: '10px 14px', background: 'var(--surface-sunken)', borderRadius: 8, border: '1px solid var(--line)' }}>
-                <span className="muted" style={{ fontSize: '0.75rem', display: 'block' }}>Best Assignment Avg</span>
-                <strong style={{ fontSize: '1.15rem', color: '#0284c7' }}>{learningMatrix.avg_best_assignment_score != null ? `${learningMatrix.avg_best_assignment_score}%` : '—'}</strong>
-                <small className="muted" style={{ display: 'block', fontSize: '0.7rem', marginTop: 2 }}>Avg of best scores</small>
-              </div>
-              <div style={{ padding: '10px 14px', background: 'var(--surface-sunken)', borderRadius: 8, border: '1px solid var(--line)' }}>
-                <span className="muted" style={{ fontSize: '0.75rem', display: 'block' }}>Assignment Completion</span>
-                <strong style={{ fontSize: '1.15rem', color: '#d97706' }}>{learningMatrix.assignment_completion || '0 / 0'}</strong>
-                <small className="muted" style={{ display: 'block', fontSize: '0.7rem', marginTop: 2 }}>Completed / Total</small>
-              </div>
-              <div style={{ padding: '10px 14px', background: 'var(--surface-sunken)', borderRadius: 8, border: '1px solid var(--line)' }}>
-                <span className="muted" style={{ fontSize: '0.75rem', display: 'block' }}>Test Performance</span>
-                <strong style={{ fontSize: '1.15rem', color: '#8b5cf6' }}>{performanceIndicator?.avg_best_test_score != null ? `${performanceIndicator.avg_best_test_score}%` : '—'}</strong>
-                <small className="muted" style={{ display: 'block', fontSize: '0.7rem', marginTop: 2 }}>Avg best test score</small>
-              </div>
-            </div>
-          </section>
-        )}
-
-        <section className="mastery-overview">
-          <div className="section-heading mastery-overview-heading">
-            <div>
-              <h2>Topic mastery</h2>
-              <p className="muted">Mastery is calculated from total correct attempts divided by total attempts.</p>
-            </div>
-            <Link to="/analytics" className="btn btn-outline btn-sm">Open mastery details →</Link>
-          </div>
-          <div className="mastery-summary">
-            <div className="mastery-summary-primary">
-              <span>Overall mastery</span>
-              <strong>{masteryPercent == null ? '—' : `${masteryPercent}%`}</strong>
-              <small>{masteryTotals.attempts ? `${masteryTotals.correct} correct of ${masteryTotals.attempts} attempts` : 'Complete a quiz to measure mastery'}</small>
-            </div>
-            <div className="mastery-summary-stat mastery-summary-weak"><strong>{masteryCounts.weak}</strong><span>Weak topics</span><small>0–40%</small></div>
-            <div className="mastery-summary-stat mastery-summary-mid"><strong>{masteryCounts.mid}</strong><span>Building</span><small>41–79%</small></div>
-            <div className="mastery-summary-stat mastery-summary-strong"><strong>{masteryCounts.strong}</strong><span>Strong topics</span><small>80–100%</small></div>
-          </div>
-          {masteryTopics.length ? (
-            <div className="mastery-topic-list">
-              {masteryTopics.slice(0, 6).map((topic) => (
-                <div className="mastery-topic-row" key={`${topic.subject_id || 'none'}-${topic.chapter_id || 'none'}-${topic.subtopic}`}>
-                  <div className="mastery-topic-name"><strong>{topic.subtopic}</strong><span>{topic.chapter_title} · {topic.subject_title}</span></div>
-                  <div className="mastery-topic-progress"><div className={`mastery-topic-bar mastery-topic-bar-${topic.classification}`}><i style={{ width: `${Math.max(2, topic.mastery_pct || 0)}%` }} /></div><small>{topic.mastery_pct}%</small></div>
-                  <span className={`mastery-badge mastery-${topic.classification}`}>{topic.classification === 'weak' ? 'Weak · practice' : topic.classification === 'strong' ? 'Strong' : 'Building'}</span>
-                </div>
-              ))}
-            </div>
-          ) : <div className="mastery-empty">No topic attempts yet. Start a practice quiz and your mastery map will appear here.</div>}
-        </section>
-
-        {/* Focus Areas — the student-facing, limited view of Topic Mastery:
-            only their OWN weak subtopics (mastery <= 40%), nothing else. The
-            full weak+strong breakdown with every classification criterion is
-            an admin-only view (see AdminStudentInsights). */}
-        {!!weakTopics.length && (
-          <>
-            <div className="section-heading">
-              <div><h2>Topics that need more practice</h2></div>
-              <Link to="/analytics" className="btn btn-outline btn-sm">View full mastery →</Link>
-            </div>
-            <div className="grid grid-3">
-              {weakTopics.slice(0, 6).map((t, i) => (
-                <div className="card focus-area-card" key={i}>
-                  <div className="flex-between">
-                    <strong style={{ fontSize: '.92rem' }}>{t.subtopic}</strong>
-                    <span className="mastery-badge mastery-weak">{t.mastery_pct}%</span>
-                  </div>
-                  <p className="muted" style={{ fontSize: '.8rem', margin: '4px 0 10px' }}>{t.chapter} · {t.subject_title}</p>
-                  <div className="focus-area-bar">
-                    <div className="focus-area-bar-fill" style={{ width: `${Math.max(4, t.mastery_pct)}%` }} />
-                  </div>
-                  <p className="muted" style={{ fontSize: '.74rem', marginTop: 6 }}>{t.correct} correct of {t.answered} attempted</p>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
+        </header>
 
         {error && <div className="error-banner">{error}</div>}
 
-        <div className="section-heading dashboard-section-heading"><div><h2>Your courses</h2></div><span>{enrolledBundles.length} enrolled</span></div>
-        <div className="grid grid-2">
-          {enrolledBundles.map((b) => (
-            <div className="card course-card" key={b.id}>
-              <div className="course-sky" />
-              <div className="flex-between">
-                <h3 style={{ margin: 0 }}>{b.title}</h3>
-                <span className="badge badge-role">{b.exam_type}</span>
-              </div>
-              <p className="muted">{b.description}</p>
-              <div className="flex-between">
-                <strong>{b.is_free || !Number(b.price_inr) ? 'Free access' : `₹${Number(b.price_inr).toLocaleString('en-IN')}`}</strong>
-                <Link to={`/bundles/${b.id}`} className="btn btn-outline btn-sm">Open course</Link>
-              </div>
-            </div>
-          ))}
-          {!enrolledBundles.length && <div className="empty-inline"><strong>Your learning plan is waiting.</strong><span>Explore the catalogue below to find your next subject.</span></div>}
-        </div>
-
-        {/* The bundle catalogue used to be embedded here, which is why
-            "Explore Bundles" in the sidebar just scrolled the dashboard. It
-            is now its own page at /explore; the dashboard links to it. */}
-        {!!exploreBundles.length && (
-          <div className="dashboard-explore-cta">
-            <div>
-              <h2>{exploreBundles.length} more bundle{exploreBundles.length === 1 ? '' : 's'} to explore</h2>
-              <p className="muted">Browse the full catalogue, filter by free or paid, and enrol.</p>
-            </div>
-            <Link to="/explore" className="btn btn-primary">Explore courses →</Link>
+        {/* 2. Overall Summary Strip */}
+        <section className="sd-summary-card">
+          <div className="sd-summary-heading">
+            <span>Overall summary · All subjects</span>
           </div>
-        )}
-
-        <div className="section-heading"><div><h2>Mock exams & practice</h2></div><span>{quizzes.length} available</span></div>
-        <div className="grid grid-3">
-          {quizzes.map((q) => (
-            <div className="card quiz-card" key={q.id}>
-              <span className="badge badge-role">{q.type}</span>
-              <h4 style={{ margin: '8px 0' }}>{q.title}</h4>
-              <p className="muted" style={{ fontSize: '0.82rem' }}>
-                {q.question_count} questions · {q.duration_minutes} min · pass {q.pass_percent}%
-              </p>
-              <Link to={`/take-exam/${q.id}`} className="btn btn-primary btn-sm">Launch test →</Link>
+          <div className="sd-summary-grid">
+            <div className="sd-summary-item">
+              <div className="sd-summary-icon" style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }}>
+                <Flame size={20} />
+              </div>
+              <div className="sd-summary-info">
+                <span className="sd-summary-label">Study streak</span>
+                <strong className="sd-summary-val">{studyStreak} {studyStreak === 1 ? 'day' : 'days'}</strong>
+              </div>
             </div>
-          ))}
-          {!quizzes.length && <p className="muted">No quizzes available yet.</p>}
-        </div>
 
-        <h3 style={{ marginTop: 32 }}>Recent attempts</h3>
-        <div className="card">
-          {visibleAttempts.length ? (
-            <table>
-              <thead><tr><th>Quiz</th><th>Type</th><th>Status</th><th>Score</th><th></th></tr></thead>
-              <tbody>
-                {visibleAttempts.map((a) => (
-                  <tr key={a.id}>
-                    <td>{a.quiz_title}</td>
-                    <td><Badge tone={a.quiz_type === 'exam' ? 'blue' : 'purple'}>{a.quiz_type || 'practice'}</Badge></td>
-                    <td><StatusBadge status={a.status} /></td>
-                    <td><Badge tone={scoreTone(a.score)}>{a.score != null ? `${a.score}%` : '—'}</Badge></td>
-                    <td>
-                      <Link to={`/review/${a.id}`} className="btn btn-outline btn-sm">Review</Link>
-                    </td>
+            <div className="sd-summary-item">
+              <div className="sd-summary-icon" style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#2563eb' }}>
+                <FileText size={20} />
+              </div>
+              <div className="sd-summary-info">
+                <span className="sd-summary-label">Submitted assessments</span>
+                <strong className="sd-summary-val">{submittedAttempts.length}</strong>
+              </div>
+            </div>
+
+            <div className="sd-summary-item">
+              <div className="sd-summary-icon" style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>
+                <BarChart2 size={20} />
+              </div>
+              <div className="sd-summary-info">
+                <span className="sd-summary-label">Practice average</span>
+                <strong className="sd-summary-val">{practiceAvg != null ? `${practiceAvg}%` : '—'}</strong>
+              </div>
+            </div>
+
+            <div className="sd-summary-item">
+              <div className="sd-summary-icon" style={{ background: 'rgba(139, 92, 246, 0.1)', color: '#8b5cf6' }}>
+                <GraduationCap size={20} />
+              </div>
+              <div className="sd-summary-info">
+                <span className="sd-summary-label">Exam average</span>
+                <strong className="sd-summary-val">{examAvg != null ? `${examAvg}%` : '—'}</strong>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* 3. My Subjects (Active Subjects with submitted assessments) */}
+        <section>
+          <div className="sd-section-header">
+            <h2 className="sd-section-title">My subjects</h2>
+            <p className="sd-section-sub">Subjects with submitted assessments</p>
+          </div>
+
+          {activeSubjects.length > 0 ? (
+            activeSubjects.map((s) => {
+              const Icon = getSubjectIcon(s.title);
+              return (
+                <div key={s.id} className="sd-subject-strip">
+                  {/* Subject meta & Icon */}
+                  <div className="sd-subject-meta">
+                    <div className="sd-subject-icon">
+                      <Icon size={20} />
+                    </div>
+                    <div className="sd-subject-titles">
+                      <h3 className="sd-subject-name" title={s.title}>{s.title}</h3>
+                      <p className="sd-subject-bundle">{s.bundleSubtext}</p>
+                    </div>
+                    <ChevronRight className="sd-mobile-chevron" size={18} />
+                  </div>
+
+                  {/* Progress bar */}
+                  <div className="sd-subject-progress">
+                    <div className="sd-progress-label-row">
+                      <span>Assignments completed</span>
+                      <strong>{s.completedCount} of {s.totalCount} ({s.progressPercent}%)</strong>
+                    </div>
+                    <div className="sd-progress-track">
+                      <div className="sd-progress-fill" style={{ width: `${Math.max(3, s.progressPercent)}%` }} />
+                    </div>
+                  </div>
+
+                  {/* Stats Row: Practice avg, Exam avg, Last active in a single clean row */}
+                  <div className="sd-subject-stats-row">
+                    <div className="sd-subject-stat-col">
+                      <span className="sd-subject-stat-label">Practice avg</span>
+                      <strong className="sd-subject-stat-val">{s.practiceAvg != null ? `${s.practiceAvg}%` : '—'}</strong>
+                    </div>
+
+                    <div className="sd-subject-stat-col">
+                      <span className="sd-subject-stat-label">Exam avg</span>
+                      <strong className="sd-subject-stat-val">{s.examAvg != null ? `${s.examAvg}%` : '—'}</strong>
+                    </div>
+
+                    <div className="sd-subject-stat-col sd-stat-last-active">
+                      <span className="sd-subject-stat-label">Last active</span>
+                      <strong className="sd-subject-stat-val" style={{ fontSize: '0.86rem' }}>{s.lastActive}</strong>
+                    </div>
+                  </div>
+
+                  {/* Action button */}
+                  <div className="sd-subject-action">
+                    <Link
+                      to={`/subjects/${s.id}`}
+                      className="btn btn-primary btn-sm sd-open-btn"
+                    >
+                      <span>Open subject</span>
+                      <ArrowRight size={14} />
+                    </Link>
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <div className="card" style={{ padding: '24px 20px', textAlign: 'center', borderRadius: 12, marginBottom: 12 }}>
+              <p className="muted" style={{ margin: 0, fontSize: '0.88rem' }}>
+                You haven&apos;t completed any assessments yet. Choose a subject below to begin your ground school training.
+              </p>
+            </div>
+          )}
+
+          {/* 4. Subjects not started (Expandable row) */}
+          {unstartedSubjects.length > 0 && (
+            <div className="sd-unstarted-banner">
+              <div
+                className="sd-unstarted-header"
+                onClick={() => setUnstartedExpanded((prev) => !prev)}
+              >
+                <div className="sd-unstarted-info">
+                  <BookOpen size={18} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                  <div>
+                    <h4 className="sd-unstarted-title">
+                      {unstartedSubjects.length} {unstartedSubjects.length === 1 ? 'subject' : 'subjects'} to explore
+                    </h4>
+                    <p className="sd-unstarted-desc">Explore new subjects to expand your preparation.</p>
+                  </div>
+                </div>
+                <div className="sd-unstarted-toggle">
+                  {unstartedExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                </div>
+              </div>
+
+              {unstartedExpanded && (
+                <>
+                  <div className="sd-unstarted-grid">
+                    {unstartedSubjects.map((s) => {
+                      const Icon = getSubjectIcon(s.title);
+                      return (
+                        <Link key={s.id} to={`/subjects/${s.id}`} className="sd-unstarted-card">
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                            <Icon size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {s.title}
+                            </span>
+                          </div>
+                          <ChevronRight size={15} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                        </Link>
+                      );
+                    })}
+                  </div>
+                  <div className="sd-unstarted-footer">
+                    <Link to="/explore" className="sd-unstarted-browse-link">
+                      <LayoutGrid size={14} />
+                      <span>Browse course catalogue →</span>
+                    </Link>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* 5. Topic Insights */}
+        <section className="sd-insights-card">
+          <div className="sd-insights-header">
+            <div className="sd-insights-heading-left">
+              <div className="sd-insights-icon">
+                <BarChart2 size={20} />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800 }}>Topic insights</h3>
+                <p className="muted" style={{ margin: '2px 0 0', fontSize: '0.8rem' }}>
+                  Know what to practise next.
+                </p>
+              </div>
+            </div>
+
+            {subjects.length > 0 && (
+              <div className="sd-insights-select-wrap">
+                <span className="sd-insights-select-label">Subject</span>
+                <div className="sd-insights-select-box">
+                  <BookOpen size={14} className="sd-insights-select-icon" />
+                  <select
+                    className="sd-insights-select"
+                    value={selectedSubjectId || (subjects.length ? String(subjects[0].id) : '')}
+                    onChange={(e) => setSelectedSubjectId(e.target.value)}
+                    aria-label="Filter topic insights by subject"
+                  >
+                    {subjects.map((s) => (
+                      <option key={s.id} value={String(s.id)}>
+                        {s.title}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown size={14} className="sd-insights-select-chevron" />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Desktop & iPad Grid View */}
+          <div className="sd-insights-grid sd-desktop-tablet-view">
+            {/* Weak */}
+            <div className="sd-category-box sd-cat-weak">
+              <div className="sd-category-header">
+                <div className="sd-category-title-row">
+                  <AlertTriangle size={15} />
+                  <span>Weak areas</span>
+                </div>
+                <div className="sd-category-subtext">Focus on these topics.</div>
+              </div>
+              <div className="sd-category-list">
+                {currentTopicInsights.weak.length > 0 ? (
+                  currentTopicInsights.weak.slice(0, 5).map((t, idx) => (
+                    <Link
+                      key={idx}
+                      to={selectedSubjectId ? `/subjects/${selectedSubjectId}` : '/analytics'}
+                      className="sd-topic-pill"
+                    >
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {t.subtopic}
+                      </span>
+                      <ChevronRight size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                    </Link>
+                  ))
+                ) : (
+                  <div className="sd-topic-empty">No weak topics identified yet.</div>
+                )}
+              </div>
+            </div>
+
+            {/* Neutral */}
+            <div className="sd-category-box sd-cat-neutral">
+              <div className="sd-category-header">
+                <div className="sd-category-title-row">
+                  <Trophy size={15} />
+                  <span>Needs more practice</span>
+                </div>
+                <div className="sd-category-subtext">Build your confidence.</div>
+              </div>
+              <div className="sd-category-list">
+                {currentTopicInsights.neutral.length > 0 ? (
+                  currentTopicInsights.neutral.slice(0, 5).map((t, idx) => (
+                    <Link
+                      key={idx}
+                      to={selectedSubjectId ? `/subjects/${selectedSubjectId}` : '/analytics'}
+                      className="sd-topic-pill"
+                    >
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {t.subtopic}
+                      </span>
+                      <ChevronRight size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                    </Link>
+                  ))
+                ) : (
+                  <div className="sd-topic-empty">No topics in this range.</div>
+                )}
+              </div>
+            </div>
+
+            {/* Strong */}
+            <div className="sd-category-box sd-cat-strong">
+              <div className="sd-category-header">
+                <div className="sd-category-title-row">
+                  <TrendingUp size={15} />
+                  <span>Strong areas</span>
+                </div>
+                <div className="sd-category-subtext">Keep it up!</div>
+              </div>
+              <div className="sd-category-list">
+                {currentTopicInsights.strong.length > 0 ? (
+                  currentTopicInsights.strong.slice(0, 5).map((t, idx) => (
+                    <Link
+                      key={idx}
+                      to={selectedSubjectId ? `/subjects/${selectedSubjectId}` : '/analytics'}
+                      className="sd-topic-pill"
+                    >
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {t.subtopic}
+                      </span>
+                      <ChevronRight size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                    </Link>
+                  ))
+                ) : (
+                  <div className="sd-topic-empty">Complete more quizzes to build strength.</div>
+                )}
+              </div>
+            </div>
+
+            {/* Not explored */}
+            <div className="sd-category-box sd-cat-unexplored">
+              <div className="sd-category-header">
+                <div className="sd-category-title-row">
+                  <Compass size={15} />
+                  <span>Not explored</span>
+                </div>
+                <div className="sd-category-subtext">Consider practising these.</div>
+              </div>
+              <div className="sd-category-list">
+                {currentTopicInsights.unexplored.length > 0 ? (
+                  currentTopicInsights.unexplored.slice(0, 5).map((t, idx) => (
+                    <Link
+                      key={idx}
+                      to={selectedSubjectId ? `/subjects/${selectedSubjectId}` : '/explore'}
+                      className="sd-topic-pill"
+                    >
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {t.subtopic}
+                      </span>
+                      <ChevronRight size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                    </Link>
+                  ))
+                ) : (
+                  <div className="sd-topic-empty">All available topics explored!</div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Mobile Stacked List View (Matching Mobile Screenshot) */}
+          <div className="sd-mobile-insights-list">
+            <Link
+              to={selectedSubjectId ? `/subjects/${selectedSubjectId}` : '/analytics'}
+              className="sd-mobile-insight-row"
+            >
+              <div className="sd-mobile-dot sd-dot-weak" />
+              <div className="sd-mobile-insight-body">
+                <div className="sd-mobile-insight-label">Weak</div>
+                <div className="sd-mobile-insight-topics">
+                  {currentTopicInsights.weak.length > 0
+                    ? currentTopicInsights.weak.map((t) => t.subtopic).join(', ')
+                    : 'No weak topics identified yet'}
+                </div>
+              </div>
+              <ChevronRight size={16} className="sd-mobile-row-chevron" />
+            </Link>
+
+            <Link
+              to={selectedSubjectId ? `/subjects/${selectedSubjectId}` : '/analytics'}
+              className="sd-mobile-insight-row"
+            >
+              <div className="sd-mobile-dot sd-dot-neutral" />
+              <div className="sd-mobile-insight-body">
+                <div className="sd-mobile-insight-label">Neutral</div>
+                <div className="sd-mobile-insight-topics">
+                  {currentTopicInsights.neutral.length > 0
+                    ? currentTopicInsights.neutral.map((t) => t.subtopic).join(', ')
+                    : 'No topics in this range'}
+                </div>
+              </div>
+              <ChevronRight size={16} className="sd-mobile-row-chevron" />
+            </Link>
+
+            <Link
+              to={selectedSubjectId ? `/subjects/${selectedSubjectId}` : '/analytics'}
+              className="sd-mobile-insight-row"
+            >
+              <div className="sd-mobile-dot sd-dot-strong" />
+              <div className="sd-mobile-insight-body">
+                <div className="sd-mobile-insight-label">Strong</div>
+                <div className="sd-mobile-insight-topics">
+                  {currentTopicInsights.strong.length > 0
+                    ? currentTopicInsights.strong.map((t) => t.subtopic).join(', ')
+                    : 'No strong topics yet'}
+                </div>
+              </div>
+              <ChevronRight size={16} className="sd-mobile-row-chevron" />
+            </Link>
+
+            <Link
+              to={selectedSubjectId ? `/subjects/${selectedSubjectId}` : '/explore'}
+              className="sd-mobile-insight-row"
+            >
+              <div className="sd-mobile-dot sd-dot-unexplored" />
+              <div className="sd-mobile-insight-body">
+                <div className="sd-mobile-insight-label">Not explored</div>
+                <div className="sd-mobile-insight-topics">
+                  {currentTopicInsights.unexplored.length > 0
+                    ? currentTopicInsights.unexplored.map((t) => t.subtopic).join(', ')
+                    : 'All topics explored'}
+                </div>
+              </div>
+              <ChevronRight size={16} className="sd-mobile-row-chevron" />
+            </Link>
+          </div>
+
+          <div className="sd-insights-footer">
+            <Link to="/analytics" className="sd-insights-link">
+              <span>View all topics</span>
+              <ArrowRight size={14} />
+            </Link>
+          </div>
+        </section>
+
+        {/* 6. Recent Attempts */}
+        <section className="sd-attempts-card">
+          <div className="sd-attempts-header">
+            <div className="sd-insights-icon">
+              <FileText size={20} />
+            </div>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800 }}>Recent attempts</h3>
+              <p className="muted" style={{ margin: '2px 0 0', fontSize: '0.8rem' }}>
+                Latest submitted assessments.
+              </p>
+            </div>
+          </div>
+
+          {/* Desktop & iPad Table */}
+          <div className="sd-table-wrap sd-desktop-tablet-view">
+            {submittedAttempts.length > 0 ? (
+              <table className="sd-table">
+                <thead>
+                  <tr>
+                    <th>Assessment</th>
+                    <th>Subject</th>
+                    <th>Type</th>
+                    <th>Submitted</th>
+                    <th>Score</th>
+                    <th style={{ textAlign: 'right' }}>Action</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : <p className="muted">No completed attempts yet — start a quiz above.</p>}
-        </div>
+                </thead>
+                <tbody>
+                  {submittedAttempts.slice(0, 5).map((a) => {
+                    const quiz = quizzesById[a.quiz_id] || {};
+                    const quizTitle = a.quiz_title || quiz.title || 'Assessment';
+                    const subjectTitle = a.subject_title || subjects.find((s) => String(s.id) === String(a.subject_id || quiz.subject_id))?.title || 'Ground School';
+                    const isExam = a.quiz_type === 'exam' || quiz.type === 'exam';
+
+                    return (
+                      <tr key={a.id}>
+                        <td style={{ fontWeight: 600 }}>{quizTitle}</td>
+                        <td className="muted">{subjectTitle}</td>
+                        <td>
+                          <Badge tone={isExam ? 'blue' : 'purple'}>
+                            {isExam ? 'Exam' : 'Practice'}
+                          </Badge>
+                        </td>
+                        <td className="muted" style={{ fontSize: '0.8rem' }}>
+                          {formatActivityDate(a.submitted_at)}
+                        </td>
+                        <td>
+                          <strong style={{ color: getScoreColor(a.score), fontSize: '0.92rem' }}>
+                            {a.score != null ? `${a.score}%` : '—'}
+                          </strong>
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <Link
+                            to={`/review/${a.id}`}
+                            className="btn btn-primary btn-sm"
+                            style={{ borderRadius: 6, padding: '4px 12px', fontSize: '0.78rem' }}
+                          >
+                            Review
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--muted)' }}>
+                No submitted assessments yet. Launch a mock or practice lesson to see your history here.
+              </div>
+            )}
+          </div>
+
+          {/* Mobile Card List (Matching Mobile Screenshot) */}
+          <div className="sd-mobile-attempts-list">
+            {submittedAttempts.length > 0 ? (
+              submittedAttempts.slice(0, 5).map((a) => {
+                const quiz = quizzesById[a.quiz_id] || {};
+                const quizTitle = a.quiz_title || quiz.title || 'Assessment';
+                const subjectTitle = a.subject_title || subjects.find((s) => String(s.id) === String(a.subject_id || quiz.subject_id))?.title || 'Ground School';
+                const isExam = a.quiz_type === 'exam' || quiz.type === 'exam';
+
+                return (
+                  <Link key={a.id} to={`/review/${a.id}`} className="sd-mobile-attempt-item">
+                    <div className="sd-mobile-attempt-left">
+                      <div className={`sd-mobile-attempt-icon ${isExam ? 'sd-icon-exam' : 'sd-icon-practice'}`}>
+                        <FileText size={16} />
+                      </div>
+                      <div className="sd-mobile-attempt-text">
+                        <strong className="sd-mobile-attempt-title">{quizTitle}</strong>
+                        <span className="sd-mobile-attempt-subject">{subjectTitle}</span>
+                      </div>
+                    </div>
+                    <div className="sd-mobile-attempt-right">
+                      <span className="sd-mobile-attempt-score" style={{ color: getScoreColor(a.score) }}>
+                        {a.score != null ? `${a.score}%` : '—'}
+                      </span>
+                      <ChevronRight size={15} className="sd-mobile-row-chevron" />
+                    </div>
+                  </Link>
+                );
+              })
+            ) : (
+              <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--muted)', fontSize: '0.84rem' }}>
+                No submitted assessments yet.
+              </div>
+            )}
+
+            <Link to="/exam-history" className="btn btn-primary btn-sm sd-mobile-history-btn">
+              View all attempt history
+            </Link>
+          </div>
+
+          {/* Desktop/Tablet Footer Link */}
+          <div className="sd-attempts-footer sd-desktop-tablet-view">
+            <span className="sd-attempts-footer-sub">Analytics / Exam History</span>
+            <Link to="/exam-history" className="sd-attempts-link">
+              <span>View all attempt history</span>
+              <ArrowRight size={14} />
+            </Link>
+          </div>
+        </section>
       </div>
-    </div>
   );
 }

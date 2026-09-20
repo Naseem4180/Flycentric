@@ -75,9 +75,16 @@ router.get('/admin/by-student/:userId', authorize('admin'), async (req, res) => 
 router.post('/practice-quiz', async (req, res) => {
   const { subject_id, chapter_id, limit } = req.body || {};
 
+  if (!subject_id || subject_id === 'all') {
+    return res.status(400).json({ error: 'Please select an individual subject. Practice quizzes are generated for a single subject only.' });
+  }
+
   const clauses = ['mb.user_id = $1', 'q.deleted_at IS NULL', 'q.is_latest = true'];
   const params = [req.user.id];
-  if (subject_id) { params.push(subject_id); clauses.push(`q.subject_id = $${params.length}`); }
+  params.push(subject_id);
+  const pIndex = params.length;
+  clauses.push(`(q.subject_id = $${pIndex} OR q.chapter_id IN (SELECT id FROM chapters WHERE subject_id = $${pIndex} AND deleted_at IS NULL))`);
+
   if (chapter_id) { params.push(chapter_id); clauses.push(`q.chapter_id = $${params.length}`); }
 
   const cap = Math.min(Number(limit) || 100, 200);
@@ -95,18 +102,21 @@ router.post('/practice-quiz', async (req, res) => {
 
   const questionIds = saved.rows.map((r) => r.id);
   if (!questionIds.length) {
-    return res.status(400).json({ error: 'Your Memory Bank is empty — save some questions first.' });
+    return res.status(400).json({ error: 'No questions found for this subject in your Memory Bank.' });
   }
 
-  const title = `Memory Bank practice · ${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`;
+  let title = `Memory Bank practice · ${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`;
+  const sRes = await pool.query('SELECT title FROM subjects WHERE id = $1', [subject_id]);
+  if (sRes.rows.length) {
+    title = `Memory Bank (${sRes.rows[0].title}) · ${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`;
+  }
 
-  // One reusable personal quiz per student, refreshed in place, so repeated
-  // clicks don't litter the quizzes table with near-identical rows.
+  // One reusable personal quiz per subject per student, refreshed in place
   const existing = await pool.query(
     `SELECT id FROM quizzes
-     WHERE created_by = $1 AND source = 'memory_bank' AND deleted_at IS NULL
+     WHERE created_by = $1 AND source = 'memory_bank' AND subject_id = $2 AND deleted_at IS NULL
      LIMIT 1`,
-    [req.user.id]
+    [req.user.id, subject_id]
   );
 
   let quiz;
@@ -115,19 +125,19 @@ router.post('/practice-quiz', async (req, res) => {
       `UPDATE quizzes
          SET question_ids = $1, title = $2, duration_minutes = NULL,
              type = 'practice', show_explanations = true, status = 'published',
-             updated_at = now()
-       WHERE id = $3 RETURNING *`,
-      [questionIds, title, existing.rows[0].id]
+             subject_id = $3, updated_at = now()
+       WHERE id = $4 RETURNING *`,
+      [questionIds, title, subject_id, existing.rows[0].id]
     );
     quiz = updated.rows[0];
   } else {
     const created = await pool.query(
       `INSERT INTO quizzes
          (title, type, duration_minutes, pass_percent, attempt_limit, question_ids,
-          created_by, status, show_explanations, allow_review_after_submit, source)
-       VALUES ($1, 'practice', NULL, 0, 0, $2, $3, 'published', true, true, 'memory_bank')
+          subject_id, created_by, status, show_explanations, allow_review_after_submit, source)
+       VALUES ($1, 'practice', NULL, 0, 0, $2, $3, $4, 'published', true, true, 'memory_bank')
        RETURNING *`,
-      [title, questionIds, req.user.id]
+      [title, questionIds, subject_id, req.user.id]
     );
     quiz = created.rows[0];
   }
@@ -136,12 +146,30 @@ router.post('/practice-quiz', async (req, res) => {
 });
 
 router.get('/', async (req, res) => {
+  const { subject_id } = req.query;
+  const clauses = ['mb.user_id = $1', 'q.deleted_at IS NULL'];
+  const params = [req.user.id];
+
+  if (subject_id && subject_id !== 'all') {
+    params.push(subject_id);
+    const pIndex = params.length;
+    clauses.push(`(q.subject_id = $${pIndex} OR c.subject_id = $${pIndex})`);
+  }
+
   const result = await pool.query(
     `SELECT mb.id AS bookmark_id, mb.confidence_level, mb.review_count, mb.next_review_at, mb.last_reviewed_at,
-            q.* FROM memory_bank mb
+            q.*,
+            COALESCE(q.subject_id, c.subject_id) AS subject_id,
+            COALESCE(s.title, cs.title) AS subject_title,
+            c.title AS chapter_title
+     FROM memory_bank mb
      JOIN questions q ON q.id = mb.question_id
-     WHERE mb.user_id = $1 AND q.deleted_at IS NULL ORDER BY mb.created_at DESC`,
-    [req.user.id]
+     LEFT JOIN subjects s ON s.id = q.subject_id
+     LEFT JOIN chapters c ON c.id = q.chapter_id
+     LEFT JOIN subjects cs ON cs.id = c.subject_id
+     WHERE ${clauses.join(' AND ')}
+     ORDER BY mb.created_at DESC`,
+    params
   );
   res.json({ items: result.rows });
 });
@@ -152,14 +180,32 @@ router.get('/', async (req, res) => {
 // instead of showing every saved question every time regardless of when it
 // was last reviewed.
 router.get('/due', async (req, res) => {
-  const { limit = 30 } = req.query;
+  const { limit = 30, subject_id } = req.query;
+  const clauses = ['mb.user_id = $1', 'q.deleted_at IS NULL', 'mb.next_review_at <= now()'];
+  const params = [req.user.id];
+
+  if (subject_id && subject_id !== 'all') {
+    params.push(subject_id);
+    const pIndex = params.length;
+    clauses.push(`(q.subject_id = $${pIndex} OR c.subject_id = $${pIndex})`);
+  }
+
+  params.push(Math.min(Number(limit) || 30, 100));
+
   const result = await pool.query(
     `SELECT mb.id AS bookmark_id, mb.confidence_level, mb.review_count, mb.next_review_at, mb.last_reviewed_at,
-            q.* FROM memory_bank mb
+            q.*,
+            COALESCE(q.subject_id, c.subject_id) AS subject_id,
+            COALESCE(s.title, cs.title) AS subject_title,
+            c.title AS chapter_title
+     FROM memory_bank mb
      JOIN questions q ON q.id = mb.question_id
-     WHERE mb.user_id = $1 AND q.deleted_at IS NULL AND mb.next_review_at <= now()
-     ORDER BY mb.next_review_at ASC LIMIT $2`,
-    [req.user.id, Math.min(Number(limit) || 30, 100)]
+     LEFT JOIN subjects s ON s.id = q.subject_id
+     LEFT JOIN chapters c ON c.id = q.chapter_id
+     LEFT JOIN subjects cs ON cs.id = c.subject_id
+     WHERE ${clauses.join(' AND ')}
+     ORDER BY mb.next_review_at ASC LIMIT $${params.length}`,
+    params
   );
   res.json({ items: result.rows, dueCount: result.rows.length });
 });

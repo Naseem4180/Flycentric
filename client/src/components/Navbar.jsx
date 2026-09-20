@@ -295,7 +295,23 @@ export default function Navbar() {
             </div>
           )}
 
+          {mobileMenuOpen && (
+            <div className="navbar-backdrop" onClick={() => setMobileMenuOpen(false)} />
+          )}
+
           <div className={`nav-links ${mobileMenuOpen ? 'open' : ''}`}>
+            <div className="navbar-drawer-header">
+              <BrandLogo size={24} theme="light" />
+              <button
+                type="button"
+                className="navbar-drawer-close"
+                onClick={() => setMobileMenuOpen(false)}
+                aria-label="Close menu"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
             {!user && (
               <>
                 <Link to="/" className={is('/')}>Home</Link>

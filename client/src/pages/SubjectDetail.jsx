@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Lock, BookOpen, ChevronLeft, FileCheck2, FileText, ExternalLink, Zap, Check, Clock, Tag, Award, TrendingUp } from 'lucide-react';
+import { Lock, BookOpen, ChevronLeft, FileCheck2, FileText, ExternalLink, Zap, Check, Clock, Tag, Award, TrendingUp, User } from 'lucide-react';
 import { api } from '../api';
 import useAuth from '../context/useAuth';
 import { Modal, Button } from '../ui';
@@ -180,262 +180,180 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
         </div>
       )}
 
-      {/* ---- Top analytics header — optimized, responsive scoreboard ---- */}
-      <div className="card subject-scoreboard-card" style={{ padding: 0, marginBottom: 22, overflow: 'hidden' }}>
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-          gap: 0,
-        }}>
-          {/* Section 1: Assignments */}
-          <div style={{
-            padding: '20px 24px',
-            borderRight: '1px solid var(--border)',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
-          }}>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 8,
-                    background: 'rgba(99, 102, 241, 0.1)',
-                    color: '#6366f1',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}>
-                    <BookOpen size={16} />
-                  </div>
-                  <span style={{ fontSize: '.76rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--ink-muted)' }}>
-                    Assignments
-                  </span>
-                </div>
-                <span className="badge" style={{
-                  background: safeSummary.assignments_percent >= 100 ? '#dcfce7' : 'var(--surface-sunken)',
-                  color: safeSummary.assignments_percent >= 100 ? '#15803d' : 'var(--ink-muted)',
-                  fontSize: '.72rem',
-                  fontWeight: 700,
-                  padding: '2px 8px',
-                  borderRadius: 999,
-                }}>
-                  {safeSummary.assignments_percent}% completed
-                </span>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 14 }}>
-                <strong style={{ fontSize: '1.85rem', fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>
-                  {safeSummary.assignments_completed}
-                </strong>
-                <span style={{ fontSize: '1rem', color: 'var(--ink-muted)', fontWeight: 600 }}>
-                  / {safeSummary.assignments_total}
-                </span>
-              </div>
+      {/* ---- Top analytics header — 3 separate KPI cards matching reference screenshots ---- */}
+      <div className="subject-kpi-grid">
+        {/* Card 1: Assignments */}
+        <div className="card subject-kpi-card">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <BookOpen size={16} style={{ color: '#4338ca' }} />
+              <span style={{ fontSize: '.76rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.05em', color: '#3730a3' }}>
+                ASSIGNMENTS
+              </span>
             </div>
-
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: 8,
-              padding: '8px 12px',
-              background: 'var(--surface-sunken)',
-              borderRadius: 8,
-              border: '1px solid var(--border)',
-            }}>
-              <div>
-                <span style={{ fontSize: '.7rem', color: 'var(--ink-muted)', display: 'block', fontWeight: 600 }}>Avg Score</span>
-                <strong style={{ fontSize: '.88rem', color: 'var(--ink)', fontWeight: 700 }}>
-                  {safeSummary.avg_assignment_score != null ? `${Math.round(safeSummary.avg_assignment_score)}%` : '—'}
-                </strong>
-              </div>
-              <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: 8 }}>
-                <span style={{ fontSize: '.7rem', color: 'var(--ink-muted)', display: 'block', fontWeight: 600 }}>Avg Best</span>
-                <strong style={{ fontSize: '.88rem', color: 'var(--ink)', fontWeight: 700 }}>
-                  {safeSummary.avg_best_assignment_score != null ? `${Math.round(safeSummary.avg_best_assignment_score)}%` : '—'}
-                </strong>
-              </div>
-            </div>
+            <span style={{ fontSize: '.78rem', fontWeight: 700, color: '#4338ca' }}>
+              {safeSummary.assignments_percent}% Completed
+            </span>
           </div>
 
-          {/* Section 2: Tests & Exams */}
-          <div style={{
-            padding: '20px 24px',
-            borderRight: '1px solid var(--border)',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
-          }}>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 8,
-                    background: 'rgba(16, 185, 129, 0.1)',
-                    color: '#10b981',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}>
-                    <FileCheck2 size={16} />
-                  </div>
-                  <span style={{ fontSize: '.76rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--ink-muted)' }}>
-                    Tests &amp; Exams
-                  </span>
-                </div>
-                <span className="badge" style={{
-                  background: safeSummary.tests_percent >= 100 ? '#dcfce7' : 'var(--surface-sunken)',
-                  color: safeSummary.tests_percent >= 100 ? '#15803d' : 'var(--ink-muted)',
-                  fontSize: '.72rem',
-                  fontWeight: 700,
-                  padding: '2px 8px',
-                  borderRadius: 999,
-                }}>
-                  {safeSummary.tests_percent}% completed
-                </span>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 14 }}>
-                <strong style={{ fontSize: '1.85rem', fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>
-                  {safeSummary.tests_taken}
-                </strong>
-                <span style={{ fontSize: '1rem', color: 'var(--ink-muted)', fontWeight: 600 }}>
-                  / {safeSummary.tests_total}
-                </span>
-              </div>
-            </div>
-
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: 8,
-              padding: '8px 12px',
-              background: 'var(--surface-sunken)',
-              borderRadius: 8,
-              border: '1px solid var(--border)',
-            }}>
-              <div>
-                <span style={{ fontSize: '.7rem', color: 'var(--ink-muted)', display: 'block', fontWeight: 600 }}>Avg Test</span>
-                <strong style={{ fontSize: '.88rem', color: 'var(--ink)', fontWeight: 700 }}>
-                  {safeSummary.avg_test_score != null ? `${Math.round(safeSummary.avg_test_score)}%` : '—'}
-                </strong>
-              </div>
-              <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: 8 }}>
-                <span style={{ fontSize: '.7rem', color: 'var(--ink-muted)', display: 'block', fontWeight: 600 }}>Avg Best</span>
-                <strong style={{ fontSize: '.88rem', color: 'var(--ink)', fontWeight: 700 }}>
-                  {safeSummary.avg_best_test_score != null ? `${Math.round(safeSummary.avg_best_test_score)}%` : '—'}
-                </strong>
-              </div>
-            </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 14 }}>
+            <strong style={{ fontSize: '1.85rem', fontWeight: 800, color: 'var(--text)', lineHeight: 1 }}>
+              {safeSummary.assignments_completed}
+            </strong>
+            <span style={{ fontSize: '1.1rem', color: '#4338ca', fontWeight: 700 }}>
+              / {safeSummary.assignments_total}
+            </span>
           </div>
 
-          {/* Section 3: Overall Score */}
           <div style={{
-            padding: '20px 24px',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: 8,
+            padding: '8px 12px',
+            background: 'var(--surface-sunken)',
+            borderRadius: 8,
+            border: '1px solid var(--border)',
           }}>
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 8,
-                    background: 'rgba(14, 165, 233, 0.1)',
-                    color: '#0ea5e9',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}>
-                    <Award size={16} />
-                  </div>
-                  <span style={{ fontSize: '.76rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--ink-muted)' }}>
-                    Overall Score
-                  </span>
-                </div>
-                {safeSummary.overall_score != null && (
-                  <span className="badge" style={{
-                    background: safeSummary.overall_score >= 70 ? '#dcfce7' : '#fee2e2',
-                    color: safeSummary.overall_score >= 70 ? '#15803d' : '#b91c1c',
-                    fontSize: '.72rem',
-                    fontWeight: 700,
-                    padding: '2px 8px',
-                    borderRadius: 999,
-                  }}>
-                    {safeSummary.overall_score >= 70 ? 'Passing' : 'Below Target'}
-                  </span>
-                )}
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 14 }}>
-                <strong style={{
-                  fontSize: '1.85rem',
-                  fontWeight: 800,
-                  lineHeight: 1,
-                  color: safeSummary.overall_score == null ? 'var(--ink-muted)'
-                    : safeSummary.overall_score >= 70 ? '#16a34a'
-                    : safeSummary.overall_score >= 50 ? '#d97706'
-                    : '#dc2626',
-                }}>
-                  {safeSummary.overall_score != null ? `${Math.round(safeSummary.overall_score)}%` : '—'}
-                </strong>
-                <span style={{ fontSize: '.84rem', color: 'var(--ink-muted)' }}>
-                  {safeSummary.total_attempts > 0
-                    ? `(${safeSummary.total_attempts} attempt${safeSummary.total_attempts === 1 ? '' : 's'})`
-                    : 'no attempts yet'}
-                </span>
-              </div>
+              <span style={{ fontSize: '.7rem', color: 'var(--muted)', display: 'block', fontWeight: 600 }}>Avg Score</span>
+              <strong style={{ fontSize: '.88rem', color: 'var(--text)', fontWeight: 800 }}>
+                {safeSummary.avg_assignment_score != null ? `${Math.round(safeSummary.avg_assignment_score)}%` : '—'}
+              </strong>
             </div>
-
-            <div style={{
-              padding: '8px 12px',
-              background: 'var(--surface-sunken)',
-              borderRadius: 8,
-              border: '1px solid var(--border)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}>
-              <span style={{ fontSize: '.74rem', color: 'var(--ink-muted)' }}>
-                {safeSummary.last_activity
-                  ? `Last active: ${new Date(safeSummary.last_activity).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
-                  : 'All tests & assignments combined'}
-              </span>
-              <span style={{ fontSize: '.74rem', fontWeight: 600, color: 'var(--primary)' }}>
-                DGCA 70% Target
-              </span>
+            <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: 10 }}>
+              <span style={{ fontSize: '.7rem', color: 'var(--muted)', display: 'block', fontWeight: 600 }}>Avg Best</span>
+              <strong style={{ fontSize: '.88rem', color: 'var(--text)', fontWeight: 800 }}>
+                {safeSummary.avg_best_assignment_score != null ? `${Math.round(safeSummary.avg_best_assignment_score)}%` : '—'}
+              </strong>
             </div>
           </div>
         </div>
 
-        {/* Bottom Progress Strip */}
-        <div style={{
-          padding: '12px 24px',
-          background: 'var(--surface-sunken)',
-          borderTop: '1px solid var(--border)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 14,
-        }}>
-          <div style={{ flex: 1, height: 7, borderRadius: 99, background: 'var(--border)', overflow: 'hidden' }}>
-            <div style={{
-              height: '100%',
-              width: `${Math.max(1, safeSummary.assignments_percent)}%`,
-              borderRadius: 99,
-              background: 'linear-gradient(90deg, #4f46e5 0%, #06b6d4 100%)',
-              transition: 'width 0.3s ease',
-            }} />
+        {/* Card 2: Tests & Exams */}
+        <div className="card subject-kpi-card">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <FileCheck2 size={16} style={{ color: '#16a34a' }} />
+              <span style={{ fontSize: '.76rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.05em', color: '#166534' }}>
+                TESTS & EXAMS
+              </span>
+            </div>
+            <span style={{ fontSize: '.78rem', fontWeight: 700, color: '#16a34a' }}>
+              {safeSummary.tests_percent}% Completed
+            </span>
           </div>
-          <span style={{ fontSize: '.78rem', color: 'var(--ink-muted)', whiteSpace: 'nowrap', fontWeight: 600 }}>
-            {safeSummary.assignments_completed} of {safeSummary.assignments_total} assignments ({safeSummary.assignments_percent}%)
-          </span>
+
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 14 }}>
+            <strong style={{ fontSize: '1.85rem', fontWeight: 800, color: 'var(--text)', lineHeight: 1 }}>
+              {safeSummary.tests_taken}
+            </strong>
+            <span style={{ fontSize: '1.1rem', color: '#16a34a', fontWeight: 700 }}>
+              / {safeSummary.tests_total}
+            </span>
+          </div>
+
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: 8,
+            padding: '8px 12px',
+            background: 'var(--surface-sunken)',
+            borderRadius: 8,
+            border: '1px solid var(--border)',
+          }}>
+            <div>
+              <span style={{ fontSize: '.7rem', color: 'var(--muted)', display: 'block', fontWeight: 600 }}>Avg Test</span>
+              <strong style={{ fontSize: '.88rem', color: 'var(--text)', fontWeight: 800 }}>
+                {safeSummary.avg_test_score != null ? `${Math.round(safeSummary.avg_test_score)}%` : '—'}
+              </strong>
+            </div>
+            <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: 10 }}>
+              <span style={{ fontSize: '.7rem', color: 'var(--muted)', display: 'block', fontWeight: 600 }}>Avg Best</span>
+              <strong style={{ fontSize: '.88rem', color: 'var(--text)', fontWeight: 800 }}>
+                {safeSummary.avg_best_test_score != null ? `${Math.round(safeSummary.avg_best_test_score)}%` : '—'}
+              </strong>
+            </div>
+          </div>
         </div>
+
+        {/* Card 3: Overall Score */}
+        <div className="card subject-kpi-card subject-kpi-card-overall">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <User size={16} style={{ color: '#0284c7' }} />
+              <span style={{ fontSize: '.76rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.05em', color: '#0369a1' }}>
+                OVERALL SCORE
+              </span>
+            </div>
+            <span className="badge" style={{
+              background: safeSummary.overall_score >= 70 ? '#dcfce7' : '#fee2e2',
+              color: safeSummary.overall_score >= 70 ? '#15803d' : '#dc2626',
+              fontSize: '.72rem',
+              fontWeight: 700,
+              padding: '2px 8px',
+              borderRadius: 6,
+            }}>
+              {safeSummary.overall_score >= 70 ? 'Passing' : 'Below Target'}
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 14 }}>
+            <strong style={{
+              fontSize: '1.85rem',
+              fontWeight: 800,
+              lineHeight: 1,
+              color: safeSummary.overall_score == null ? 'var(--muted)'
+                : safeSummary.overall_score >= 70 ? '#16a34a'
+                : '#dc2626',
+            }}>
+              {safeSummary.overall_score != null ? `${Math.round(safeSummary.overall_score)}%` : '—'}
+            </strong>
+            <span style={{ fontSize: '.85rem', color: 'var(--muted)', fontWeight: 600 }}>
+              ({safeSummary.total_attempts} attempt{safeSummary.total_attempts === 1 ? '' : 's'})
+            </span>
+          </div>
+
+          <div style={{
+            padding: '8px 12px',
+            background: 'var(--surface-sunken)',
+            borderRadius: 8,
+            border: '1px solid var(--border)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}>
+            <span style={{ fontSize: '.74rem', color: 'var(--muted)' }}>
+              {safeSummary.last_activity
+                ? `Last active: ${new Date(safeSummary.last_activity).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
+                : 'No attempts yet'}
+            </span>
+            <strong style={{ fontSize: '.74rem', color: '#2563eb', fontWeight: 700 }}>
+              DGCA 70% Target
+            </strong>
+          </div>
+        </div>
+      </div>
+
+      {/* Progress Bar Strip underneath the 3 cards */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 14,
+        marginTop: 6,
+        marginBottom: 20,
+      }}>
+        <div style={{ flex: 1, height: 7, borderRadius: 999, background: 'var(--border)', overflow: 'hidden' }}>
+          <div style={{
+            height: '100%',
+            width: `${Math.max(1, safeSummary.assignments_percent)}%`,
+            borderRadius: 999,
+            background: 'linear-gradient(90deg, #4338ca 0%, #06b6d4 100%)',
+            transition: 'width 0.3s ease',
+          }} />
+        </div>
+        <span style={{ fontSize: '.78rem', color: 'var(--muted)', whiteSpace: 'nowrap', fontWeight: 600 }}>
+          {safeSummary.assignments_completed} of {safeSummary.assignments_total} assignments ({safeSummary.assignments_percent}%)
+        </span>
       </div>
 
 

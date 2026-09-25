@@ -111,7 +111,7 @@ export function DifficultyBadge({ difficulty }) {
   const key = String(difficulty || '').toLowerCase();
   const label = difficulty ? (difficulty[0].toUpperCase() + difficulty.slice(1).toLowerCase()) : '—';
   return (
-    <span className={`question-difficulty ${key}`}>
+    <span className={`question-difficulty ${key}`} style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
       <span className="badge-dot-indicator" />
       {label}
     </span>

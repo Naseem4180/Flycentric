@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus, BookOpen, Pencil, Trash2, Copy, Search, ChevronDown, ChevronUp,
   FileQuestion, Globe, EyeOff, Layers, ListChecks, GripVertical, ArrowDownAZ,
@@ -154,10 +154,50 @@ export default function AdminSubjectsQuizzes() {
 
   useEffect(() => { loadTree(); loadQuestions(); }, [loadTree, loadQuestions]);
 
+  const chaptersRef = useRef(chapters);
+  chaptersRef.current = chapters;
+
   const selectSubject = useCallback((subject) => {
+    if (!subject) return;
     setActive(subject);
     setQuizzes(null);
-    api.get(`/exams/quizzes?subject_id=${subject.id}`).then((d) => setQuizzes(d.quizzes)).catch(() => setQuizzes([]));
+    const subId = subject.id;
+    api.get(`/exams/quizzes?subject_id=${subId}`)
+      .then((d) => {
+        const list = Array.isArray(d) ? d : (d?.quizzes || []);
+        if (list.length > 0) {
+          setQuizzes(list);
+        } else {
+          // If query with subject_id returns 0 quizzes, query all quizzes and match client-side
+          api.get('/exams/quizzes').then((all) => {
+            const allList = Array.isArray(all) ? all : (all?.quizzes || []);
+            const currentChapters = chaptersRef.current || [];
+            const matched = allList.filter((q) => {
+              if (String(q.subject_id) === String(subId)) return true;
+              if (q.chapter_id && currentChapters.some((c) => String(c.id) === String(q.chapter_id) && String(c.subject_id) === String(subId))) return true;
+              if (Array.isArray(q.chapter_ids) && q.chapter_ids.some((cid) => currentChapters.some((c) => String(c.id) === String(cid) && String(c.subject_id) === String(subId)))) return true;
+              return false;
+            });
+            setQuizzes(matched.length > 0 ? matched : list);
+          }).catch(() => setQuizzes(list));
+        }
+      })
+      .catch(() => {
+        // Direct subject_id query failed (e.g. server error or older API), fall back to general quizzes endpoint
+        api.get('/exams/quizzes')
+          .then((all) => {
+            const allList = Array.isArray(all) ? all : (all?.quizzes || []);
+            const currentChapters = chaptersRef.current || [];
+            const matched = allList.filter((q) => {
+              if (String(q.subject_id) === String(subId)) return true;
+              if (q.chapter_id && currentChapters.some((c) => String(c.id) === String(q.chapter_id) && String(c.subject_id) === String(subId))) return true;
+              if (Array.isArray(q.chapter_ids) && q.chapter_ids.some((cid) => currentChapters.some((c) => String(c.id) === String(cid) && String(c.subject_id) === String(subId)))) return true;
+              return false;
+            });
+            setQuizzes(matched);
+          })
+          .catch(() => setQuizzes([]));
+      });
   }, []);
 
   // Land on the first subject so the builder is never an empty right-hand pane.

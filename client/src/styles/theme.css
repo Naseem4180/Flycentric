@@ -4284,14 +4284,15 @@ textarea {
 
 /* --- Difficulty badges: bigger, more vivid -------------------------------- */
 .question-difficulty {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 3px 9px; border-radius: var(--r-pill);
-  font-size: .72rem; font-weight: 800; text-transform: uppercase;
-  letter-spacing: 0.04em; border: 1.5px solid transparent;
+  display: inline-flex !important; align-items: center !important; gap: 5px !important;
+  padding: 3px 9px !important; border-radius: var(--r-pill) !important;
+  font-size: .72rem !important; font-weight: 800 !important; text-transform: uppercase !important;
+  letter-spacing: 0.04em !important; border: 1.5px solid transparent !important;
+  white-space: nowrap !important; flex-shrink: 0 !important; line-height: 1.2 !important;
 }
 .question-difficulty .badge-dot-indicator {
   width: 6px; height: 6px; border-radius: 50%;
-  display: inline-block; background: currentColor;
+  display: inline-block; background: currentColor; flex-shrink: 0;
 }
 .question-difficulty.easy {
   background: #dcfce7; color: #15803d; border-color: #bbf7d0;
@@ -4338,10 +4339,25 @@ textarea {
 }
 
 /* --- Question text cell: truncated with tooltip --------------------------- */
-.question-cell { max-width: 320px; }
+.question-cell { min-width: 240px; max-width: 480px; }
 .td-clamp-2 {
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  overflow: hidden; line-height: 1.4;
+  overflow: hidden; line-height: 1.45; word-break: break-word;
+}
+.questions-bank-table {
+  width: 100%;
+  min-width: 1060px;
+}
+.questions-bank-table thead th {
+  padding: 10px 12px !important;
+  font-size: 0.74rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em !important;
+  white-space: nowrap !important;
+}
+.questions-bank-table tbody td {
+  padding: 11px 12px !important;
+  vertical-align: middle !important;
 }
 
 /* --- Question editor form section labels ---------------------------------- */

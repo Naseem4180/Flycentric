@@ -82,12 +82,20 @@ function normalizeKey(key) {
     .replace(/[\s-]+/g, '_');
 }
 
+function cleanCorruptChars(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/(\w)[\uFFFD](s|t|re|ve|ll|d|m)\b/gi, "$1'$2")
+    .replace(/(\d+)\s*[\uFFFD]\s*(\d+)/g, "$1 - $2")
+    .replace(/\uFFFD/g, "'");
+}
+
 function normalizeRecord(raw) {
   const out = {};
   for (const [key, value] of Object.entries(raw || {})) {
     const rawK = normalizeKey(key);
     if (!rawK) continue;
-    const strVal = value == null ? '' : String(value).trim();
+    const strVal = value == null ? '' : cleanCorruptChars(String(value).trim());
     // Coerce once here
     out[rawK] = strVal;
     const aliased = HEADER_ALIASES[rawK];

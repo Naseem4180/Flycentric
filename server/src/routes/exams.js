@@ -81,101 +81,117 @@ router.post('/quizzes', authenticate, authorize('admin', 'instructor'), async (r
 });
 
 router.get('/quizzes', authenticate, async (req, res) => {
-  const { bundle_id, chapter_id, subject_id, type, status } = req.query;
-  const clauses = ['q.deleted_at IS NULL'];
-  const params = [];
-  if (chapter_id) { params.push(chapter_id); clauses.push(`q.chapter_id = $${params.length}`); }
-  if (subject_id) {
-    params.push(subject_id);
-    clauses.push(`(
-      q.subject_id = $${params.length}
-      OR EXISTS (
-        SELECT 1 FROM chapters ch
-        WHERE ch.deleted_at IS NULL
-          AND (ch.id = ANY(q.chapter_ids) OR ch.id = q.chapter_id)
-          AND ch.subject_id = $${params.length}
-      )
-      OR EXISTS (
-        SELECT 1 FROM questions qn
-        WHERE qn.deleted_at IS NULL
-          AND qn.id = ANY(q.question_ids)
-          AND qn.subject_id = $${params.length}
-      )
-    )`);
-  }
-  if (type) { params.push(type); clauses.push(`q.type = $${params.length}`); }
-  if (bundle_id) {
-    // A quiz belongs to a bundle either directly (legacy) or via its subject
-    // being included in the bundle (bundle_subjects).
-    params.push(bundle_id);
-    clauses.push(`(q.bundle_id = $${params.length} OR q.subject_id IN (SELECT subject_id FROM bundle_subjects WHERE bundle_id = $${params.length}))`);
-  }
-  // Students only ever see published quizzes. Admins/instructors manage the
-  // full list (drafts included) and can additionally filter by status.
-  if (req.user.role === 'student') {
-    clauses.push(`q.status = 'published'`);
-    // Personal Memory Bank quizzes are launched from the Memory Bank screen,
-    // not the general catalogue — and one student's must never be listed to
-    // another. They're excluded here unless explicitly asked for.
+  try {
+    const { bundle_id, chapter_id, subject_id, type, status } = req.query;
+    const clauses = ['q.deleted_at IS NULL'];
+    const params = [];
+    if (chapter_id) {
+      const chId = parseInt(chapter_id, 10);
+      if (!isNaN(chId)) {
+        params.push(chId);
+        clauses.push(`(q.chapter_id = $${params.length} OR $${params.length} = ANY(COALESCE(q.chapter_ids, ARRAY[]::int[])))`);
+      }
+    }
+    if (subject_id) {
+      const sId = parseInt(subject_id, 10);
+      if (!isNaN(sId)) {
+        params.push(sId);
+        clauses.push(`(
+          q.subject_id = $${params.length}
+          OR q.chapter_id IN (SELECT id FROM chapters WHERE subject_id = $${params.length} AND deleted_at IS NULL)
+          OR EXISTS (
+            SELECT 1 FROM chapters ch
+            WHERE ch.deleted_at IS NULL
+              AND (ch.id = ANY(COALESCE(q.chapter_ids, ARRAY[]::int[])) OR ch.id = q.chapter_id)
+              AND ch.subject_id = $${params.length}
+          )
+          OR EXISTS (
+            SELECT 1 FROM questions qn
+            WHERE qn.deleted_at IS NULL
+              AND qn.id = ANY(COALESCE(q.question_ids, ARRAY[]::int[]))
+              AND qn.subject_id = $${params.length}
+          )
+        )`);
+      }
+    }
+    if (type) { params.push(type); clauses.push(`q.type = $${params.length}`); }
+    if (bundle_id) {
+      const bId = parseInt(bundle_id, 10);
+      if (!isNaN(bId)) {
+        params.push(bId);
+        clauses.push(`(q.bundle_id = $${params.length} OR q.subject_id IN (SELECT subject_id FROM bundle_subjects WHERE bundle_id = $${params.length}))`);
+      }
+    }
+    // Students only ever see published quizzes. Admins/instructors manage the
+    // full list (drafts included) and can additionally filter by status.
+    if (req.user.role === 'student') {
+      clauses.push(`q.status = 'published'`);
+      // Personal Memory Bank quizzes are launched from the Memory Bank screen,
+      // not the general catalogue — and one student's must never be listed to
+      // another. They're excluded here unless explicitly asked for.
+      params.push(req.user.id);
+      clauses.push(`(q.source IS DISTINCT FROM 'memory_bank' OR q.created_by = $${params.length})`);
+      params.push(req.user.id);
+      clauses.push(`EXISTS (
+        SELECT 1 FROM bundle_access ba
+        WHERE ba.user_id = $${params.length}
+          AND (
+            ba.bundle_id = q.bundle_id
+            OR q.subject_id IN (SELECT subject_id FROM bundle_subjects WHERE bundle_id = ba.bundle_id)
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM course_enrollments ce
+            WHERE ce.user_id = ba.user_id AND ce.bundle_id = ba.bundle_id
+              AND ce.expiry_date IS NOT NULL AND ce.expiry_date < now()
+          )
+      )`);
+    } else if (status) {
+      params.push(status); clauses.push(`q.status = $${params.length}`);
+    }
+    // Subject / chapter titles are joined here so every consumer (admin
+    // builder, student Quizzes tab, results filters) labels a quiz the same
+    // way instead of each screen re-deriving them from separate requests.
     params.push(req.user.id);
-    clauses.push(`(q.source IS DISTINCT FROM 'memory_bank' OR q.created_by = $${params.length})`);
-    params.push(req.user.id);
-    clauses.push(`EXISTS (
-      SELECT 1 FROM bundle_access ba
-      WHERE ba.user_id = $${params.length}
-        AND (
-          ba.bundle_id = q.bundle_id
-          OR q.subject_id IN (SELECT subject_id FROM bundle_subjects WHERE bundle_id = ba.bundle_id)
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM course_enrollments ce
-          WHERE ce.user_id = ba.user_id AND ce.bundle_id = ba.bundle_id
-            AND ce.expiry_date IS NOT NULL AND ce.expiry_date < now()
-        )
-    )`);
-  } else if (status) {
-    params.push(status); clauses.push(`q.status = $${params.length}`);
+    const meParam = `$${params.length}`;
+    const result = await pool.query(
+          `SELECT q.id, q.bundle_id, q.chapter_id, q.chapter_ids, q.subject_id, q.title, q.type, q.duration_minutes, q.pass_percent, q.attempt_limit,
+            q.status, q.show_explanations, q.allow_review_after_submit, q.require_previous_completion, q.shuffle_questions, q.shuffle_options, q.source,
+            q.question_ids, COALESCE(array_length(q.question_ids,1), 0) AS question_count, q.created_at,
+            s.title AS subject_title, s.order_index AS subject_order_index, c.title AS chapter_title,
+            (SELECT COALESCE(json_agg(json_build_object('id', ch.id, 'title', ch.title) ORDER BY ch.order_index, ch.id), '[]'::json)
+               FROM chapters ch WHERE ch.id = ANY(COALESCE(q.chapter_ids, ARRAY[]::int[])) AND ch.deleted_at IS NULL) AS chapters,
+            -- Anchors a quiz to the EARLIEST chapter it covers, so within a
+            -- subject the catalogue reads in the same order as the curriculum
+            -- the admin built (Regs 01's assignment before Regs 02's), instead
+            -- of newest-created-first. A quiz with no recognised chapter sorts
+            -- after every chaptered one in its subject.
+            (SELECT MIN(ch.order_index) FROM chapters ch
+               WHERE ch.deleted_at IS NULL AND (ch.id = ANY(COALESCE(q.chapter_ids, ARRAY[]::int[])) OR ch.id = q.chapter_id)) AS anchor_order_index,
+            COALESCE(att.my_attempt_count, 0) AS my_attempt_count,
+            att.my_best_score AS my_best_score,
+            att.my_last_score AS my_last_score,
+            att.my_last_attempt_id AS my_last_attempt_id
+       FROM quizzes q
+       LEFT JOIN subjects s ON s.id = q.subject_id AND s.deleted_at IS NULL
+       LEFT JOIN chapters c ON c.id = q.chapter_id AND c.deleted_at IS NULL
+       LEFT JOIN LATERAL (
+         SELECT
+           COUNT(*)::int AS my_attempt_count,
+           MAX(a.score) AS my_best_score,
+           (ARRAY_AGG(a.score ORDER BY a.submitted_at DESC))[1] AS my_last_score,
+           (ARRAY_AGG(a.id ORDER BY a.submitted_at DESC))[1] AS my_last_attempt_id
+         FROM attempts a
+         WHERE a.quiz_id = q.id AND a.user_id = ${meParam} AND a.status = 'submitted'
+       ) att ON true
+       WHERE ${clauses.join(' AND ')}
+       ORDER BY s.order_index NULLS LAST, s.title NULLS LAST, anchor_order_index NULLS LAST, q.created_at ASC`,
+      params
+    );
+    res.json({ quizzes: result.rows });
+  } catch (err) {
+    console.error('Error in GET /quizzes:', err);
+    res.status(500).json({ error: err.message, quizzes: [] });
   }
-  // Subject / chapter titles are joined here so every consumer (admin
-  // builder, student Quizzes tab, results filters) labels a quiz the same
-  // way instead of each screen re-deriving them from separate requests.
-  params.push(req.user.id);
-  const meParam = `$${params.length}`;
-  const result = await pool.query(
-        `SELECT q.id, q.bundle_id, q.chapter_id, q.chapter_ids, q.subject_id, q.title, q.type, q.duration_minutes, q.pass_percent, q.attempt_limit,
-          q.status, q.show_explanations, q.allow_review_after_submit, q.require_previous_completion, q.shuffle_questions, q.shuffle_options, q.source,
-          q.question_ids, COALESCE(array_length(q.question_ids,1), 0) AS question_count, q.created_at,
-          s.title AS subject_title, s.order_index AS subject_order_index, c.title AS chapter_title,
-          (SELECT COALESCE(json_agg(json_build_object('id', ch.id, 'title', ch.title) ORDER BY ch.order_index, ch.id), '[]'::json)
-             FROM chapters ch WHERE ch.id = ANY(q.chapter_ids) AND ch.deleted_at IS NULL) AS chapters,
-          -- Anchors a quiz to the EARLIEST chapter it covers, so within a
-          -- subject the catalogue reads in the same order as the curriculum
-          -- the admin built (Regs 01's assignment before Regs 02's), instead
-          -- of newest-created-first. A quiz with no recognised chapter sorts
-          -- after every chaptered one in its subject.
-          (SELECT MIN(ch.order_index) FROM chapters ch
-             WHERE ch.deleted_at IS NULL AND (ch.id = ANY(q.chapter_ids) OR ch.id = q.chapter_id)) AS anchor_order_index,
-          COALESCE(att.my_attempt_count, 0) AS my_attempt_count,
-          att.my_best_score AS my_best_score,
-          att.my_last_score AS my_last_score,
-          att.my_last_attempt_id AS my_last_attempt_id
-     FROM quizzes q
-     LEFT JOIN subjects s ON s.id = q.subject_id AND s.deleted_at IS NULL
-     LEFT JOIN chapters c ON c.id = q.chapter_id AND c.deleted_at IS NULL
-     LEFT JOIN LATERAL (
-       SELECT
-         COUNT(*)::int AS my_attempt_count,
-         MAX(a.score) AS my_best_score,
-         (ARRAY_AGG(a.score ORDER BY a.submitted_at DESC))[1] AS my_last_score,
-         (ARRAY_AGG(a.id ORDER BY a.submitted_at DESC))[1] AS my_last_attempt_id
-       FROM attempts a
-       WHERE a.quiz_id = q.id AND a.user_id = ${meParam} AND a.status = 'submitted'
-     ) att ON true
-     WHERE ${clauses.join(' AND ')}
-     ORDER BY s.order_index NULLS LAST, s.title NULLS LAST, anchor_order_index NULLS LAST, q.created_at ASC`,
-    params
-  );
-  res.json({ quizzes: result.rows });
 });
 
 router.patch('/quizzes/:id', authenticate, authorize('admin', 'instructor'), async (req, res) => {

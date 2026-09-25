@@ -3895,8 +3895,13 @@ select.sort-select {
     text-align: left !important;
     flex-shrink: 0 !important;
   }
+  .table-stack tbody td[data-label=""]::before {
+    display: none !important;
+  }
   .table-stack tbody td.td-clip,
-  .table-stack tbody td[data-label="Chapter"] {
+  .table-stack tbody td[data-label="Chapter"],
+  .table-stack tbody td[data-label="Subject"],
+  .table-stack tbody td[data-label="Question"] {
     flex-direction: column !important;
     align-items: flex-start !important;
     text-align: left !important;

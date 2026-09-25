@@ -49,6 +49,14 @@ function parseAppearanceYears(value) {
     .filter(Boolean);
 }
 
+function cleanDisplayText(text) {
+  if (!text) return '';
+  return String(text)
+    .replace(/(\w)[\uFFFD](s|t|re|ve|ll|d|m)\b/gi, "$1'$2")
+    .replace(/(\d+)\s*[\uFFFD]\s*(\d+)/g, "$1 - $2")
+    .replace(/\uFFFD/g, "'");
+}
+
 function sameReferenceId(left, right) {
   return (left == null ? null : String(left)) === (right == null ? null : String(right));
 }
@@ -784,92 +792,115 @@ export default function AdminQuestions() {
                   )}
                 </div>
               )}
-              <table className="table-stack">
+              <table className="table-stack questions-bank-table">
                 <thead>
                   <tr>
-                    <th style={{ width: 40 }}>
+                    <th style={{ width: 44, textAlign: 'center' }}>
                       <input type="checkbox" checked={allOnPageSelected} onChange={toggleAll} aria-label="Select all questions on this page" />
                     </th>
-                    <th className={`sortable ${sort.key === 'id' ? 'is-sorted' : ''}`} onClick={() => toggleSort('id')}>
+                    <th style={{ width: 85, whiteSpace: 'nowrap' }} className={`sortable ${sort.key === 'id' ? 'is-sorted' : ''}`} onClick={() => toggleSort('id')}>
                       Q.ID {renderSortIcon('id')}
                     </th>
-                    <th className={`sortable ${sort.key === 'subject' ? 'is-sorted' : ''}`} onClick={() => toggleSort('subject')}>
+                    <th style={{ width: 140, minWidth: 120 }} className={`sortable ${sort.key === 'subject' ? 'is-sorted' : ''}`} onClick={() => toggleSort('subject')}>
                       Subject {renderSortIcon('subject')}
                     </th>
-                    <th className={`sortable ${sort.key === 'chapter' ? 'is-sorted' : ''}`} onClick={() => toggleSort('chapter')}>
+                    <th style={{ width: 170, minWidth: 140 }} className={`sortable ${sort.key === 'chapter' ? 'is-sorted' : ''}`} onClick={() => toggleSort('chapter')}>
                       Chapter {renderSortIcon('chapter')}
                     </th>
-                    <th>Subtopic</th>
-                    <th className={`sortable ${sort.key === 'difficulty' ? 'is-sorted' : ''}`} onClick={() => toggleSort('difficulty')}>
+                    <th style={{ width: 130, minWidth: 100 }}>Subtopic</th>
+                    <th style={{ width: 110, whiteSpace: 'nowrap' }} className={`sortable ${sort.key === 'difficulty' ? 'is-sorted' : ''}`} onClick={() => toggleSort('difficulty')}>
                       Difficulty {renderSortIcon('difficulty')}
                     </th>
-                    <th>Question</th>
-                    <th className={`sortable ${sort.key === 'appearances' ? 'is-sorted' : ''}`} onClick={() => toggleSort('appearances')}>
+                    <th style={{ minWidth: 260 }}>Question</th>
+                    <th style={{ width: 125, minWidth: 100 }} className={`sortable ${sort.key === 'appearances' ? 'is-sorted' : ''}`} onClick={() => toggleSort('appearances')}>
                       Appearances {renderSortIcon('appearances')}
                     </th>
-                    <th className="td-actions">Actions</th>
+                    <th style={{ width: 180, whiteSpace: 'nowrap' }} className="td-actions">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {paged.map((q) => (
-                    <tr key={q.id}>
-                      <td data-label="">
-                        <input type="checkbox" checked={selected.has(q.id)} onChange={() => toggleOne(q.id)} aria-label={`Select question ${q.id}`} />
-                      </td>
-                      <td data-label="Q.ID" className="td-nowrap">
-                        <span className="q-id-chip">#{q.id}</span>
-                      </td>
-                      <td data-label="Subject">{q.subject_title || subjectById[String(q.subject_id)]?.title || <span className="td-muted">—</span>}</td>
-                      <td data-label="Chapter">{q.chapter_title || chapterById[String(q.chapter_id)]?.title || <span className="td-muted">—</span>}</td>
-                      <td data-label="Subtopic">
-                        {(q.tags && q.tags.length > 0) ? (
-                          <div style={{ display: 'inline-flex', flexWrap: 'wrap', gap: '4px' }}>
-                            {q.tags.map((t, idx) => (
-                              <Badge key={idx} tone="cyan">{t}</Badge>
-                            ))}
-                          </div>
-                        ) : (q.subchapter || q.topic) ? (
-                          <Badge tone="cyan">{q.subchapter || q.topic}</Badge>
-                        ) : (
-                          <span className="td-muted">—</span>
-                        )}
-                      </td>
-                      <td data-label="Difficulty"><DifficultyBadge difficulty={q.difficulty} /></td>
-                      <td data-label="Question" className="question-cell">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          {q.image_url && (
-                            <img
-                              src={resolveMediaUrl(q.image_url)}
-                              alt=""
-                              style={{ width: 34, height: 34, objectFit: 'cover', borderRadius: 4, border: '1px solid var(--border)', flexShrink: 0 }}
-                            />
+                  {paged.map((q) => {
+                    const cleanedQuestion = cleanDisplayText(q.question_text);
+                    const subjectTitle = q.subject_title || subjectById[String(q.subject_id)]?.title;
+                    const chapterTitle = q.chapter_title || chapterById[String(q.chapter_id)]?.title;
+                    return (
+                      <tr key={q.id}>
+                        <td data-label="" style={{ width: 44, textAlign: 'center', verticalAlign: 'middle' }}>
+                          <input type="checkbox" checked={selected.has(q.id)} onChange={() => toggleOne(q.id)} aria-label={`Select question ${q.id}`} />
+                        </td>
+                        <td data-label="Q.ID" className="td-nowrap" style={{ width: 85, verticalAlign: 'middle' }}>
+                          <span className="q-id-chip">#{q.id}</span>
+                        </td>
+                        <td data-label="Subject" style={{ maxWidth: 140, verticalAlign: 'middle' }}>
+                          {subjectTitle ? (
+                            <span className="td-clamp-2" title={cleanDisplayText(subjectTitle)}>
+                              {cleanDisplayText(subjectTitle)}
+                            </span>
+                          ) : (
+                            <span className="td-muted">—</span>
                           )}
-                          <span className="td-clamp-2" title={q.question_text}>{q.question_text}</span>
-                        </div>
-                      </td>
-                      <td data-label="Appearances">
-                        <div className="appearance-bubbles cell-appearances">
-                          {(q.appearances || []).length ? q.appearances.map((year) => <span className="appearance-bubble" key={year}>{year}</span>) : <span className="td-muted">—</span>}
-                        </div>
-                      </td>
-                      <td data-label="Actions" className="td-actions">
-                        <div className="btn-group">
-                          <button type="button" className="btn-edit-question" onClick={() => openEditor(q)}>
-                            <Pencil size={12} /> Edit
-                          </button>
-                          <button type="button" className="btn-add-to-quiz" onClick={() => { setQuizTarget({ ids: [q.id] }); setChosenQuiz(''); }}>
-                            <ListPlus size={12} /> Add to Quiz
-                          </button>
-                          <RowMenu items={[
-                            { label: 'Preview', icon: Eye, onClick: () => setPreviewQuestion(q) },
-                            { label: 'Duplicate', icon: Copy, onClick: () => duplicateQuestion(q) },
-                            { separator: true },
-                            { label: 'Delete', icon: Trash2, danger: true, onClick: () => askDelete([q.id]) },
-                          ]} />
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td data-label="Chapter" style={{ maxWidth: 170, verticalAlign: 'middle' }}>
+                          {chapterTitle ? (
+                            <span className="td-clamp-2" title={cleanDisplayText(chapterTitle)}>
+                              {cleanDisplayText(chapterTitle)}
+                            </span>
+                          ) : (
+                            <span className="td-muted">—</span>
+                          )}
+                        </td>
+                        <td data-label="Subtopic" style={{ maxWidth: 130, verticalAlign: 'middle' }}>
+                          {(q.tags && q.tags.length > 0) ? (
+                            <div style={{ display: 'inline-flex', flexWrap: 'wrap', gap: '4px' }}>
+                              {q.tags.map((t, idx) => (
+                                <Badge key={idx} tone="cyan">{cleanDisplayText(t)}</Badge>
+                              ))}
+                            </div>
+                          ) : (q.subchapter || q.topic) ? (
+                            <Badge tone="cyan">{cleanDisplayText(q.subchapter || q.topic)}</Badge>
+                          ) : (
+                            <span className="td-muted">—</span>
+                          )}
+                        </td>
+                        <td data-label="Difficulty" style={{ width: 110, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                          <DifficultyBadge difficulty={q.difficulty} />
+                        </td>
+                        <td data-label="Question" className="question-cell" style={{ verticalAlign: 'middle' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            {q.image_url && (
+                              <img
+                                src={resolveMediaUrl(q.image_url)}
+                                alt=""
+                                style={{ width: 34, height: 34, objectFit: 'cover', borderRadius: 4, border: '1px solid var(--border)', flexShrink: 0 }}
+                              />
+                            )}
+                            <span className="td-clamp-2" title={cleanedQuestion}>{cleanedQuestion}</span>
+                          </div>
+                        </td>
+                        <td data-label="Appearances" style={{ width: 125, verticalAlign: 'middle' }}>
+                          <div className="appearance-bubbles cell-appearances">
+                            {(q.appearances || []).length ? q.appearances.map((year) => <span className="appearance-bubble" key={year}>{year}</span>) : <span className="td-muted">—</span>}
+                          </div>
+                        </td>
+                        <td data-label="Actions" className="td-actions" style={{ width: 180, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                          <div className="btn-group">
+                            <button type="button" className="btn-edit-question" onClick={() => openEditor(q)}>
+                              <Pencil size={12} /> Edit
+                            </button>
+                            <button type="button" className="btn-add-to-quiz" onClick={() => { setQuizTarget({ ids: [q.id] }); setChosenQuiz(''); }}>
+                              <ListPlus size={12} /> Add to Quiz
+                            </button>
+                            <RowMenu items={[
+                              { label: 'Preview', icon: Eye, onClick: () => setPreviewQuestion(q) },
+                              { label: 'Duplicate', icon: Copy, onClick: () => duplicateQuestion(q) },
+                              { separator: true },
+                              { label: 'Delete', icon: Trash2, danger: true, onClick: () => askDelete([q.id]) },
+                            ]} />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1420,17 +1451,17 @@ export default function AdminQuestions() {
                 />
               </div>
             )}
-            <p style={{ fontWeight: 600, fontSize: '.92rem' }}>{previewQuestion.question_text}</p>
+            <p style={{ fontWeight: 600, fontSize: '.92rem' }}>{cleanDisplayText(previewQuestion.question_text)}</p>
             {(previewQuestion.options || []).map((o) => (
               <div key={o.key} className={`preview-option ${String(previewQuestion.correct_option || '').split(',').includes(o.key) ? 'correct' : ''}`}>
                 <span className="preview-option-key">{o.key}</span>
-                <span>{o.text}</span>
+                <span>{cleanDisplayText(o.text)}</span>
               </div>
             ))}
             {previewQuestion.explanation && (
               <>
                 <strong style={{ display: 'block', marginTop: 16, fontSize: '.8rem' }}>Explanation</strong>
-                <p className="muted" style={{ marginTop: 5 }}>{previewQuestion.explanation}</p>
+                <p className="muted" style={{ marginTop: 5 }}>{cleanDisplayText(previewQuestion.explanation)}</p>
               </>
             )}
           </>

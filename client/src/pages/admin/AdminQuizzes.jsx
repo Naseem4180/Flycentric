@@ -36,6 +36,8 @@ export default function AdminQuizzes() {
     status: 'draft',
     question_count: 10,
     require_previous_completion: true,
+    shuffle_questions: false,
+    shuffle_options: false,
   });
   const [saving, setSaving] = useState(false);
   const [availableQuestions, setAvailableQuestions] = useState([]);
@@ -122,6 +124,8 @@ export default function AdminQuizzes() {
         status: quiz.status || 'draft',
         question_count: Array.isArray(quiz.question_ids) ? quiz.question_ids.length : 10,
         require_previous_completion: quiz.require_previous_completion ?? true,
+        shuffle_questions: Boolean(quiz.shuffle_questions),
+        shuffle_options: Boolean(quiz.shuffle_options),
       });
       setSelectedQuestions(Array.isArray(quiz.question_ids) ? quiz.question_ids : []);
     } else {
@@ -137,6 +141,8 @@ export default function AdminQuizzes() {
         status: 'draft',
         question_count: 10,
         require_previous_completion: true,
+        shuffle_questions: false,
+        shuffle_options: false,
       });
       setSelectedQuestions([]);
     }
@@ -173,6 +179,8 @@ export default function AdminQuizzes() {
         attempt_limit: Number(form.attempt_limit) || 0,
         status: form.status,
         require_previous_completion: form.require_previous_completion ?? true,
+        shuffle_questions: form.shuffle_questions,
+        shuffle_options: form.shuffle_options,
         question_ids: qIds,
       };
 
@@ -482,6 +490,25 @@ export default function AdminQuizzes() {
                   <option value="draft">Draft (Hidden from students)</option>
                   <option value="published">Published (Live to students)</option>
                 </select>
+              </div>
+
+              <div className="form-row-2" style={{ marginTop: 12, gap: 12 }}>
+                <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={form.shuffle_questions || false}
+                    onChange={(e) => setForm({ ...form, shuffle_questions: e.target.checked })}
+                  />
+                  <span>Shuffle Questions</span>
+                </label>
+                <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={form.shuffle_options || false}
+                    onChange={(e) => setForm({ ...form, shuffle_options: e.target.checked })}
+                  />
+                  <span>Shuffle Answer Options</span>
+                </label>
               </div>
 
               {form.chapter_ids && form.chapter_ids.length > 1 && (

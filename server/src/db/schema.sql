@@ -826,5 +826,15 @@ ALTER TABLE transactions ADD COLUMN IF NOT EXISTS coupon_code TEXT;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS original_amount_inr NUMERIC;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS discount_amount_inr NUMERIC DEFAULT 0;
 
+-- LMS Course Extensions --------------------------------------------------------
+ALTER TABLE bundles ADD COLUMN IF NOT EXISTS thumbnail_url TEXT;
+ALTER TABLE bundles ADD COLUMN IF NOT EXISTS duration_hours INTEGER DEFAULT 0;
+ALTER TABLE bundles ADD COLUMN IF NOT EXISTS difficulty TEXT DEFAULT 'All Levels';
+ALTER TABLE bundles ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT '{}';
+
+-- LMS Assessment Shuffling -----------------------------------------------------
+ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS shuffle_questions BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS shuffle_options BOOLEAN NOT NULL DEFAULT false;
+
 
 

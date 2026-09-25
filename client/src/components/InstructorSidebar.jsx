@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import SidebarBrand from './SidebarBrand';
-import { LayoutDashboard, Users, MessageCircle, BookOpen } from 'lucide-react';
+import { LayoutDashboard } from 'lucide-react';
 
 const INSTRUCTOR_NAV = [
   { to: '/instructor', end: true, icon: LayoutDashboard, label: 'Dashboard' },

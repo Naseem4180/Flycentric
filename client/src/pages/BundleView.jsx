@@ -349,6 +349,8 @@ function SubjectCurriculumPanel({
                   ) : (
                     <Link
                       to={`/take-exam/${t.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="btn btn-sm btn-primary"
                       style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                     >
@@ -442,6 +444,8 @@ function SubjectCurriculumPanel({
                   {c.assignment_quiz_id && c.unlocked && (
                     <Link
                       to={`/take-exam/${c.assignment_quiz_id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className={`fc-btn-assign ${c.assignment_completed ? 'completed' : ''}`}
                       title={c.assignment_completed ? `Assignment completed (${c.assignment_last_score}%). Click to practice again.` : 'Start Chapter Practice Assignment'}
                     >
@@ -466,6 +470,8 @@ function SubjectCurriculumPanel({
                     ) : (
                       <Link
                         to={`/take-exam/${c.test_quiz_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className={`fc-btn-exam ${c.test_completed ? 'completed' : ''}`}
                         title={c.test_completed ? `Chapter test completed (${c.test_last_score}%). Click to retake.` : 'Start Chapter Exam'}
                       >
@@ -584,12 +590,12 @@ function SubjectCurriculumPanel({
                 </a>
               )}
               {viewingNotes?.assignment_quiz_id && viewingNotes?.unlocked && (
-                <Link to={`/take-exam/${viewingNotes.assignment_quiz_id}`} className="btn btn-sm btn-outline">
+                <Link to={`/take-exam/${viewingNotes.assignment_quiz_id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-outline">
                   <Tag size={12} style={{ color: '#16a34a' }} /> Start Assignment
                 </Link>
               )}
               {viewingNotes?.test_quiz_id && viewingNotes?.unlocked && (
-                <Link to={`/take-exam/${viewingNotes.test_quiz_id}`} className="btn btn-sm" style={{ background: '#4f46e5', color: '#fff' }}>
+                <Link to={`/take-exam/${viewingNotes.test_quiz_id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ background: '#4f46e5', color: '#fff' }}>
                   <BookOpen size={13} /> Start Exam
                 </Link>
               )}
@@ -907,7 +913,7 @@ export default function BundleView() {
 
                 <div className="fc-actions-strip">
                   {fullAccess ? (
-                    <Link to={`/take-exam/${quiz.id}`} className="btn btn-primary btn-sm" style={{ fontWeight: 700 }}>
+                    <Link to={`/take-exam/${quiz.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-primary btn-sm" style={{ fontWeight: 700 }}>
                       Start Mock Exam
                     </Link>
                   ) : (

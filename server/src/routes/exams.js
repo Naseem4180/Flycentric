@@ -28,6 +28,7 @@ router.post('/quizzes', authenticate, authorize('admin', 'instructor'), async (r
   const {
     bundle_id, chapter_id, chapter_ids, subject_id, title, type, duration_minutes, pass_percent, attempt_limit, question_ids,
     status, show_explanations, allow_review_after_submit, require_previous_completion,
+    shuffle_questions, shuffle_options,
   } = req.body;
   // A quiz can now draw from SEVERAL chapters. chapter_ids[] is the source of
   // truth; chapter_id is derived from its first entry purely so older
@@ -67,13 +68,14 @@ router.post('/quizzes', authenticate, authorize('admin', 'instructor'), async (r
     durationMinutes = Math.round(parsedDuration);
   }
   const result = await pool.query(
-    `INSERT INTO quizzes (bundle_id, chapter_id, chapter_ids, subject_id, title, type, duration_minutes, pass_percent, attempt_limit, question_ids, created_by, status, show_explanations, allow_review_after_submit, require_previous_completion)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+    `INSERT INTO quizzes (bundle_id, chapter_id, chapter_ids, subject_id, title, type, duration_minutes, pass_percent, attempt_limit, question_ids, created_by, status, show_explanations, allow_review_after_submit, require_previous_completion, shuffle_questions, shuffle_options)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
     [bundle_id || null, primaryChapterId, chapterIds, subject_id || null, title, type, durationMinutes, pass_percent || 70,
      attempt_limit || 0, question_ids, req.user.id, initialStatus,
      forcedShowExplanations,
      allow_review_after_submit != null ? !!allow_review_after_submit : true,
-     require_previous_completion != null ? !!require_previous_completion : true]
+     require_previous_completion != null ? !!require_previous_completion : true,
+     !!shuffle_questions, !!shuffle_options]
   );
   res.status(201).json({ quiz: result.rows[0] });
 });
@@ -125,6 +127,11 @@ router.get('/quizzes', authenticate, async (req, res) => {
           ba.bundle_id = q.bundle_id
           OR q.subject_id IN (SELECT subject_id FROM bundle_subjects WHERE bundle_id = ba.bundle_id)
         )
+        AND NOT EXISTS (
+          SELECT 1 FROM course_enrollments ce
+          WHERE ce.user_id = ba.user_id AND ce.bundle_id = ba.bundle_id
+            AND ce.expiry_date IS NOT NULL AND ce.expiry_date < now()
+        )
     )`);
   } else if (status) {
     params.push(status); clauses.push(`q.status = $${params.length}`);
@@ -136,7 +143,7 @@ router.get('/quizzes', authenticate, async (req, res) => {
   const meParam = `$${params.length}`;
   const result = await pool.query(
         `SELECT q.id, q.bundle_id, q.chapter_id, q.chapter_ids, q.subject_id, q.title, q.type, q.duration_minutes, q.pass_percent, q.attempt_limit,
-          q.status, q.show_explanations, q.allow_review_after_submit, q.require_previous_completion, q.source,
+          q.status, q.show_explanations, q.allow_review_after_submit, q.require_previous_completion, q.shuffle_questions, q.shuffle_options, q.source,
           q.question_ids, COALESCE(array_length(q.question_ids,1), 0) AS question_count, q.created_at,
           s.title AS subject_title, s.order_index AS subject_order_index, c.title AS chapter_title,
           (SELECT COALESCE(json_agg(json_build_object('id', ch.id, 'title', ch.title) ORDER BY ch.order_index, ch.id), '[]'::json)
@@ -172,7 +179,7 @@ router.get('/quizzes', authenticate, async (req, res) => {
 });
 
 router.patch('/quizzes/:id', authenticate, authorize('admin', 'instructor'), async (req, res) => {
-  const { question_ids, title, type, duration_minutes, pass_percent, attempt_limit, status, allow_review_after_submit, chapter_id, chapter_ids, require_previous_completion } = req.body;
+  const { question_ids, title, type, duration_minutes, pass_percent, attempt_limit, status, allow_review_after_submit, chapter_id, chapter_ids, require_previous_completion, shuffle_questions, shuffle_options } = req.body;
   if (type && !['practice', 'exam'].includes(type)) {
     return res.status(400).json({ error: "type must be 'practice' or 'exam'" });
   }
@@ -197,13 +204,17 @@ router.patch('/quizzes/:id', authenticate, authorize('admin', 'instructor'), asy
        allow_review_after_submit = COALESCE($9, allow_review_after_submit),
        chapter_ids = CASE WHEN $10::boolean THEN $11::int[] ELSE chapter_ids END,
        chapter_id   = CASE WHEN $10::boolean THEN $12::integer ELSE chapter_id END,
-       require_previous_completion = CASE WHEN $13::boolean THEN $14::boolean ELSE require_previous_completion END
+       require_previous_completion = CASE WHEN $13::boolean THEN $14::boolean ELSE require_previous_completion END,
+       shuffle_questions = CASE WHEN $16::boolean THEN $17::boolean ELSE shuffle_questions END,
+       shuffle_options = CASE WHEN $18::boolean THEN $19::boolean ELSE shuffle_options END
      WHERE id = $15 AND deleted_at IS NULL RETURNING *`,
     [question_ids || null, title || null, type || null, duration_minutes || null, pass_percent || null, attempt_limit ?? null,
      status || null, forcedShowExplanations, allow_review_after_submit ?? null,
      chapterTouched, nextChapterIds, nextPrimaryChapterId,
      require_previous_completion !== undefined, !!require_previous_completion,
-     req.params.id]
+     req.params.id,
+     shuffle_questions !== undefined, !!shuffle_questions,
+     shuffle_options !== undefined, !!shuffle_options]
   );
   if (!result.rows.length) return res.status(404).json({ error: 'Quiz not found' });
   res.json({ quiz: result.rows[0] });
@@ -247,6 +258,11 @@ router.post('/quizzes/:id/start', authenticate, authorize('student'), async (req
       `SELECT 1 FROM bundle_access ba
        WHERE ba.user_id = $1
          AND (ba.bundle_id = $2 OR $3 IN (SELECT subject_id FROM bundle_subjects WHERE bundle_id = ba.bundle_id))
+         AND NOT EXISTS (
+           SELECT 1 FROM course_enrollments ce
+           WHERE ce.user_id = ba.user_id AND ce.bundle_id = ba.bundle_id
+             AND ce.expiry_date IS NOT NULL AND ce.expiry_date < now()
+         )
        LIMIT 1`,
       [req.user.id, quiz.bundle_id, quiz.subject_id]
     );
@@ -407,11 +423,33 @@ router.post('/quizzes/:id/start', authenticate, authorize('student'), async (req
   );
 
   // Return questions without the correct answer / explanation while exam is live
+  let qIds = [...quiz.question_ids];
+  const isExamMode = quiz.type === 'exam' || quiz.type === 'mock' || Boolean(quiz.shuffle_questions);
+  if (isExamMode) {
+    for (let i = qIds.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [qIds[i], qIds[j]] = [qIds[j], qIds[i]];
+    }
+  }
+
   const qResult = await pool.query(
     `SELECT id, question_text, question_type, options, difficulty, image_url FROM questions WHERE id = ANY($1) ORDER BY array_position($1, id)`,
-    [quiz.question_ids]
+    [qIds]
   );
-  res.json({ attempt: attemptResult.rows[0], quiz, questions: qResult.rows, resumed: false });
+
+  const returnedQuestions = qResult.rows.map((q) => {
+    let opts = q.options;
+    if (quiz.shuffle_options && Array.isArray(opts) && opts.length > 1) {
+      opts = [...opts];
+      for (let i = opts.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [opts[i], opts[j]] = [opts[j], opts[i]];
+      }
+    }
+    return { ...q, options: opts };
+  });
+
+  res.json({ attempt: attemptResult.rows[0], quiz, questions: returnedQuestions, resumed: false });
 });
 
 // Persist a single answer immediately on selection — not only on submit.
@@ -580,6 +618,67 @@ async function gradeAndSubmitAttempt(attemptId, userId, options = {}) {
     }
   } catch (err) {
     console.error('Failed to update student_question_stats', err);
+  }
+
+  // Update Course Enrollment progress & completion when student submits
+  try {
+    const targetBundles = await pool.query(
+      `SELECT DISTINCT b.id FROM bundles b
+       WHERE (b.id = $1)
+          OR EXISTS (
+            SELECT 1 FROM bundle_subjects bs
+            WHERE bs.bundle_id = b.id
+              AND (
+                bs.subject_id = $2
+                OR EXISTS (
+                  SELECT 1 FROM chapters ch
+                  WHERE ch.subject_id = bs.subject_id
+                    AND (ch.id = $3 OR ch.id = ANY($4::int[]))
+                )
+              )
+          )`,
+      [quiz.bundle_id, quiz.subject_id, quiz.chapter_id, quiz.chapter_ids || []]
+    );
+
+    for (const bRow of targetBundles.rows) {
+      const bId = bRow.id;
+      const totResult = await pool.query(
+        `SELECT COUNT(DISTINCT ch.id)::int AS total
+         FROM chapters ch
+         JOIN bundle_subjects bs ON bs.subject_id = ch.subject_id
+         WHERE bs.bundle_id = $1 AND ch.deleted_at IS NULL`,
+        [bId]
+      );
+      const totalChapters = totResult.rows[0]?.total || 0;
+      if (totalChapters > 0) {
+        const passedResult = await pool.query(
+          `SELECT COUNT(DISTINCT ch.id)::int AS passed_count
+           FROM chapters ch
+           JOIN bundle_subjects bs ON bs.subject_id = ch.subject_id
+           WHERE bs.bundle_id = $1 AND ch.deleted_at IS NULL
+             AND EXISTS (
+               SELECT 1 FROM quizzes q2
+               JOIN attempts a2 ON a2.quiz_id = q2.id
+               WHERE a2.user_id = $2 AND a2.status = 'submitted' AND a2.score >= q2.pass_percent
+                 AND (q2.chapter_id = ch.id OR ch.id = ANY(q2.chapter_ids))
+                 AND q2.deleted_at IS NULL
+             )`,
+          [bId, userId]
+        );
+        const passedCount = passedResult.rows[0]?.passed_count || 0;
+        const completionPct = Math.min(100, Math.round((passedCount / totalChapters) * 100));
+
+        await pool.query(
+          `UPDATE course_enrollments
+           SET completion_pct = $1::numeric,
+               status = CASE WHEN $1::numeric >= 100 THEN 'completed' ELSE status END
+           WHERE user_id = $2 AND bundle_id = $3`,
+          [completionPct, userId, bId]
+        );
+      }
+    }
+  } catch (err) {
+    console.error('Failed to update course completion', err);
   }
 
   return { attempt: updated.rows[0], passed: score >= quiz.pass_percent, pendingReview };

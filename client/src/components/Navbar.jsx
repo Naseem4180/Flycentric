@@ -316,7 +316,6 @@ export default function Navbar() {
               <>
                 <Link to="/" className={is('/')}>Home</Link>
                 <Link to="/courses" className={is('/courses')}>Courses</Link>
-                <Link to="/pricing" className={is('/pricing')}>Pricing</Link>
                 <Link to="/jobs" className={is('/jobs')}>Jobs</Link>
               </>
             )}

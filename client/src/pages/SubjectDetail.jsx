@@ -184,15 +184,15 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
       <div className="subject-kpi-grid">
         {/* Card 1: Assignments */}
         <div className="card subject-kpi-card">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-              <BookOpen size={16} style={{ color: '#4338ca' }} />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+              <BookOpen size={16} style={{ color: '#4338ca', flexShrink: 0 }} />
               <span style={{ fontSize: '.76rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.05em', color: '#3730a3' }}>
                 ASSIGNMENTS
               </span>
             </div>
-            <span style={{ fontSize: '.78rem', fontWeight: 700, color: '#4338ca' }}>
-              {safeSummary.assignments_percent}% Completed
+            <span style={{ fontSize: '.78rem', fontWeight: 700, color: '#4338ca', flexShrink: 0 }}>
+              {safeSummary.assignments_percent}%
             </span>
           </div>
 
@@ -231,15 +231,15 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
 
         {/* Card 2: Tests & Exams */}
         <div className="card subject-kpi-card">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-              <FileCheck2 size={16} style={{ color: '#16a34a' }} />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+              <FileCheck2 size={16} style={{ color: '#16a34a', flexShrink: 0 }} />
               <span style={{ fontSize: '.76rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.05em', color: '#166534' }}>
-                TESTS & EXAMS
+                TESTS &amp; EXAMS
               </span>
             </div>
-            <span style={{ fontSize: '.78rem', fontWeight: 700, color: '#16a34a' }}>
-              {safeSummary.tests_percent}% Completed
+            <span style={{ fontSize: '.78rem', fontWeight: 700, color: '#16a34a', flexShrink: 0 }}>
+              {safeSummary.tests_percent}%
             </span>
           </div>
 
@@ -278,10 +278,10 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
 
         {/* Card 3: Overall Score */}
         <div className="card subject-kpi-card subject-kpi-card-overall">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0 }}>
               <User size={16} style={{ color: '#0284c7' }} />
-              <span style={{ fontSize: '.76rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.05em', color: '#0369a1' }}>
+              <span style={{ fontSize: '.76rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.05em', color: '#0369a1', whiteSpace: 'nowrap' }}>
                 OVERALL SCORE
               </span>
             </div>
@@ -292,6 +292,8 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
               fontWeight: 700,
               padding: '2px 8px',
               borderRadius: 6,
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
             }}>
               {safeSummary.overall_score >= 70 ? 'Passing' : 'Below Target'}
             </span>
@@ -321,13 +323,15 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
+            gap: 8,
+            flexWrap: 'wrap',
           }}>
-            <span style={{ fontSize: '.74rem', color: 'var(--muted)' }}>
+            <span style={{ fontSize: '.74rem', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
               {safeSummary.last_activity
                 ? `Last active: ${new Date(safeSummary.last_activity).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
                 : 'No attempts yet'}
             </span>
-            <strong style={{ fontSize: '.74rem', color: '#2563eb', fontWeight: 700 }}>
+            <strong style={{ fontSize: '.74rem', color: '#2563eb', fontWeight: 700, whiteSpace: 'nowrap' }}>
               DGCA 70% Target
             </strong>
           </div>
@@ -401,7 +405,7 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
               </a>
             )}
             {selectedChapter.assignment_quiz_id && (
-              <Link to={`/take-exam/${selectedChapter.assignment_quiz_id}`} className="btn btn-sm btn-outline">
+              <Link to={`/take-exam/${selectedChapter.assignment_quiz_id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-outline">
                 <FileCheck2 size={13} /> {selectedChapter.assignment_completed ? 'Retake Assignment' : 'Start Assignment'}
               </Link>
             )}
@@ -411,7 +415,7 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
                   <Lock size={13} /> Test Locked (Complete Assignment First)
                 </button>
               ) : (
-                <Link to={`/take-exam/${selectedChapter.test_quiz_id}`} className="btn btn-sm" style={{ background: '#4f46e5', color: '#fff' }}>
+                <Link to={`/take-exam/${selectedChapter.test_quiz_id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ background: '#4f46e5', color: '#fff' }}>
                   <BookOpen size={13} /> {selectedChapter.test_completed ? 'Retake Chapter Exam' : 'Start Chapter Exam'}
                 </Link>
               )
@@ -480,7 +484,7 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       {/* Exact title entered by admin/instructor - never appending chapter lists */}
                       <strong style={{ fontSize: '.94rem', color: 'var(--text)' }}>{t.title}</strong>
-                      <span className="fc-test-badge">
+                      <span className="fc-test-badge" style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>
                         {isPractice ? 'PRACTICE MILESTONE' : 'MILESTONE TEST'}
                       </span>
                       {isReady && !isLocked && (
@@ -494,6 +498,8 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
                           fontWeight: 700,
                           padding: '2px 8px',
                           borderRadius: 999,
+                          whiteSpace: 'nowrap',
+                          flexShrink: 0,
                         }}>
                           <Check size={11} strokeWidth={3} /> Milestone Achieved · Ready to Launch
                         </span>
@@ -502,41 +508,45 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
                   </div>
                 </div>
 
-                <div className="fc-perf-stack">
-                  {tested && (
-                    <span className={`fc-perf-pill ${t.last_score >= 60 ? 'success' : 'danger'}`}>
-                      {t.attempt_count} {t.attempt_count === 1 ? 'try' : 'tries'} · {fmtScore(t.last_score)}
-                    </span>
-                  )}
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
-                  {isLocked ? (
-                    <>
-                      <span className="fc-test-locked-pill">
-                        <Lock size={12} /> MILESTONE LOCKED
+                <div className="fc-test-meta-row" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                  <div className="fc-perf-stack">
+                    {tested && (
+                      <span className={`fc-perf-pill ${t.last_score >= 60 ? 'success' : 'danger'}`}>
+                        {t.attempt_count} {t.attempt_count === 1 ? 'try' : 'tries'} · {fmtScore(t.last_score)}
                       </span>
-                      {t.total_requirements > 0 && (
-                        <span className="fc-test-ready-counter">
-                          {t.completed_requirements} / {t.total_requirements} completed
+                    )}
+                  </div>
+
+                  <div className="fc-test-action-col" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                    {isLocked ? (
+                      <>
+                        <span className="fc-test-locked-pill" style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>
+                          <Lock size={12} /> MILESTONE LOCKED
                         </span>
-                      )}
-                      {t.pending_requirements && t.pending_requirements.length > 0 && (
-                        <div className="fc-test-prereqs">
-                          Needs: {t.pending_requirements.map((r) => (typeof r === 'string' ? r : r.label || r.chapter_title)).slice(0, 2).join(' · ')}{t.pending_requirements.length > 2 ? ` (+${t.pending_requirements.length - 2} more)` : ''}
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <Link
-                      to={`/take-exam/${t.id}`}
-                      className="btn btn-sm btn-primary"
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                    >
-                      <FileCheck2 size={13} />
-                      {tested ? (isPractice ? 'Retake Assignment' : 'Retake Milestone Test') : (isPractice ? 'Start Assignment' : 'Start Milestone Test')}
-                    </Link>
-                  )}
+                        {t.total_requirements > 0 && (
+                          <span className="fc-test-ready-counter">
+                            {t.completed_requirements} / {t.total_requirements} completed
+                          </span>
+                        )}
+                        {t.pending_requirements && t.pending_requirements.length > 0 && (
+                          <div className="fc-test-prereqs">
+                            Needs: {t.pending_requirements.map((r) => (typeof r === 'string' ? r : r.label || r.chapter_title)).slice(0, 2).join(' · ')}{t.pending_requirements.length > 2 ? ` (+${t.pending_requirements.length - 2} more)` : ''}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <Link
+                        to={`/take-exam/${t.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-sm btn-primary"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', flexShrink: 0 }}
+                      >
+                        <FileCheck2 size={13} />
+                        {tested ? (isPractice ? 'Retake Assignment' : 'Retake Milestone Test') : (isPractice ? 'Start Assignment' : 'Start Milestone Test')}
+                      </Link>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -579,108 +589,116 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
                   </span>
                 </div>
 
-                {/* Middle: Performance Pill & Relative Timestamp */}
-                {attempted ? (
-                  <div className="fc-perf-stack">
-                    <span className={`fc-perf-pill ${tone}`}>
-                      {c.attempt_count} {c.attempt_count === 1 ? 'try' : 'tries'} · {fmtScore(c.last_score)}
-                      {c.trend != null && (
-                        <span className="fc-perf-trend">
-                          {c.trend >= 0 ? `▲ ${Math.abs(c.trend).toFixed(1)}%` : `▼ ${Math.abs(c.trend).toFixed(1)}%`}
-                          {c.trend >= 0 ? ' ↑' : ' ↓'}
+                <div className="fc-chapter-meta-row" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                  {/* Middle: Performance Pill & Relative Timestamp */}
+                  {attempted ? (
+                    <div className="fc-perf-stack">
+                      <span className={`fc-perf-pill ${tone}`}>
+                        {c.attempt_count} {c.attempt_count === 1 ? 'try' : 'tries'} · {fmtScore(c.last_score)}
+                        {c.trend != null && (
+                          <span className="fc-perf-trend">
+                            {c.trend >= 0 ? `▲ ${Math.abs(c.trend).toFixed(1)}%` : `▼ ${Math.abs(c.trend).toFixed(1)}%`}
+                            {c.trend >= 0 ? ' ↑' : ' ↓'}
+                          </span>
+                        )}
+                      </span>
+                      {relativeTime && (
+                        <span className="fc-perf-time">
+                          <Clock size={11} /> {relativeTime}
                         </span>
                       )}
-                    </span>
-                    {relativeTime && (
-                      <span className="fc-perf-time">
-                        <Clock size={11} /> {relativeTime}
+                    </div>
+                  ) : (
+                    <div className="fc-perf-stack">
+                      <span className="fc-perf-pill idle">
+                        {c.status === 'locked' ? 'Locked' : 'Not started'}
                       </span>
+                    </div>
+                  )}
+
+                  {/* Right: Action Buttons — strictly shown only if content exists for this chapter */}
+                  <div className="fc-actions-strip" onClick={(e) => e.stopPropagation()}>
+                    {/* Notes Button: shown only if chapter has notes or notes_url */}
+                    {(c.has_notes || c.notes || c.notes_url) && (
+                      <button
+                        type="button"
+                        className="fc-btn-notes"
+                        onClick={() => setViewingNotes(c)}
+                        title="Open Full Chapter Study Notes"
+                      >
+                        <FileText size={12} /> NOTES
+                      </button>
                     )}
-                  </div>
-                ) : (
-                  <div className="fc-perf-stack">
-                    <span className="fc-perf-pill idle">
-                      {c.status === 'locked' ? 'Locked' : 'Not started'}
-                    </span>
-                  </div>
-                )}
 
-                {/* Right: Action Buttons — strictly shown only if content exists for this chapter */}
-                <div className="fc-actions-strip" onClick={(e) => e.stopPropagation()}>
-                  {/* Notes Button: shown only if chapter has notes or notes_url */}
-                  {(c.has_notes || c.notes || c.notes_url) && (
-                    <button
-                      type="button"
-                      className="fc-btn-notes"
-                      onClick={() => setViewingNotes(c)}
-                      title="Open Full Chapter Study Notes"
-                    >
-                      <FileText size={12} /> NOTES
-                    </button>
-                  )}
-
-                  {/* Assignment Button: shown only if assignment quiz exists */}
-                  {c.assignment_quiz_id && c.unlocked && (
-                    <Link
-                      to={`/take-exam/${c.assignment_quiz_id}`}
-                      className={`fc-btn-assign ${c.assignment_completed ? 'completed' : ''}`}
-                      title={c.assignment_completed ? `Assignment completed (${c.assignment_last_score}%). Click to practice again.` : 'Start Chapter Practice Assignment'}
-                    >
-                      <Tag size={12} /> ASSIGNMENT
-                      {c.assignment_completed && c.assignment_last_score != null && (
-                        <span className="fc-action-score-badge">
-                          {Math.round(c.assignment_last_score)}%
-                        </span>
-                      )}
-                    </Link>
-                  )}
-
-                  {/* Exam Button: shown only if formal chapter exam exists */}
-                  {c.test_quiz_id && c.unlocked && (
-                    c.test_locked ? (
-                      <span
-                        className="fc-btn-exam is-locked"
-                        title="Complete chapter assignment first to unlock this test"
-                      >
-                        <Lock size={12} /> TEST LOCKED
-                      </span>
-                    ) : (
+                    {/* Assignment Button: shown only if assignment quiz exists */}
+                    {c.assignment_quiz_id && c.unlocked && (
                       <Link
-                        to={`/take-exam/${c.test_quiz_id}`}
-                        className={`fc-btn-exam ${c.test_completed ? 'completed' : ''}`}
-                        title={c.test_completed ? `Chapter test completed (${c.test_last_score}%). Click to retake.` : 'Start Chapter Exam'}
+                        to={`/take-exam/${c.assignment_quiz_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`fc-btn-assign ${c.assignment_completed ? 'completed' : ''}`}
+                        title={c.assignment_completed ? `Assignment completed (${c.assignment_last_score}%). Click to practice again.` : 'Start Chapter Practice Assignment'}
                       >
-                        <BookOpen size={12} /> EXAM
-                        {c.test_completed && c.test_last_score != null && (
+                        <Tag size={12} /> ASSIGNMENT
+                        {c.assignment_completed && c.assignment_last_score != null && (
                           <span className="fc-action-score-badge">
-                            {Math.round(c.test_last_score)}%
+                            {Math.round(c.assignment_last_score)}%
                           </span>
                         )}
                       </Link>
-                    )
-                  )}
+                    )}
 
-                  {/* Assessment Not Available if neither assignment nor exam quiz has been created yet */}
-                  {c.unlocked && !c.assignment_quiz_id && !c.test_quiz_id && (
-                    <span
-                      title="The assessment for this chapter has not been created yet"
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                        fontSize: '0.72rem',
-                        fontWeight: 600,
-                        padding: '4px 8px',
-                        borderRadius: '6px',
-                        background: 'var(--border-light, #f1f5f9)',
-                        color: 'var(--text-muted, #64748b)',
-                        border: '1px dashed var(--border, #cbd5e1)',
-                        cursor: 'not-allowed',
-                      }}
-                    >
-                      Assessment Not Available
-                    </span>
-                  )}
+                    {/* Exam Button: shown only if formal chapter exam exists */}
+                    {c.test_quiz_id && c.unlocked && (
+                      c.test_locked ? (
+                        <span
+                          className="fc-btn-exam is-locked"
+                          title="Complete chapter assignment first to unlock this test"
+                        >
+                          <Lock size={12} /> TEST LOCKED
+                        </span>
+                      ) : (
+                        <Link
+                          to={`/take-exam/${c.test_quiz_id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`fc-btn-exam ${c.test_completed ? 'completed' : ''}`}
+                          title={c.test_completed ? `Chapter test completed (${c.test_last_score}%). Click to retake.` : 'Start Chapter Exam'}
+                        >
+                          <BookOpen size={12} /> EXAM
+                          {c.test_completed && c.test_last_score != null && (
+                            <span className="fc-action-score-badge">
+                              {Math.round(c.test_last_score)}%
+                            </span>
+                          )}
+                        </Link>
+                      )
+                    )}
+
+                    {/* Assessment Not Available if neither assignment nor exam quiz has been created yet */}
+                    {c.unlocked && !c.assignment_quiz_id && !c.test_quiz_id && (
+                      <span
+                        title="The assessment for this chapter has not been created yet"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          fontSize: '0.72rem',
+                          fontWeight: 600,
+                          padding: '4px 8px',
+                          borderRadius: '6px',
+                          background: 'var(--border-light, #f1f5f9)',
+                          color: 'var(--text-muted, #64748b)',
+                          border: '1px dashed var(--border, #cbd5e1)',
+                          cursor: 'not-allowed',
+                          whiteSpace: 'nowrap',
+                          flexShrink: 0,
+                        }}
+                      >
+                        Assessment Not Available
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -750,7 +768,7 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
           <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {viewingCheatSheet?.assignment_quiz_id && viewingCheatSheet?.unlocked && (
-                <Link to={`/take-exam/${viewingCheatSheet.assignment_quiz_id}`} className="btn btn-sm btn-outline">
+                <Link to={`/take-exam/${viewingCheatSheet.assignment_quiz_id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-outline">
                   <Tag size={12} style={{ color: '#16a34a' }} /> Practice Assignment
                 </Link>
               )}
@@ -795,12 +813,12 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
                 </a>
               )}
               {viewingNotes?.assignment_quiz_id && viewingNotes?.unlocked && (
-                <Link to={`/take-exam/${viewingNotes.assignment_quiz_id}`} className="btn btn-sm btn-outline">
+                <Link to={`/take-exam/${viewingNotes.assignment_quiz_id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-outline">
                   <Tag size={12} style={{ color: '#16a34a' }} /> Start Assignment
                 </Link>
               )}
               {viewingNotes?.test_quiz_id && viewingNotes?.unlocked && (
-                <Link to={`/take-exam/${viewingNotes.test_quiz_id}`} className="btn btn-sm" style={{ background: '#4f46e5', color: '#fff' }}>
+                <Link to={`/take-exam/${viewingNotes.test_quiz_id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ background: '#4f46e5', color: '#fff' }}>
                   <BookOpen size={13} /> Start Exam
                 </Link>
               )}

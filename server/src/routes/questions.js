@@ -173,22 +173,28 @@ router.get('/', async (req, res) => {
   if (keywords) {
     const raw = String(keywords).trim();
     const cleanId = raw.replace(/^#/, '');
-    const allTerms = raw.includes(',')
-      ? raw.split(',').map((t) => t.trim()).filter(Boolean)
-      : raw.split(/\s+/).map((t) => t.trim()).filter(Boolean);
-    // Limit to maximum 5 keywords
-    const terms = allTerms.slice(0, 5);
-    if (terms.length) {
-      const orClauses = [];
-      if (/^\d+$/.test(cleanId)) {
-        params.push(parseInt(cleanId, 10));
-        orClauses.push(`q.id = $${params.length}`);
+    if (raw.startsWith('#') && /^\d+$/.test(cleanId)) {
+      params.push(parseInt(cleanId, 10));
+      clauses.push(`q.id = $${params.length}`);
+    } else {
+      const allTerms = raw.includes(',')
+        ? raw.split(',').map((t) => t.trim()).filter(Boolean)
+        : raw.split(/\s+/).map((t) => t.trim()).filter(Boolean);
+      // Limit to maximum 5 keywords
+      const terms = allTerms.slice(0, 5);
+      if (terms.length) {
+        if (terms.length === 1 && /^\d+$/.test(cleanId)) {
+          params.push(parseInt(cleanId, 10));
+          clauses.push(`q.id = $${params.length}`);
+        } else {
+          const andClauses = [];
+          for (const term of terms) {
+            params.push(`%${term}%`);
+            andClauses.push(`q.question_text ILIKE $${params.length}`);
+          }
+          clauses.push(`(${andClauses.join(' AND ')})`);
+        }
       }
-      for (const term of terms) {
-        params.push(`%${term}%`);
-        orClauses.push(`q.question_text ILIKE $${params.length}`);
-      }
-      clauses.push(`(${orClauses.join(' OR ')})`);
     }
   }
   params.push(limit); params.push(offset);
@@ -326,6 +332,32 @@ router.patch('/appearances/:id', authenticate, authorize('admin'), async (req, r
   res.json({ appearance: result.rows[0] });
 });
 
+async function resolveOrCreateSubject(subjectName) {
+  const clean = String(subjectName || '').trim();
+  if (!clean) return null;
+  const existing = await pool.query('SELECT id FROM subjects WHERE lower(trim(title)) = lower(trim($1)) AND deleted_at IS NULL LIMIT 1', [clean]);
+  if (existing.rows.length) return existing.rows[0].id;
+  const maxRes = await pool.query('SELECT COALESCE(MAX(order_index), 0) + 1 AS next_order FROM subjects WHERE deleted_at IS NULL');
+  const ins = await pool.query('INSERT INTO subjects (title, order_index) VALUES ($1, $2) RETURNING id', [clean, maxRes.rows[0]?.next_order || 1]);
+  const newId = ins.rows[0].id;
+  await pool.query('INSERT INTO bundle_subjects (bundle_id, subject_id) SELECT b.id, $1 FROM bundles b WHERE b.deleted_at IS NULL ON CONFLICT DO NOTHING', [newId]);
+  return newId;
+}
+
+async function resolveOrCreateChapter(chapterName, subjectId) {
+  const clean = String(chapterName || '').trim();
+  if (!clean) return null;
+  const existing = await pool.query(
+    `SELECT id FROM chapters WHERE lower(trim(title)) = lower(trim($1)) AND deleted_at IS NULL ${subjectId ? 'AND subject_id = $2' : ''} LIMIT 1`,
+    subjectId ? [clean, subjectId] : [clean]
+  );
+  if (existing.rows.length) return existing.rows[0].id;
+  if (!subjectId) return null;
+  const maxRes = await pool.query('SELECT COALESCE(MAX(order_index), 0) + 1 AS next_order FROM chapters WHERE subject_id = $1 AND deleted_at IS NULL', [subjectId]);
+  const ins = await pool.query('INSERT INTO chapters (subject_id, title, order_index, status) VALUES ($1, $2, $3, $4) RETURNING id', [subjectId, clean, maxRes.rows[0]?.next_order || 1, 'live']);
+  return ins.rows[0].id;
+}
+
 router.post('/', authenticate, authorize('admin', 'instructor'), async (req, res) => {
   const { chapter_id, subject_id, question_text, question_type, options, correct_option, explanation, difficulty, tags, image_url, appearances, allow_duplicate } = req.body;
   const type = question_type || 'mcq';
@@ -342,7 +374,17 @@ router.post('/', authenticate, authorize('admin', 'instructor'), async (req, res
   if (needsOptions && (!options || !options.length || !correct_option)) {
     return res.status(400).json({ error: 'options and correct_option are required for this question type' });
   }
-          const validationError = await validateQuestionPayload({ question_type: type, difficulty, subject_id, chapter_id, tags, appearances });
+
+  let finalSubjectId = subject_id || null;
+  if (!finalSubjectId && req.body.subject_title) {
+    finalSubjectId = await resolveOrCreateSubject(req.body.subject_title);
+  }
+  let finalChapterId = chapter_id || null;
+  if (!finalChapterId && req.body.chapter_title) {
+    finalChapterId = await resolveOrCreateChapter(req.body.chapter_title, finalSubjectId);
+  }
+
+  const validationError = await validateQuestionPayload({ question_type: type, difficulty, subject_id: finalSubjectId, chapter_id: finalChapterId, tags, appearances });
   if (validationError) return res.status(400).json({ error: validationError });
   const appearanceYears = normalizeAppearances(appearances);
   if (appearanceYears === null) return res.status(400).json({ error: 'appearances must contain four-digit years separated by commas' });
@@ -365,12 +407,13 @@ router.post('/', authenticate, authorize('admin', 'instructor'), async (req, res
   const result = await pool.query(
     `INSERT INTO questions (chapter_id, subject_id, question_text, question_type, options, correct_option, explanation, difficulty, tags, image_url, appearances, created_by, content_hash)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
-    [chapter_id || null, subject_id || null, question_text, type, JSON.stringify(options || []), correct_option || null,
+    [finalChapterId || null, finalSubjectId || null, question_text, type, JSON.stringify(options || []), correct_option || null,
      explanation || null, difficulty || 'medium', tags || [], image_url || null, appearanceYears, req.user.id, hash]
   );
   const question = result.rows[0];
   await pool.query('UPDATE questions SET root_question_id = $1 WHERE id = $1', [question.id]);
   question.root_question_id = question.id; // keep the API response in sync with the row we just backfilled
+
 
   if (chapter_id) {
     await syncQuestionsToChapterQuiz(pool, Number(chapter_id), [question.id], req.user.id).catch((err) => {
@@ -395,6 +438,15 @@ router.patch('/:id', authenticate, authorize('admin', 'instructor'), async (req,
   if (!current.rows.length) return res.status(404).json({ error: 'Question not found' });
   const before = current.rows[0];
 
+  let finalSubjectId = subject_id ?? before.subject_id;
+  if (!subject_id && req.body.subject_title) {
+    finalSubjectId = await resolveOrCreateSubject(req.body.subject_title);
+  }
+  let finalChapterId = chapter_id ?? before.chapter_id;
+  if (!chapter_id && req.body.chapter_title) {
+    finalChapterId = await resolveOrCreateChapter(req.body.chapter_title, finalSubjectId);
+  }
+
   const merged = {
     question_text: question_text ?? before.question_text,
     question_type: question_type ?? before.question_type,
@@ -404,8 +456,8 @@ router.patch('/:id', authenticate, authorize('admin', 'instructor'), async (req,
     difficulty: difficulty ?? before.difficulty,
     tags: tags ?? before.tags,
     image_url: image_url ?? before.image_url,
-    chapter_id: chapter_id ?? before.chapter_id,
-    subject_id: subject_id ?? before.subject_id,
+    chapter_id: finalChapterId,
+    subject_id: finalSubjectId,
     appearances: appearances ?? before.appearances ?? [],
   };
   const validationError = await validateQuestionPayload(merged);

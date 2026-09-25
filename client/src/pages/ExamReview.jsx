@@ -4,7 +4,7 @@ import {
   X, MessageCircleQuestion, ChevronDown, ChevronUp, Flag as FlagIcon, RotateCcw, EyeOff,
   BookOpen, ListChecks, ArrowLeft, CheckCircle2, XCircle, HelpCircle, Clock, BarChart3, Filter
 } from 'lucide-react';
-import { api } from '../api';
+import { api, resolveMediaUrl } from '../api';
 import { PageSkeleton } from '../ui';
 
 // Mirrors REPORT_REASONS in server/src/routes/questions.js.
@@ -177,11 +177,11 @@ export default function ExamReview() {
     <div className="page">
       <div className="container container-narrow">
         {/* Navigation Breadcrumb / Top Bar */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <div className="review-top-nav" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
           <Link to={subjectTargetUrl} className="btn btn-ghost btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
-            <ArrowLeft size={15} /> Go to Subject &amp; Quizzes
+            <ArrowLeft size={15} /> Back to Quizzes
           </Link>
-          <div className="row" style={{ gap: 8 }}>
+          <div className="review-top-nav-links" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <Link to="/quizzes" className="btn btn-ghost btn-sm">
               <ListChecks size={14} /> Practice Quizzes
             </Link>
@@ -197,7 +197,7 @@ export default function ExamReview() {
             <span style={{ fontSize: '.85rem', fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>
               {quiz.title}
             </span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div className="review-title-badge-row" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <h2 className="review-summary-title" style={{ margin: 0, fontSize: '1.75rem', fontWeight: 800 }}>
                 {isPassed ? 'Assessment Passed' : 'Not Passed Yet'}
               </h2>
@@ -233,11 +233,11 @@ export default function ExamReview() {
             </div>
 
             <div className="review-summary-actions">
-              <button type="button" className="btn btn-primary btn-sm" onClick={() => navigate(`/take-exam/${quiz.id}`)}>
+              <button type="button" className="btn btn-primary btn-sm" onClick={() => window.open(`/take-exam/${quiz.id}`, '_blank', 'noopener,noreferrer')}>
                 <RotateCcw size={14} /> Retake Quiz
               </button>
               <Link to={subjectTargetUrl} className="btn btn-outline btn-sm">
-                <BookOpen size={14} /> Go to Subject & Quizzes
+                <BookOpen size={14} /> Go to Subject &amp; Quizzes
               </Link>
               <Link to="/quizzes" className="btn btn-outline btn-sm">
                 <ListChecks size={14} /> Practice Quizzes
@@ -261,8 +261,8 @@ export default function ExamReview() {
         <div className="card" style={{ marginBottom: 20, padding: '16px 20px', borderRadius: 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
             <div>
-              <strong style={{ fontSize: '.92rem' }}>Question Navigator</strong>
-              <span className="muted" style={{ fontSize: '.76rem', marginLeft: 8 }}>
+              <strong style={{ fontSize: '.92rem', display: 'block' }}>Question Navigator</strong>
+              <span className="muted" style={{ fontSize: '.76rem', display: 'block', marginTop: 2 }}>
                 Click any question number to scroll directly to it
               </span>
             </div>
@@ -459,6 +459,15 @@ export default function ExamReview() {
                     </span>
                   </div>
 
+                  {r.image_url && (
+                    <div style={{ margin: '12px 0', textAlign: 'center', background: 'var(--surface-alt, #f8fafc)', padding: 10, borderRadius: 8 }}>
+                      <img
+                        src={resolveMediaUrl(r.image_url)}
+                        alt="Question illustration"
+                        style={{ maxWidth: '100%', maxHeight: 460, objectFit: 'contain', borderRadius: 6, background: '#ffffff', padding: 4 }}
+                      />
+                    </div>
+                  )}
                   <p className="review-question-text" style={{ fontSize: '0.96rem', marginTop: 12, lineHeight: 1.55 }}>
                     {r.question_text}
                   </p>
@@ -543,7 +552,7 @@ export default function ExamReview() {
 
         {/* Footer Actions */}
         <div className="review-footer-actions" style={{ marginTop: 28, padding: '20px 0', borderTop: '1px solid var(--line, #e2e8f0)' }}>
-          <button type="button" className="btn btn-primary" onClick={() => navigate(`/take-exam/${quiz.id}`)}>
+          <button type="button" className="btn btn-primary" onClick={() => window.open(`/take-exam/${quiz.id}`, '_blank', 'noopener,noreferrer')}>
             <RotateCcw size={15} /> Retake this quiz
           </button>
           <Link to={subjectTargetUrl} className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>

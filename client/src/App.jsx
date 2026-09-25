@@ -60,10 +60,10 @@ import AdminStudents from './pages/admin/AdminStudents';
 import AdminStudentDetail from './pages/admin/AdminStudentDetail';
 import AdminEnrollments from './pages/admin/AdminEnrollments';
 import AdminStudentActivity from './pages/admin/AdminStudentActivity';
+import AdminLmsReports from './pages/admin/AdminLmsReports';
 import InstructorDashboard from './pages/InstructorDashboard';
 import InstructorShell from './pages/InstructorShell';
 import Landing from './pages/Landing';
-import Pricing from './pages/Pricing';
 import Checkout from './pages/Checkout';
 import Support from './pages/Support';
 import Account from './pages/Account';
@@ -128,9 +128,8 @@ function AppRoutes() {
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/courses" element={<Landing coursesOnly />} />
-        <Route path="/pricing" element={<Pricing />} />
-        <Route path="/checkout" element={<Protected roles={['student']}><StudentShell><Checkout /></StudentShell></Protected>} />
-        <Route path="/checkout/:bundleId" element={<Protected roles={['student']}><StudentShell><Checkout /></StudentShell></Protected>} />
+        <Route path="/checkout" element={<Protected roles={['student', 'admin', 'instructor']}><StudentAware><Checkout /></StudentAware></Protected>} />
+        <Route path="/checkout/:bundleId" element={<Protected roles={['student', 'admin', 'instructor']}><StudentAware><Checkout /></StudentAware></Protected>} />
         <Route path="/" element={<HomeRoute />} />
         {/* The public homepage rendered INSIDE the student shell, so a signed-in
             student can browse announcements/bundles from the sidebar without
@@ -176,6 +175,7 @@ function AppRoutes() {
           <Route path="student-activity" element={<AdminStudentActivity />} />
           <Route path="reports" element={<AdminReports />} />
           <Route path="reports/:id" element={<AdminReportDetail />} />
+          <Route path="lms-reports" element={<AdminLmsReports />} />
           <Route path="instructor-doubts" element={<AdminInstructorDoubts />} />
           <Route path="memory-bank" element={<AdminMemoryBank />} />
           <Route path="notifications" element={<AdminNotifications />} />

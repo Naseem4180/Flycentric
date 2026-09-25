@@ -15,8 +15,7 @@ const pool = require('./pool');
  *   it clears all tables for a fresh installation and seeds ONLY the admin user.
  */
 async function seed() {
-  const keepData = process.argv.includes('--keep-data') || process.argv.includes('--no-reset');
-  const isReset = !keepData;
+  const isReset = process.argv.includes('--reset');
   const client = await pool.connect();
 
   try {
@@ -108,6 +107,8 @@ async function seed() {
     client.release();
     await pool.end();
   }
+if (require.main === module) {
+  seed();
 }
 
-seed();
+module.exports = seed;

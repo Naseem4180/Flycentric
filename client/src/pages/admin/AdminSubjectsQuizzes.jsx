@@ -30,6 +30,7 @@ const BLANK_QUIZ = {
   title: '', type: 'practice', duration_minutes: 30, pass_percent: 70, question_ids: [],
   status: 'draft', allow_review_after_submit: true, chapter_ids: [],
   require_previous_completion: true,
+  shuffle_questions: false, shuffle_options: false,
 };
 
 export default function AdminSubjectsQuizzes() {
@@ -627,6 +628,8 @@ export default function AdminSubjectsQuizzes() {
       status: quiz.status || 'draft',
       allow_review_after_submit: quiz.allow_review_after_submit ?? true,
       require_previous_completion: quiz.require_previous_completion ?? true,
+      shuffle_questions: Boolean(quiz.shuffle_questions),
+      shuffle_options: Boolean(quiz.shuffle_options),
       ...overrides,
     };
   }
@@ -696,6 +699,8 @@ export default function AdminSubjectsQuizzes() {
         status: quizForm.status,
         allow_review_after_submit: quizForm.allow_review_after_submit,
         require_previous_completion: quizForm.require_previous_completion ?? true,
+        shuffle_questions: Boolean(quizForm.shuffle_questions),
+        shuffle_options: Boolean(quizForm.shuffle_options),
         chapter_ids: quizForm.chapter_ids.map(Number),
         duration_minutes: quizForm.type === 'exam' ? Number(quizForm.duration_minutes) : null,
       };
@@ -2188,6 +2193,25 @@ Chapter 4: CAR Section 2`}
               </small>
             </div>
           )}
+
+          <div className="form-grid" style={{ marginBottom: 12 }}>
+            <label className="cb-chapter-option" style={{ padding: 0, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={Boolean(quizForm.shuffle_questions)}
+                onChange={(e) => setQuizForm((f) => ({ ...f, shuffle_questions: e.target.checked }))}
+              />
+              <span>Shuffle Questions</span>
+            </label>
+            <label className="cb-chapter-option" style={{ padding: 0, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={Boolean(quizForm.shuffle_options)}
+                onChange={(e) => setQuizForm((f) => ({ ...f, shuffle_options: e.target.checked }))}
+              />
+              <span>Shuffle Answer Options</span>
+            </label>
+          </div>
 
           {/* ONE chapter control. Ticking chapters both files the quiz and
               defines which questions the picker below offers. */}

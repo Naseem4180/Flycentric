@@ -6,7 +6,7 @@ import {
   Flag, MessageCircle, Bookmark, BarChart3, Trash2, Settings as SettingsIcon,
   ScrollText, Radio, Bell, Mail, FolderKanban, GraduationCap, CheckSquare,
   FileText, Award, ShoppingBag, Receipt, RotateCcw, Tag, UserCheck,
-  Activity, Shield, ChevronDown, CreditCard
+  Activity, Shield, ChevronDown, ChevronRight, CreditCard
 } from 'lucide-react';
 
 const NAV_STRUCTURE = [
@@ -78,8 +78,9 @@ const NAV_STRUCTURE = [
     accent: '#f59e0b',
     accentRgb: '245, 158, 11',
     children: [
-      { to: '/admin/reports', icon: Flag, label: 'Reports', badgeKey: 'reports' },
-      { to: '/admin/student-analytics', icon: BarChart3, label: 'Student Analytics' },
+      { to: '/admin/lms-reports', icon: BarChart3, label: 'LMS Reports Hub' },
+      { to: '/admin/reports', icon: Flag, label: 'Question Reports', badgeKey: 'reports' },
+      { to: '/admin/student-analytics', icon: Activity, label: 'Student Analytics' },
       { to: '/admin/notifications', icon: Bell, label: 'Notifications' },
       { to: '/admin/email-campaigns', icon: Mail, label: 'Email Campaigns' },
     ],
@@ -100,7 +101,7 @@ const NAV_STRUCTURE = [
   },
 ];
 
-export default function AdminSidebar({ collapsed, badges = {}, onNavigate }) {
+export default function AdminSidebar({ collapsed, badges = {}, onNavigate, onExpand }) {
   const location = useLocation();
 
   // Find which group contains current path to auto-open it
@@ -116,19 +117,54 @@ export default function AdminSidebar({ collapsed, badges = {}, onNavigate }) {
   };
 
   const [openGroups, setOpenGroups] = useState(() => {
+    if (collapsed) return {};
     const active = getActiveGroupId(location.pathname);
-    // Only open the active group; if no active group, open academics by default
     const defaultGroup = active || 'academics';
     return { [defaultGroup]: true };
   });
 
-  // Auto-expand the active group on route changes, closing all others
+  // When collapsing, close flyouts; when expanding, open active group
+  useEffect(() => {
+    if (collapsed) {
+      setOpenGroups({});
+    } else {
+      const active = getActiveGroupId(location.pathname) || 'academics';
+      setOpenGroups({ [active]: true });
+    }
+  }, [collapsed]);
+
+  // Auto-expand the active group on route changes when not collapsed
   useEffect(() => {
     const active = getActiveGroupId(location.pathname);
     if (active) {
-      setOpenGroups({ [active]: true });
+      if (!collapsed) {
+        setOpenGroups({ [active]: true });
+      } else {
+        setOpenGroups({});
+      }
     }
-  }, [location.pathname]);
+  }, [location.pathname, collapsed]);
+
+  // Close flyout on click outside or Escape when in collapsed mode
+  useEffect(() => {
+    if (!collapsed) return;
+    function handleDocClick(e) {
+      if (!e.target.closest('.admin-accordion')) {
+        setOpenGroups({});
+      }
+    }
+    function handleKeyDown(e) {
+      if (e.key === 'Escape') {
+        setOpenGroups({});
+      }
+    }
+    document.addEventListener('click', handleDocClick);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('click', handleDocClick);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [collapsed]);
 
   // Exclusive accordion — clicking a group closes all others
   const toggleGroup = (id) => {
@@ -191,6 +227,7 @@ export default function AdminSidebar({ collapsed, badges = {}, onNavigate }) {
                   )}
                 </button>
 
+                {/* Normal expanded accordion body */}
                 {isOpen && !collapsed && (
                   <div className="admin-accordion-body" role="group" aria-label={item.label}>
                     {item.children.map(({ to, label, badgeKey }) => {
@@ -209,6 +246,73 @@ export default function AdminSidebar({ collapsed, badges = {}, onNavigate }) {
                         </NavLink>
                       );
                     })}
+                  </div>
+                )}
+
+                {/* Floating flyout menu when opened in collapsed mode */}
+                {isOpen && collapsed && (
+                  <div
+                    className="admin-collapsed-flyout"
+                    role="menu"
+                    aria-label={item.label}
+                    style={{
+                      '--accent': item.accent,
+                      '--accent-rgb': item.accentRgb,
+                    }}
+                  >
+                    <div className="admin-collapsed-flyout-header">
+                      <button
+                        type="button"
+                        className="admin-collapsed-flyout-title-btn"
+                        onClick={() => {
+                          if (onExpand) {
+                            onExpand();
+                            setOpenGroups({ [item.id]: true });
+                          }
+                        }}
+                        title="Click to expand sidebar"
+                      >
+                        <Icon size={15} strokeWidth={2.2} style={{ color: item.accent }} />
+                        <span>{item.label}</span>
+                      </button>
+                      {onExpand && (
+                        <button
+                          type="button"
+                          className="admin-collapsed-flyout-expand"
+                          onClick={() => {
+                            onExpand();
+                            setOpenGroups({ [item.id]: true });
+                          }}
+                          title="Expand sidebar"
+                          aria-label="Expand sidebar"
+                        >
+                          <ChevronRight size={13} />
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="admin-collapsed-flyout-body">
+                      {item.children.map(({ to, label, icon: ChildIcon, badgeKey }) => {
+                        const count = badgeKey ? badges[badgeKey] : 0;
+                        return (
+                          <NavLink
+                            key={to}
+                            to={to}
+                            onClick={() => {
+                              setOpenGroups({});
+                              if (onNavigate) onNavigate();
+                            }}
+                            className={({ isActive }) => `admin-collapsed-flyout-link ${isActive ? 'active' : ''}`}
+                          >
+                            {ChildIcon && <ChildIcon size={14} strokeWidth={2} />}
+                            <span className="admin-collapsed-flyout-label">{label}</span>
+                            {count > 0 && (
+                              <span className="admin-subnav-badge">{count > 99 ? '99+' : count}</span>
+                            )}
+                          </NavLink>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </div>

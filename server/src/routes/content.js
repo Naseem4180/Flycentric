@@ -55,6 +55,11 @@ async function hasSubjectAccess(userId, subjectId) {
        ON q.bundle_id = ba.bundle_id AND q.subject_id = $2
           AND q.deleted_at IS NULL AND q.status = 'published'
      WHERE ba.user_id = $1 AND (bs.subject_id IS NOT NULL OR q.id IS NOT NULL)
+       AND NOT EXISTS (
+         SELECT 1 FROM course_enrollments ce
+         WHERE ce.user_id = ba.user_id AND ce.bundle_id = ba.bundle_id
+           AND ce.expiry_date IS NOT NULL AND ce.expiry_date < now()
+       )
      LIMIT 1`,
     [userId, subjectId]
   );
@@ -204,15 +209,25 @@ router.get('/bundles', async (req, res) => {
 });
 
 router.post('/bundles', authenticate, authorize('admin'), async (req, res) => {
-  const { title, slug, description, exam_type, price_inr, is_free, status, subject_ids } = req.body;
+  const {
+    title, slug, description, exam_type, price_inr, is_free, status, subject_ids,
+    thumbnail_url, duration_hours, difficulty, tags
+  } = req.body;
   const bundleIsFree = is_free === undefined ? Number(price_inr || 0) === 0 : !!is_free;
   if (!title) return res.status(400).json({ error: 'title required' });
   const finalSlug = slug ? slug.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') : slugify(title);
   const finalStatus = status === 'live' ? 'live' : 'draft';
   const result = await pool.query(
-    `INSERT INTO bundles (title, slug, description, exam_type, price_inr, is_free, status, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-    [title, finalSlug || slugify(title), description || null, exam_type || 'CPL', bundleIsFree ? 0 : (price_inr || 0), bundleIsFree, finalStatus, req.user.id]
+    `INSERT INTO bundles (
+       title, slug, description, exam_type, price_inr, is_free, status, created_by,
+       thumbnail_url, duration_hours, difficulty, tags
+     )
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+    [
+      title, finalSlug || slugify(title), description || null, exam_type || 'CPL',
+      bundleIsFree ? 0 : (price_inr || 0), bundleIsFree, finalStatus, req.user.id,
+      thumbnail_url || null, Number(duration_hours) || 0, difficulty || 'All Levels', Array.isArray(tags) ? tags : []
+    ]
   );
   const bundle = result.rows[0];
   if (Array.isArray(subject_ids)) {
@@ -231,7 +246,10 @@ router.post('/bundles', authenticate, authorize('admin'), async (req, res) => {
 });
 
 router.patch('/bundles/:id', authenticate, authorize('admin'), async (req, res) => {
-  const { title, slug, description, exam_type, price_inr, is_free, status, subject_ids } = req.body;
+  const {
+    title, slug, description, exam_type, price_inr, is_free, status, subject_ids,
+    thumbnail_url, duration_hours, difficulty, tags
+  } = req.body;
   const bundleIsFree = is_free === undefined ? (price_inr !== undefined ? Number(price_inr || 0) === 0 : undefined) : !!is_free;
   const cleanSlug = slug ? slug.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') : undefined;
   const cleanStatus = status === 'live' || status === 'draft' ? status : undefined;
@@ -243,9 +261,20 @@ router.patch('/bundles/:id', authenticate, authorize('admin'), async (req, res) 
        price_inr = CASE WHEN $5 THEN 0 ELSE COALESCE($4, price_inr) END,
        is_free = COALESCE($5, is_free),
        slug = COALESCE($7, slug),
-       status = COALESCE($8, status)
+       status = COALESCE($8, status),
+       thumbnail_url = CASE WHEN $9::text IS NOT NULL THEN $9 ELSE thumbnail_url END,
+       duration_hours = CASE WHEN $10::int IS NOT NULL THEN $10 ELSE duration_hours END,
+       difficulty = CASE WHEN $11::text IS NOT NULL THEN $11 ELSE difficulty END,
+       tags = CASE WHEN $12::text[] IS NOT NULL THEN $12 ELSE tags END
      WHERE id = $6 AND deleted_at IS NULL RETURNING *`,
-    [title, description, exam_type, price_inr !== undefined ? price_inr : null, bundleIsFree, req.params.id, cleanSlug, cleanStatus]
+    [
+      title, description, exam_type, price_inr !== undefined ? price_inr : null, bundleIsFree,
+      req.params.id, cleanSlug, cleanStatus,
+      thumbnail_url !== undefined ? thumbnail_url : null,
+      duration_hours !== undefined ? Number(duration_hours) || 0 : null,
+      difficulty !== undefined ? difficulty : null,
+      tags !== undefined && Array.isArray(tags) ? tags : null
+    ]
   );
   if (!result.rows.length) return res.status(404).json({ error: 'Bundle not found' });
   if (Array.isArray(subject_ids)) {

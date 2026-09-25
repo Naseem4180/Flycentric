@@ -1034,33 +1034,84 @@ router.delete('/assignments/:id', async (req, res) => {
 });
 
 // ----------------------------------------------------------------------------
-// Central Reports Aggregation API
+// Central LMS Reports Hub API
 // ----------------------------------------------------------------------------
 router.get('/reports-summary', async (req, res) => {
-  const [students, courses, enrollments, revenue, exams, inactive] = await Promise.all([
-    pool.query("SELECT id, name, email, phone, status, created_at FROM users WHERE role = 'student' ORDER BY created_at DESC LIMIT 200"),
-    pool.query("SELECT id, title, exam_type, price_inr, status, created_at FROM bundles WHERE deleted_at IS NULL ORDER BY created_at DESC"),
+  const { from_date, to_date } = req.query;
+  const dateClauses = [];
+  const params = [];
+  if (from_date) {
+    params.push(from_date);
+    dateClauses.push(`created_at >= $${params.length}::timestamptz`);
+  }
+  if (to_date) {
+    params.push(to_date);
+    dateClauses.push(`created_at <= ($${params.length}::timestamptz + interval '1 day')`);
+  }
+
+  const [students, courses, enrollments, revenue, exams, inactive, completionStats] = await Promise.all([
     pool.query(`
-      SELECT ce.id, u.name AS student_name, u.email, b.title AS course_title, ce.enrollment_type, ce.status, ce.created_at
-      FROM course_enrollments ce JOIN users u ON u.id = ce.user_id JOIN bundles b ON b.id = ce.bundle_id
-      ORDER BY ce.created_at DESC LIMIT 200
+      SELECT id, name, email, phone, status, created_at, last_login_at
+      FROM users WHERE role = 'student'
+      ORDER BY created_at DESC LIMIT 300
     `),
     pool.query(`
-      SELECT p.id, u.name AS student_name, b.title AS course_title, p.amount_inr, p.status, p.created_at
-      FROM payments p JOIN users u ON u.id = p.user_id LEFT JOIN bundles b ON b.id = p.bundle_id
-      ORDER BY p.created_at DESC LIMIT 200
+      SELECT b.id, b.title, b.exam_type, b.price_inr, b.status, b.duration_hours, b.difficulty, b.tags, b.created_at,
+             COUNT(DISTINCT ce.id)::int AS enrollment_count
+      FROM bundles b
+      LEFT JOIN course_enrollments ce ON ce.bundle_id = b.id
+      WHERE b.deleted_at IS NULL
+      GROUP BY b.id
+      ORDER BY b.created_at DESC
     `),
     pool.query(`
-      SELECT a.id, u.name AS student_name, q.title AS exam_title, a.score, a.status, a.submitted_at
-      FROM attempts a JOIN users u ON u.id = a.user_id JOIN quizzes q ON q.id = a.quiz_id
-      WHERE a.status = 'submitted' ORDER BY a.submitted_at DESC LIMIT 200
+      SELECT ce.id, ce.user_id, u.name AS student_name, u.email, b.title AS course_title,
+             ce.enrollment_type, ce.status, ce.completion_pct, ce.start_date, ce.expiry_date, ce.created_at
+      FROM course_enrollments ce
+      JOIN users u ON u.id = ce.user_id
+      JOIN bundles b ON b.id = ce.bundle_id
+      ORDER BY ce.created_at DESC LIMIT 300
+    `),
+    pool.query(`
+      SELECT p.id, p.user_id, u.name AS student_name, u.email, b.title AS course_title,
+             p.amount_inr, p.status, p.created_at
+      FROM payments p
+      JOIN users u ON u.id = p.user_id
+      LEFT JOIN bundles b ON b.id = p.bundle_id
+      ORDER BY p.created_at DESC LIMIT 300
+    `),
+    pool.query(`
+      SELECT a.id, a.user_id, u.name AS student_name, u.email, q.title AS exam_title, q.pass_percent,
+             a.score, a.status, (a.score >= q.pass_percent) AS is_passed, a.submitted_at, a.started_at
+      FROM attempts a
+      JOIN users u ON u.id = a.user_id
+      JOIN quizzes q ON q.id = a.quiz_id
+      WHERE a.status = 'submitted'
+      ORDER BY a.submitted_at DESC LIMIT 300
     `),
     pool.query(`
       SELECT id, name, email, phone, last_login_at, created_at FROM users
       WHERE role = 'student' AND (last_login_at < now() - interval '7 days' OR (last_login_at IS NULL AND created_at < now() - interval '7 days'))
       ORDER BY created_at DESC LIMIT 200
     `),
+    pool.query(`
+      SELECT 
+        COUNT(*)::int AS total_enrollments,
+        COUNT(CASE WHEN completion_pct >= 100 OR status = 'completed' THEN 1 END)::int AS completed_count,
+        ROUND(AVG(COALESCE(completion_pct, 0)), 1) AS avg_completion_pct
+      FROM course_enrollments
+    `),
   ]);
+
+  const totalRevenue = revenue.rows
+    .filter((r) => r.status === 'successful' || r.status === 'paid' || r.status === 'completed')
+    .reduce((sum, r) => sum + Number(r.amount_inr || 0), 0);
+
+  const totalExamAttempts = exams.rows.length;
+  const passedExamAttempts = exams.rows.filter((e) => e.is_passed).length;
+  const avgExamScore = totalExamAttempts > 0
+    ? Math.round(exams.rows.reduce((sum, e) => sum + Number(e.score || 0), 0) / totalExamAttempts)
+    : 0;
 
   res.json({
     students: students.rows,
@@ -1069,6 +1120,20 @@ router.get('/reports-summary', async (req, res) => {
     revenue: revenue.rows,
     exams: exams.rows,
     inactive: inactive.rows,
+    summary: {
+      total_students: students.rows.length,
+      active_students: students.rows.filter((s) => s.status === 'active').length,
+      total_courses: courses.rows.length,
+      published_courses: courses.rows.filter((c) => c.status === 'published').length,
+      total_enrollments: enrollments.rows.length,
+      completed_enrollments: completionStats.rows[0]?.completed_count || 0,
+      avg_completion_pct: completionStats.rows[0]?.avg_completion_pct || 0,
+      total_revenue_inr: totalRevenue,
+      total_exam_attempts: totalExamAttempts,
+      passed_exam_attempts: passedExamAttempts,
+      pass_rate_pct: totalExamAttempts > 0 ? Math.round((passedExamAttempts / totalExamAttempts) * 100) : 0,
+      avg_exam_score: avgExamScore,
+    },
   });
 });
 

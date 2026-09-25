@@ -5,7 +5,7 @@ import SidebarProCard from './SidebarProCard';
 import {
   LayoutGrid, BookOpen, Compass, ListChecks, Brain,
   Award, History, CalendarClock, BarChart3,
-  MessageCircle, Flag, Briefcase, HelpCircle, ChevronDown
+  MessageCircle, Flag, Briefcase, HelpCircle, ChevronDown, ChevronRight
 } from 'lucide-react';
 
 const STUDENT_NAV = [
@@ -61,7 +61,7 @@ const STUDENT_NAV = [
   },
 ];
 
-export default function StudentSidebar({ collapsed, onNavigate }) {
+export default function StudentSidebar({ collapsed, onNavigate, onExpand }) {
   const location = useLocation();
 
   const getActiveGroupId = (pathname) => {
@@ -76,17 +76,54 @@ export default function StudentSidebar({ collapsed, onNavigate }) {
   };
 
   const [openGroups, setOpenGroups] = useState(() => {
+    if (collapsed) return {};
     const active = getActiveGroupId(location.pathname);
     const defaultGroup = active || 'academics';
     return { [defaultGroup]: true };
   });
 
+  // When collapsing, close flyouts so none open automatically; when expanding, open active
+  useEffect(() => {
+    if (collapsed) {
+      setOpenGroups({});
+    } else {
+      const active = getActiveGroupId(location.pathname) || 'academics';
+      setOpenGroups({ [active]: true });
+    }
+  }, [collapsed]);
+
+  // When route changes
   useEffect(() => {
     const active = getActiveGroupId(location.pathname);
     if (active) {
-      setOpenGroups({ [active]: true });
+      if (!collapsed) {
+        setOpenGroups({ [active]: true });
+      } else {
+        setOpenGroups({});
+      }
     }
-  }, [location.pathname]);
+  }, [location.pathname, collapsed]);
+
+  // Close flyout on click outside or Escape when in collapsed mode
+  useEffect(() => {
+    if (!collapsed) return;
+    function handleDocClick(e) {
+      if (!e.target.closest('.admin-accordion')) {
+        setOpenGroups({});
+      }
+    }
+    function handleKeyDown(e) {
+      if (e.key === 'Escape') {
+        setOpenGroups({});
+      }
+    }
+    document.addEventListener('click', handleDocClick);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('click', handleDocClick);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [collapsed]);
 
   const toggleGroup = (id) => {
     setOpenGroups(prev => (prev[id] ? {} : { [id]: true }));
@@ -148,6 +185,7 @@ export default function StudentSidebar({ collapsed, onNavigate }) {
                   )}
                 </button>
 
+                {/* Normal expanded accordion body */}
                 {isOpen && !collapsed && (
                   <div className="admin-accordion-body" role="group" aria-label={item.label}>
                     {item.children.map(({ to, label }) => (
@@ -160,6 +198,67 @@ export default function StudentSidebar({ collapsed, onNavigate }) {
                         <span className="admin-subnav-label">{label}</span>
                       </NavLink>
                     ))}
+                  </div>
+                )}
+
+                {/* Floating flyout menu when opened in collapsed mode */}
+                {isOpen && collapsed && (
+                  <div
+                    className="admin-collapsed-flyout"
+                    role="menu"
+                    aria-label={item.label}
+                    style={{
+                      '--accent': item.accent,
+                      '--accent-rgb': item.accentRgb,
+                    }}
+                  >
+                    <div className="admin-collapsed-flyout-header">
+                      <button
+                        type="button"
+                        className="admin-collapsed-flyout-title-btn"
+                        onClick={() => {
+                          if (onExpand) {
+                            onExpand();
+                            setOpenGroups({ [item.id]: true });
+                          }
+                        }}
+                        title="Click to expand sidebar"
+                      >
+                        <Icon size={15} strokeWidth={2.2} style={{ color: item.accent }} />
+                        <span>{item.label}</span>
+                      </button>
+                      {onExpand && (
+                        <button
+                          type="button"
+                          className="admin-collapsed-flyout-expand"
+                          onClick={() => {
+                            onExpand();
+                            setOpenGroups({ [item.id]: true });
+                          }}
+                          title="Expand sidebar"
+                          aria-label="Expand sidebar"
+                        >
+                          <ChevronRight size={13} />
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="admin-collapsed-flyout-body">
+                      {item.children.map(({ to, label, icon: ChildIcon }) => (
+                        <NavLink
+                          key={to}
+                          to={to}
+                          onClick={() => {
+                            setOpenGroups({});
+                            if (onNavigate) onNavigate();
+                          }}
+                          className={({ isActive }) => `admin-collapsed-flyout-link ${isActive ? 'active' : ''}`}
+                        >
+                          {ChildIcon && <ChildIcon size={14} strokeWidth={2} />}
+                          <span className="admin-collapsed-flyout-label">{label}</span>
+                        </NavLink>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>

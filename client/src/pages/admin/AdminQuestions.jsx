@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Download, Plus, Search, Upload, Database, Trash2, Copy, Eye, ListPlus,
   Pencil, FileDown, X, CheckCircle2, RotateCcw, FolderPlus,
   ArrowUpDown, ArrowUp, ArrowDown, Filter, HelpCircle, BookOpen, FileText,
+  Image as ImageIcon,
 } from 'lucide-react';
-import { api, BASE_URL } from '../../api';
+import { api, BASE_URL, resolveMediaUrl } from '../../api';
+
 import {
   PageHeader, Card, Button, Modal, ConfirmModal, ImportCsvModal, useToast, downloadCsv,
   EmptyState, ErrorState, SkeletonTable, Pagination, RowMenu, DifficultyBadge, Badge, FilterChips,
@@ -76,6 +78,7 @@ const BLANK = {
   chapter_id: '',
   tags: [],
   appearances: [],
+  image_url: '',
 };
 
 const TEMPLATE_HEADER = 'question_text,question_type,option_a,option_b,option_c,option_d,correct_option,explanation,difficulty,subject_title,chapter_title,tags,appearances';
@@ -125,13 +128,27 @@ export default function AdminQuestions() {
   const [chosenQuiz, setChosenQuiz] = useState('');
   const [addingToQuiz, setAddingToQuiz] = useState(false);
   const [confirm, setConfirm] = useState(null);
+  const imageFileInputRef = useRef(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
-  // Quick "Add Chapter" — filed under whichever subject is selected in the
-  // question editor, so admins never have to leave the Question Bank to
-  // create a chapter for a new question.
+
+  // Quick "Add Subject" & "Add Chapter" — filed right from the question editor
+  const [subjectModalOpen, setSubjectModalOpen] = useState(false);
+  const [newSubjectTitle, setNewSubjectTitle] = useState('');
+  const [savingSubject, setSavingSubject] = useState(false);
+
   const [chapterModalOpen, setChapterModalOpen] = useState(false);
   const [newChapterTitle, setNewChapterTitle] = useState('');
   const [savingChapter, setSavingChapter] = useState(false);
+
+  // Direct input mode for subject & chapter ('select' | 'custom')
+  const [subjectInputMode, setSubjectInputMode] = useState('select');
+  const [customSubjectTitle, setCustomSubjectTitle] = useState('');
+  const [creatingSubject, setCreatingSubject] = useState(false);
+
+  const [chapterInputMode, setChapterInputMode] = useState('select');
+  const [customChapterTitle, setCustomChapterTitle] = useState('');
+  const [creatingChapter, setCreatingChapter] = useState(false);
 
   /* ------------------------------------------------------------------ */
   /* Data loading                                                        */
@@ -178,21 +195,55 @@ export default function AdminQuestions() {
     }
   }, []);
 
-  async function addChapter() {
-    if (!newChapterTitle.trim()) { toast.warning('Chapter name is required'); return; }
-    if (!form.subject_id) { toast.warning('Pick a subject first', 'Chapters belong to a subject.'); return; }
-    setSavingChapter(true);
+  async function addSubject(titleToUse) {
+    const title = (titleToUse || newSubjectTitle || '').trim();
+    if (!title) { toast.warning('Subject name is required'); return null; }
+    setSavingSubject(true);
+    setCreatingSubject(true);
     try {
-      const { chapter } = await api.post(`/content/subjects/${form.subject_id}/chapters`, { title: newChapterTitle.trim() });
+      const res = await api.post('/content/subjects', { title });
+      const newSubject = res.subject || res;
+      toast.success('Subject added', newSubject.title);
+      setSubjects((prev) => [...prev, newSubject]);
+      setForm((f) => ({ ...f, subject_id: String(newSubject.id), chapter_id: '' }));
+      setNewSubjectTitle('');
+      setCustomSubjectTitle('');
+      setSubjectModalOpen(false);
+      setSubjectInputMode('select');
+      return newSubject;
+    } catch (err) {
+      toast.error('Could not add the subject', err.message);
+      return null;
+    } finally {
+      setSavingSubject(false);
+      setCreatingSubject(false);
+    }
+  }
+
+  async function addChapter(titleToUse, targetSubjectId) {
+    const title = (titleToUse || newChapterTitle || '').trim();
+    const subjId = targetSubjectId || form.subject_id;
+    if (!title) { toast.warning('Chapter name is required'); return null; }
+    if (!subjId) { toast.warning('Pick or enter a subject first', 'Chapters belong to a syllabus subject.'); return null; }
+    setSavingChapter(true);
+    setCreatingChapter(true);
+    try {
+      const res = await api.post(`/content/subjects/${subjId}/chapters`, { title });
+      const chapter = res.chapter || res;
       toast.success('Chapter added', chapter.title);
-      setChapters((prev) => [...prev, { ...chapter, subject_id: Number(form.subject_id) }]);
+      setChapters((prev) => [...prev, { ...chapter, subject_id: Number(subjId) }]);
       setForm((f) => ({ ...f, chapter_id: String(chapter.id) }));
       setNewChapterTitle('');
+      setCustomChapterTitle('');
       setChapterModalOpen(false);
+      setChapterInputMode('select');
+      return chapter;
     } catch (err) {
       toast.error('Could not add the chapter', err.message);
+      return null;
     } finally {
       setSavingChapter(false);
+      setCreatingChapter(false);
     }
   }
 
@@ -292,13 +343,47 @@ export default function AdminQuestions() {
   /* ------------------------------------------------------------------ */
   /* Editor                                                              */
   /* ------------------------------------------------------------------ */
+  async function handleImageUpload(file) {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.warning('Invalid file type', 'Please select a valid image file (PNG, JPG, WebP, GIF).');
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      toast.warning('File too large', 'Image size must be less than 8MB.');
+      return;
+    }
+    setUploadingImage(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await api.postForm('/uploads/direct', fd);
+      setForm((prev) => ({ ...prev, image_url: res.url }));
+      setFormErrors((prev) => {
+        const next = { ...prev };
+        delete next.image_url;
+        return next;
+      });
+      toast.success('Image uploaded', 'Illustration attached to question.');
+    } catch (err) {
+      toast.error('Upload failed', err.message || 'Could not upload image.');
+    } finally {
+      setUploadingImage(false);
+    }
+  }
+
   function openEditor(question) {
     setFormErrors({});
+    setSubjectInputMode('select');
+    setChapterInputMode('select');
+    setCustomSubjectTitle('');
+    setCustomChapterTitle('');
     if (question) {
       setEditing(question);
       setForm({
         question_type: question.question_type || 'mcq',
         question_text: question.question_text || '',
+        image_url: question.image_url || '',
         options: question.options?.length ? question.options : blankOptions(question.question_type || 'mcq'),
         correct_option: question.correct_option || '',
         explanation: question.explanation || '',
@@ -320,9 +405,14 @@ export default function AdminQuestions() {
   function duplicateQuestion(q) {
     setEditing(null);
     setFormErrors({});
+    setSubjectInputMode('select');
+    setChapterInputMode('select');
+    setCustomSubjectTitle('');
+    setCustomChapterTitle('');
     setForm({
       question_type: q.question_type || 'mcq',
       question_text: `${q.question_text} (copy)`,
+      image_url: q.image_url || '',
       options: q.options?.length ? q.options : blankOptions(q.question_type || 'mcq'),
       correct_option: q.correct_option || '',
       explanation: q.explanation || '',
@@ -349,6 +439,9 @@ export default function AdminQuestions() {
   function validate() {
     const errs = {};
     if (!form.question_text.trim()) errs.question_text = 'Question is required.';
+    if (form.question_type === 'image' && !form.image_url?.trim()) {
+      errs.image_url = 'Please upload or provide an image for this question.';
+    }
     const needsOptions = OPTION_TYPES.includes(form.question_type);
     if (needsOptions) {
       form.options.forEach((o, i) => { if (!o.text.trim()) errs[`opt${i}`] = `Option ${o.key} is required.`; });
@@ -366,13 +459,27 @@ export default function AdminQuestions() {
     if (!validate()) { toast.warning('Check the form', 'Some required fields are missing.'); return; }
     setSaving(true);
     try {
+      let resolvedSubjectId = form.subject_id;
+      if (subjectInputMode === 'custom' && customSubjectTitle.trim()) {
+        const created = await addSubject(customSubjectTitle.trim());
+        if (created) resolvedSubjectId = String(created.id);
+      }
+
+      let resolvedChapterId = form.chapter_id;
+      if (chapterInputMode === 'custom' && customChapterTitle.trim()) {
+        const created = await addChapter(customChapterTitle.trim(), resolvedSubjectId);
+        if (created) resolvedChapterId = String(created.id);
+      }
+
       const appearanceOnly = isAppearanceOnlyEdit(editing, form);
       const payload = appearanceOnly
         ? { appearances: form.appearances }
         : {
           ...form,
-          subject_id: form.subject_id || null,
-          chapter_id: form.chapter_id || null,
+          subject_id: resolvedSubjectId || null,
+          chapter_id: resolvedChapterId || null,
+          subject_title: subjectInputMode === 'custom' ? customSubjectTitle.trim() : undefined,
+          chapter_title: chapterInputMode === 'custom' ? customChapterTitle.trim() : undefined,
           tags: form.tags,
           appearances: form.appearances,
           allow_duplicate: forceDuplicate || undefined,
@@ -388,7 +495,12 @@ export default function AdminQuestions() {
       setEditing(null);
       setForm(BLANK);
       setAppearanceText('');
+      setSubjectInputMode('select');
+      setChapterInputMode('select');
+      setCustomSubjectTitle('');
+      setCustomChapterTitle('');
       loadQuestions();
+      loadTaxonomy();
     } catch (err) {
       // Duplicate Detection: offer a one-click "create anyway" instead of a
       // dead-end error, since a genuine near-duplicate (different subject,
@@ -723,7 +835,18 @@ export default function AdminQuestions() {
                         )}
                       </td>
                       <td data-label="Difficulty"><DifficultyBadge difficulty={q.difficulty} /></td>
-                      <td data-label="Question" className="question-cell"><span className="td-clamp-2" title={q.question_text}>{q.question_text}</span></td>
+                      <td data-label="Question" className="question-cell">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          {q.image_url && (
+                            <img
+                              src={resolveMediaUrl(q.image_url)}
+                              alt=""
+                              style={{ width: 34, height: 34, objectFit: 'cover', borderRadius: 4, border: '1px solid var(--border)', flexShrink: 0 }}
+                            />
+                          )}
+                          <span className="td-clamp-2" title={q.question_text}>{q.question_text}</span>
+                        </div>
+                      </td>
                       <td data-label="Appearances">
                         <div className="appearance-bubbles cell-appearances">
                           {(q.appearances || []).length ? q.appearances.map((year) => <span className="appearance-bubble" key={year}>{year}</span>) : <span className="td-muted">—</span>}
@@ -786,33 +909,154 @@ export default function AdminQuestions() {
             </div>
 
             <div className="form-row-2">
+              {/* Syllabus Subject */}
               <div className="field">
-                <label htmlFor="q-subject">Syllabus Subject</label>
-                <select id="q-subject" value={form.subject_id} onChange={(e) => setForm({ ...form, subject_id: e.target.value, chapter_id: '' })}>
-                  <option value="">— No subject (General) —</option>
-                  {subjects.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
-                </select>
-                <small className="field-hint">Primary curriculum subject.</small>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <label htmlFor="q-subject" style={{ margin: 0 }}>Syllabus Subject</label>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    {subjectInputMode === 'select' ? (
+                      <>
+                        <button
+                          type="button"
+                          className="inline-add-btn"
+                          title="Type a new subject name directly"
+                          onClick={() => setSubjectInputMode('custom')}
+                        >
+                          <Pencil size={11} /> Type New
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-add-btn"
+                          title="Add a new subject via dialog"
+                          onClick={() => { setNewSubjectTitle(''); setSubjectModalOpen(true); }}
+                        >
+                          <FolderPlus size={11} /> Add Subject
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="inline-add-btn"
+                        title="Choose from existing subjects list"
+                        onClick={() => { setSubjectInputMode('select'); setCustomSubjectTitle(''); }}
+                      >
+                        Choose from list
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {subjectInputMode === 'select' ? (
+                  <select
+                    id="q-subject"
+                    value={form.subject_id}
+                    onChange={(e) => setForm({ ...form, subject_id: e.target.value, chapter_id: '' })}
+                  >
+                    <option value="">— No subject (General) —</option>
+                    {subjects.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
+                  </select>
+                ) : (
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <input
+                      id="q-subject-custom"
+                      value={customSubjectTitle}
+                      onChange={(e) => setCustomSubjectTitle(e.target.value)}
+                      placeholder="Type new subject (e.g. Air Navigation)..."
+                      autoFocus
+                    />
+                    {customSubjectTitle.trim() && (
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        style={{ whiteSpace: 'nowrap', padding: '6px 10px', height: 38 }}
+                        disabled={creatingSubject}
+                        onClick={() => addSubject(customSubjectTitle)}
+                        title="Create and save this subject now"
+                      >
+                        {creatingSubject ? '...' : <CheckCircle2 size={13} />}
+                      </button>
+                    )}
+                  </div>
+                )}
+                <small className="field-hint">
+                  {subjectInputMode === 'select' ? 'Select from syllabus subjects or click "Type New".' : 'New subject will be created and saved with this question.'}
+                </small>
               </div>
 
+              {/* Chapter */}
               <div className="field">
-                <label htmlFor="q-chapter">
-                  Chapter
-                  <button
-                    type="button"
-                    className="inline-add-btn"
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <label htmlFor="q-chapter" style={{ margin: 0 }}>Chapter</label>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    {chapterInputMode === 'select' ? (
+                      <>
+                        <button
+                          type="button"
+                          className="inline-add-btn"
+                          title="Type a new chapter name directly"
+                          onClick={() => setChapterInputMode('custom')}
+                        >
+                          <Pencil size={11} /> Type New
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-add-btn"
+                          disabled={!form.subject_id && !customSubjectTitle.trim()}
+                          title={form.subject_id || customSubjectTitle.trim() ? 'Add a new chapter to this subject' : 'Pick or type a subject first'}
+                          onClick={() => { setNewChapterTitle(''); setChapterModalOpen(true); }}
+                        >
+                          <FolderPlus size={11} /> Add Chapter
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="inline-add-btn"
+                        title="Choose from existing chapters list"
+                        onClick={() => { setChapterInputMode('select'); setCustomChapterTitle(''); }}
+                      >
+                        Choose from list
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {chapterInputMode === 'select' ? (
+                  <select
+                    id="q-chapter"
+                    value={form.chapter_id}
+                    onChange={(e) => setForm({ ...form, chapter_id: e.target.value })}
                     disabled={!form.subject_id}
-                    title={form.subject_id ? 'Add a new chapter to this subject' : 'Pick a subject first'}
-                    onClick={() => { setNewChapterTitle(''); setChapterModalOpen(true); }}
                   >
-                    <FolderPlus size={12} /> Add Chapter
-                  </button>
-                </label>
-                <select id="q-chapter" value={form.chapter_id} onChange={(e) => setForm({ ...form, chapter_id: e.target.value })} disabled={!form.subject_id}>
-                  <option value="">{form.subject_id ? '— No chapter —' : 'Pick a subject first'}</option>
-                  {formChapterOptions.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
-                </select>
-                <small className="field-hint">Specific chapter unit.</small>
+                    <option value="">{form.subject_id ? '— No chapter —' : 'Pick a subject first'}</option>
+                    {formChapterOptions.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+                  </select>
+                ) : (
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <input
+                      id="q-chapter-custom"
+                      value={customChapterTitle}
+                      onChange={(e) => setCustomChapterTitle(e.target.value)}
+                      placeholder="Type new chapter (e.g. Chapter 1 — Great Circles)..."
+                      autoFocus
+                    />
+                    {customChapterTitle.trim() && form.subject_id && (
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        style={{ whiteSpace: 'nowrap', padding: '6px 10px', height: 38 }}
+                        disabled={creatingChapter}
+                        onClick={() => addChapter(customChapterTitle, form.subject_id)}
+                        title="Create and save this chapter now"
+                      >
+                        {creatingChapter ? '...' : <CheckCircle2 size={13} />}
+                      </button>
+                    )}
+                  </div>
+                )}
+                <small className="field-hint">
+                  {chapterInputMode === 'select' ? 'Specific chapter unit or click "Type New".' : 'New chapter unit under this subject.'}
+                </small>
               </div>
             </div>
 
@@ -873,6 +1117,123 @@ export default function AdminQuestions() {
               <small className="field-hint">Supports full mathematical and aviation symbols.</small>
               {formErrors.question_text && <p className="field-error">{formErrors.question_text}</p>}
             </div>
+
+            {(form.question_type === 'image' || form.image_url) && (
+              <div className="field" style={{ marginTop: 12 }}>
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>
+                    Question Diagram / Illustration {form.question_type === 'image' && <span className="field-req">*</span>}
+                  </span>
+                  {uploadingImage && (
+                    <span style={{ fontSize: '0.78rem', color: 'var(--brand)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      <RotateCcw size={12} className="spin" /> Uploading image…
+                    </span>
+                  )}
+                </label>
+
+                {form.image_url ? (
+                  <div style={{
+                    marginTop: 6,
+                    padding: 12,
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    background: 'var(--surface-alt, rgba(0,0,0,0.02))',
+                  }}>
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      minHeight: 140,
+                      maxHeight: 280,
+                      overflow: 'hidden',
+                      background: 'var(--surface, #ffffff)',
+                      borderRadius: 6,
+                      border: '1px solid var(--border)',
+                      padding: 10,
+                      marginBottom: 10,
+                    }}>
+                      <img
+                        src={resolveMediaUrl(form.image_url)}
+                        alt="Question diagram"
+                        style={{ maxWidth: '100%', maxHeight: 260, objectFit: 'contain' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <input
+                        type="text"
+                        value={form.image_url}
+                        onChange={(e) => setForm({ ...form, image_url: e.target.value })}
+                        placeholder="Image URL or path..."
+                        style={{ flex: 1, minWidth: 200, fontSize: '0.82rem' }}
+                      />
+                      <label className="btn btn-outline btn-sm" style={{ cursor: 'pointer', margin: 0, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <Upload size={13} /> Replace Image
+                        <input
+                          type="file"
+                          accept="image/*"
+                          style={{ display: 'none' }}
+                          onChange={(e) => {
+                            if (e.target.files?.[0]) handleImageUpload(e.target.files[0]);
+                          }}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="btn btn-danger-soft btn-sm"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                        onClick={() => setForm({ ...form, image_url: '' })}
+                      >
+                        <Trash2 size={13} /> Remove
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    className={`dropzone ${formErrors.image_url ? 'has-error' : ''}`}
+                    style={{
+                      padding: '24px 16px',
+                      cursor: 'pointer',
+                      marginTop: 6,
+                      borderColor: formErrors.image_url ? 'var(--danger, #ef4444)' : undefined,
+                    }}
+                    onClick={() => imageFileInputRef.current?.click()}
+                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (e.dataTransfer.files?.[0]) handleImageUpload(e.dataTransfer.files[0]);
+                    }}
+                  >
+                    <input
+                      ref={imageFileInputRef}
+                      type="file"
+                      accept="image/*"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        if (e.target.files?.[0]) handleImageUpload(e.target.files[0]);
+                      }}
+                    />
+                    <div className="dropzone-icon">
+                      <ImageIcon size={22} />
+                    </div>
+                    <strong>Upload Question Image or Diagram</strong>
+                    <p>Click to browse or drag &amp; drop an image (PNG, JPG, WebP, GIF up to 8MB)</p>
+                    <div style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 8 }} onClick={(e) => e.stopPropagation()}>
+                      <span style={{ fontSize: '.76rem', color: 'var(--muted)' }}>Or paste image URL:</span>
+                      <input
+                        type="text"
+                        placeholder="https://..."
+                        value={form.image_url || ''}
+                        onChange={(e) => setForm({ ...form, image_url: e.target.value })}
+                        style={{ fontSize: '.8rem', width: 220, padding: '4px 8px' }}
+                      />
+                    </div>
+                  </div>
+                )}
+                {formErrors.image_url && <p className="field-error">{formErrors.image_url}</p>}
+                <small className="field-hint">Aviation charts, navigation plots, instrument dials, or MET maps.</small>
+              </div>
+            )}
           </div>
 
           {/* Card 3: Green - Options & Scoring */}
@@ -1006,10 +1367,19 @@ export default function AdminQuestions() {
             </div>
           </div>
 
-          {form.question_text.trim() && (
+          {(form.question_text.trim() || form.image_url) && (
             <div className="question-editor-preview" style={{ position: 'static', marginBottom: 12 }}>
               <strong style={{ fontSize: '.78rem', textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--muted)' }}>Live Student View Preview</strong>
-              <p style={{ fontWeight: 600, margin: '10px 0 12px' }}>{form.question_text}</p>
+              {form.image_url && (
+                <div style={{ margin: '10px 0', textAlign: 'center', background: 'var(--surface, #ffffff)', padding: 8, borderRadius: 6, border: '1px solid var(--border)' }}>
+                  <img
+                    src={resolveMediaUrl(form.image_url)}
+                    alt="Diagram preview"
+                    style={{ maxWidth: '100%', maxHeight: 200, objectFit: 'contain' }}
+                  />
+                </div>
+              )}
+              {form.question_text && <p style={{ fontWeight: 600, margin: '10px 0 12px' }}>{form.question_text}</p>}
               {form.options.map((o) => (
                 <div key={o.key} className={`preview-option ${String(form.correct_option || '').split(',').includes(o.key) ? 'correct' : ''}`}>
                   <span className="preview-option-key">{o.key}</span>
@@ -1041,6 +1411,15 @@ export default function AdminQuestions() {
               )}
               {previewQuestion.is_faq && <Badge tone="cyan">FAQ</Badge>}
             </div>
+            {previewQuestion.image_url && (
+              <div style={{ margin: '12px 0', textAlign: 'center', background: 'var(--surface, #ffffff)', padding: 10, borderRadius: 8, border: '1px solid var(--border)' }}>
+                <img
+                  src={resolveMediaUrl(previewQuestion.image_url)}
+                  alt="Question diagram"
+                  style={{ maxWidth: '100%', maxHeight: 260, objectFit: 'contain' }}
+                />
+              </div>
+            )}
             <p style={{ fontWeight: 600, fontSize: '.92rem' }}>{previewQuestion.question_text}</p>
             {(previewQuestion.options || []).map((o) => (
               <div key={o.key} className={`preview-option ${String(previewQuestion.correct_option || '').split(',').includes(o.key) ? 'correct' : ''}`}>
@@ -1084,6 +1463,34 @@ export default function AdminQuestions() {
         ) : (
           <EmptyState icon={ListPlus} title="No quizzes yet" description="Create a quiz under Subjects & Quizzes first." action={<Button variant="primary" to="/admin/subjects-quizzes">Go to Subjects &amp; Quizzes</Button>} />
         )}
+      </Modal>
+
+      {/* ---------------- Quick Add Subject ---------------- */}
+      <Modal
+        open={subjectModalOpen}
+        onClose={() => !savingSubject && setSubjectModalOpen(false)}
+        size="sm"
+        title="Add Subject"
+        description="Creates a new syllabus subject for cataloging questions and quizzes."
+        footer={(
+          <>
+            <Button variant="outline" onClick={() => setSubjectModalOpen(false)} disabled={savingSubject}>Cancel</Button>
+            <Button variant="primary" onClick={() => addSubject()} loading={savingSubject} loadingLabel="Adding…">Add Subject</Button>
+          </>
+        )}
+      >
+        <form onSubmit={(e) => { e.preventDefault(); addSubject(); }}>
+          <div className="field">
+            <label htmlFor="new-subject-title">Subject name <span className="field-req">*</span></label>
+            <input
+              id="new-subject-title"
+              autoFocus
+              value={newSubjectTitle}
+              onChange={(e) => setNewSubjectTitle(e.target.value)}
+              placeholder="e.g. Air Navigation, Meteorology, Air Regulations..."
+            />
+          </div>
+        </form>
       </Modal>
 
       {/* ---------------- Quick Add Chapter ---------------- */}

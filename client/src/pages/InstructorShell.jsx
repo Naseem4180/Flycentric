@@ -29,7 +29,7 @@ export default function InstructorShell({ children }) {
 
   return (
     <div className={`admin-shell ${collapsed ? 'sidebar-collapsed' : ''}`}>
-      <InstructorSidebar collapsed={collapsed} onNavigate={closeOnMobile} />
+      <InstructorSidebar collapsed={collapsed} onNavigate={closeOnMobile} onExpand={() => setCollapsed(false)} />
       <div className="admin-sidebar-backdrop" onClick={() => setCollapsed(true)} aria-hidden="true" />
       <div className="admin-main">
         <AppTopbar onToggleSidebar={() => setCollapsed((c) => !c)} />

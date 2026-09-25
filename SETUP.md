@@ -69,6 +69,27 @@ REFRESH_TOKEN_TTL_DAYS=30
 
 Update these values as needed for your environment.
 
+#### Sending real emails (password reset, receipts, notifications)
+
+Without these set, the app still works, but emails are only logged to the
+server console instead of delivered — this is why "forgot password" looked
+broken in production: no email provider was configured. Add any SMTP
+provider's credentials (Gmail/Workspace, Amazon SES SMTP, SendGrid, Postmark,
+Mailgun, Zoho Mail — anything that gives you an SMTP host/port/user/password)
+and real sending turns on automatically, no code changes needed:
+
+```
+SMTP_HOST=smtp.your-provider.com
+SMTP_PORT=587
+SMTP_USER=your-smtp-username
+SMTP_PASS=your-smtp-password
+MAIL_FROM="FlyCentric <support@flycentric.in>"
+```
+
+This works whether or not `REDIS_URL` is set — Redis only adds queueing,
+automatic retries, and a dead-letter queue for failed sends; it's not
+required for emails to go out.
+
 ### 4. Start the Application
 
 **Terminal 1 - Start Backend Server:**

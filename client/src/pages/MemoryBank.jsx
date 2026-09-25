@@ -41,7 +41,9 @@ export default function MemoryBank() {
   const [dragging, setDragging] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const [showExplanation, setShowExplanation] = useState(false);
-  const dragStartRef = useRef(null);
+  const dragStartPosRef = useRef({ x: null, y: null });
+  const isDraggingCardRef = useRef(false);
+  const isScrollingVerticallyRef = useRef(false);
 
   // Filters
   const [selectedSubject, setSelectedSubject] = useState('all');
@@ -149,20 +151,44 @@ export default function MemoryBank() {
   }
 
   function onPointerDown(e) {
-    dragStartRef.current = e.clientX ?? e.touches?.[0]?.clientX;
-    setDragging(true);
+    const clientX = e.clientX ?? e.touches?.[0]?.clientX;
+    const clientY = e.clientY ?? e.touches?.[0]?.clientY;
+    dragStartPosRef.current = { x: clientX, y: clientY };
+    isDraggingCardRef.current = false;
+    isScrollingVerticallyRef.current = false;
   }
   function onPointerMove(e) {
-    if (dragStartRef.current == null) return;
+    if (dragStartPosRef.current.x == null) return;
     const x = e.clientX ?? e.touches?.[0]?.clientX;
-    setDragX(x - dragStartRef.current);
+    const y = e.clientY ?? e.touches?.[0]?.clientY;
+    const deltaX = x - dragStartPosRef.current.x;
+    const deltaY = y - dragStartPosRef.current.y;
+
+    if (!isDraggingCardRef.current && !isScrollingVerticallyRef.current) {
+      if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 6) {
+        isScrollingVerticallyRef.current = true;
+        return;
+      }
+      if (Math.abs(deltaX) > 10) {
+        isDraggingCardRef.current = true;
+        setDragging(true);
+      }
+    }
+
+    if (isDraggingCardRef.current) {
+      setDragX(deltaX);
+    }
   }
   function onPointerUp() {
-    if (dragX > SWIPE_THRESHOLD) review('known');
-    else if (dragX < -SWIPE_THRESHOLD) review('again');
+    if (isDraggingCardRef.current) {
+      if (dragX > SWIPE_THRESHOLD) review('known');
+      else if (dragX < -SWIPE_THRESHOLD) review('again');
+    }
     setDragX(0);
     setDragging(false);
-    dragStartRef.current = null;
+    dragStartPosRef.current = { x: null, y: null };
+    isDraggingCardRef.current = false;
+    isScrollingVerticallyRef.current = false;
   }
 
   // Always ask which subject you want to generate the quiz for
@@ -183,7 +209,7 @@ export default function MemoryBank() {
     setShowSubjectPicker(false);
     try {
       const { quiz } = await api.post('/memory-bank/practice-quiz', { subject_id: sId });
-      navigate(`/take-exam/${quiz.id}`);
+      window.open(`/take-exam/${quiz.id}`, '_blank', 'noopener,noreferrer');
     } catch (err) {
       setQuizError(err.message || 'Failed to generate quiz for this subject');
     } finally {
@@ -354,13 +380,8 @@ export default function MemoryBank() {
 
       {/* KPI Stats Strip */}
       {totalOverallSaved > 0 && (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-          gap: 12,
-          marginBottom: 20,
-        }}>
-          <div className="card" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div className="mb-kpi-grid">
+          <div className="card mb-kpi-card">
             <div style={{ width: 42, height: 42, borderRadius: 10, background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <Clock size={20} />
             </div>
@@ -372,7 +393,7 @@ export default function MemoryBank() {
             </div>
           </div>
 
-          <div className="card" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div className="card mb-kpi-card">
             <div style={{ width: 42, height: 42, borderRadius: 10, background: 'rgba(99, 102, 241, 0.1)', color: '#4f46e5', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <Bookmark size={20} />
             </div>
@@ -384,7 +405,7 @@ export default function MemoryBank() {
             </div>
           </div>
 
-          <div className="card" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div className="card mb-kpi-card">
             <div style={{ width: 42, height: 42, borderRadius: 10, background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <Award size={20} />
             </div>
@@ -396,7 +417,7 @@ export default function MemoryBank() {
             </div>
           </div>
 
-          <div className="card" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div className="card mb-kpi-card">
             <div style={{ width: 42, height: 42, borderRadius: 10, background: 'rgba(56, 189, 248, 0.1)', color: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <Sparkles size={20} />
             </div>
@@ -410,24 +431,26 @@ export default function MemoryBank() {
 
       {/* Tabs */}
       {totalSaved > 0 && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 20, borderBottom: '1px solid var(--border)', paddingBottom: 10 }}>
+        <div className="mb-tabs-bar" style={{ display: 'flex', gap: 8, marginBottom: 20, borderBottom: '1px solid var(--border)', paddingBottom: 10, width: '100%' }}>
           <button
             type="button"
             className={`btn btn-sm ${activeTab === 'deck' ? 'btn-primary' : 'btn-ghost'}`}
-            style={{ borderRadius: 8, padding: '6px 14px', fontSize: '0.82rem' }}
+            style={{ borderRadius: 8, padding: '7px 12px', fontSize: '0.82rem', flex: '1 1 0', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
             onClick={() => setActiveTab('deck')}
           >
-            <Brain size={14} style={{ marginRight: 6 }} />
-            Flashcard Deck ({deck.length} remaining)
+            <Brain size={14} style={{ marginRight: 6, flexShrink: 0 }} />
+            <span className="fc-hide-mobile">Flashcard Deck ({deck.length} remaining)</span>
+            <span className="fc-show-mobile">Flashcards ({deck.length})</span>
           </button>
           <button
             type="button"
             className={`btn btn-sm ${activeTab === 'library' ? 'btn-primary' : 'btn-ghost'}`}
-            style={{ borderRadius: 8, padding: '6px 14px', fontSize: '0.82rem' }}
+            style={{ borderRadius: 8, padding: '7px 12px', fontSize: '0.82rem', flex: '1 1 0', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
             onClick={() => setActiveTab('library')}
           >
-            <Bookmark size={14} style={{ marginRight: 6 }} />
-            Saved Questions Library ({totalSaved})
+            <Bookmark size={14} style={{ marginRight: 6, flexShrink: 0 }} />
+            <span className="fc-hide-mobile">Saved Questions Library ({totalSaved})</span>
+            <span className="fc-show-mobile">Library ({totalSaved})</span>
           </button>
         </div>
       )}

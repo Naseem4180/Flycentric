@@ -101,15 +101,6 @@ export default function AdminMarkFAQ() {
     setKeywordInput('');
   }
 
-  function handleKeywordKeyDown(e) {
-    if (e.key === 'Enter' || e.key === ',') {
-      e.preventDefault();
-      addKeywordChip(keywordInput);
-    } else if (e.key === 'Backspace' && !keywordInput && keywordChips.length > 0) {
-      setKeywordChips((prev) => prev.slice(0, -1));
-    }
-  }
-
   function handleKeywordChange(val) {
     if (val.includes(',')) {
       const parts = val.split(',').map((p) => p.trim()).filter(Boolean);
@@ -126,19 +117,10 @@ export default function AdminMarkFAQ() {
     setKeywordChips((prev) => prev.filter((_, i) => i !== index));
   }
 
-  // Search questions with filters and bounded limit
-  const runSearch = useCallback(async (e) => {
-    e?.preventDefault();
+  // Core search execution accepting direct chips array
+  const executeSearch = useCallback(async (chipsToUse) => {
     setSearching(true);
     setError('');
-
-    // Combine chips and any pending input
-    const allKeywords = [...keywordChips];
-    if (keywordInput.trim() && allKeywords.length < 5 && !allKeywords.includes(keywordInput.trim())) {
-      allKeywords.push(keywordInput.trim());
-      setKeywordChips(allKeywords);
-      setKeywordInput('');
-    }
 
     try {
       const qs = new URLSearchParams({ limit: '200' });
@@ -146,7 +128,9 @@ export default function AdminMarkFAQ() {
       if (chapterId) qs.set('chapter_id', chapterId);
       if (difficulty) qs.set('difficulty', difficulty);
       if (faqOnly) qs.set('is_faq', 'true');
-      if (allKeywords.length) qs.set('keywords', allKeywords.slice(0, 5).join(', '));
+      if (chipsToUse && chipsToUse.length) {
+        qs.set('keywords', chipsToUse.slice(0, 5).join(', '));
+      }
 
       const d = await api.get(`/questions?${qs.toString()}`);
       setResults(d.questions);
@@ -158,7 +142,39 @@ export default function AdminMarkFAQ() {
     } finally {
       setSearching(false);
     }
-  }, [subjectId, chapterId, difficulty, faqOnly, keywordChips, keywordInput, toast]);
+  }, [subjectId, chapterId, difficulty, faqOnly, toast]);
+
+  // Search questions with filters and bounded limit
+  const runSearch = useCallback(async (e) => {
+    e?.preventDefault();
+    let allKeywords = [...keywordChips];
+    const trimmed = keywordInput.trim().replace(/^,+|,+$/g, '');
+    if (trimmed && allKeywords.length < 5 && !allKeywords.includes(trimmed)) {
+      allKeywords = [...allKeywords, trimmed];
+      setKeywordChips(allKeywords);
+    }
+    setKeywordInput('');
+    executeSearch(allKeywords);
+  }, [keywordChips, keywordInput, executeSearch]);
+
+  function handleKeywordKeyDown(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      let allKeywords = [...keywordChips];
+      const trimmed = keywordInput.trim().replace(/^,+|,+$/g, '');
+      if (trimmed && allKeywords.length < 5 && !allKeywords.includes(trimmed)) {
+        allKeywords = [...allKeywords, trimmed];
+        setKeywordChips(allKeywords);
+      }
+      setKeywordInput('');
+      executeSearch(allKeywords);
+    } else if (e.key === ',') {
+      e.preventDefault();
+      addKeywordChip(keywordInput);
+    } else if (e.key === 'Backspace' && !keywordInput && keywordChips.length > 0) {
+      setKeywordChips((prev) => prev.slice(0, -1));
+    }
+  }
 
   function reset() {
     setSubjectId('');
@@ -269,8 +285,9 @@ export default function AdminMarkFAQ() {
         <>
           <form onSubmit={runSearch} style={{ marginBottom: 18 }}>
             {/* 95% Width Search Bar with multi-keyword narrowing (Max 5) */}
-            <div style={{ width: '95%', margin: '0 auto 12px auto' }}>
+            <div className="mark-faq-search-container" style={{ width: '95%', maxWidth: 1400, margin: '0 auto 12px auto' }}>
               <div
+                className="mark-faq-search-bar"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -332,8 +349,8 @@ export default function AdminMarkFAQ() {
                     onKeyDown={handleKeywordKeyDown}
                     aria-label="Keywords"
                     style={{
-                      flex: 1,
-                      minWidth: 180,
+                      flex: '1 1 120px',
+                      minWidth: 0,
                       border: 'none',
                       outline: 'none',
                       background: 'transparent',
@@ -371,9 +388,11 @@ export default function AdminMarkFAQ() {
 
             {/* All Filters Below along with Search Button */}
             <div
+              className="mark-faq-filter-row"
               style={{
                 width: '95%',
-                margin: '0 auto',
+                maxWidth: 1400,
+                margin: '0 auto 18px auto',
                 display: 'flex',
                 flexWrap: 'wrap',
                 alignItems: 'center',

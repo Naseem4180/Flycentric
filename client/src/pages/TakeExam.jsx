@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { X, Brain, Flag, ChevronDown, Eraser, AlertCircle } from 'lucide-react';
-import { api } from '../api';
+import { X, Brain, Flag, ChevronDown, Eraser, AlertCircle, Maximize2 } from 'lucide-react';
+import { api, resolveMediaUrl } from '../api';
 import useAuth from '../context/useAuth';
 
 // Kept in sync with REPORT_REASONS in server/src/routes/questions.js, which
@@ -93,9 +93,19 @@ export default function TakeExam() {
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState('doubtful');
   const [reportNote, setReportNote] = useState('');
-  const [reportSent, setReportSent] = useState(false);
+  const [zoomImage, setZoomImage] = useState(null);
   const submittedRef = useRef(false);
   const containerRef = useRef(null);
+
+  useEffect(() => {
+    if (!zoomImage) return undefined;
+    function handleKeyDown(e) {
+      if (e.key === 'Escape') setZoomImage(null);
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [zoomImage]);
+
   // Time-Per-Question tracking: reset every time the visible question
   // changes (see goTo/flushTiming below) or an answer is recorded — the
   // elapsed window since the last reset is what gets sent to the server.
@@ -657,12 +667,36 @@ export default function TakeExam() {
                 </div>
               </div>
               <div className="cbt-question-area">
-                {q.image_url && <img className="cbt-question-img" src={q.image_url} alt="Question illustration" />}
+                {q.image_url && (
+                  <div className="cbt-image-container">
+                    <div
+                      className="cbt-image-wrapper"
+                      onClick={() => setZoomImage(resolveMediaUrl(q.image_url))}
+                      title="Click to view full size diagram"
+                    >
+                      <img
+                        className="cbt-question-img"
+                        src={resolveMediaUrl(q.image_url)}
+                        alt="Question illustration"
+                      />
+                      <button
+                        type="button"
+                        className="cbt-image-zoom-badge"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setZoomImage(resolveMediaUrl(q.image_url));
+                        }}
+                      >
+                        <Maximize2 size={13} /> Click to expand
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <p className="cbt-question-text">{q.question_text}</p>
 
-                {(q.question_type === 'mcq' || q.question_type === 'true_false' || !q.question_type) && (
+                {(q.question_type === 'mcq' || q.question_type === 'image' || q.question_type === 'true_false' || !q.question_type) && (
                   <div className="cbt-options">
-                    {q.options.map((opt) => {
+                    {(q.options || []).map((opt) => {
                       const fb = feedback[q.id];
                       let optionState = '';
                       if (fb) {
@@ -905,6 +939,62 @@ export default function TakeExam() {
                     {submitting ? 'Submitting…' : 'Submit final exam'}
                   </button>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {zoomImage && (
+            <div
+              className="cbt-image-lightbox"
+              onClick={() => setZoomImage(null)}
+              style={{
+                position: 'fixed',
+                inset: 0,
+                zIndex: 99999,
+                background: 'rgba(15, 23, 42, 0.88)',
+                backdropFilter: 'blur(4px)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 16,
+              }}
+            >
+              <div style={{ position: 'absolute', top: 16, right: 16, display: 'flex', gap: 10 }}>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  style={{ background: '#ffffff', color: '#0f172a', fontWeight: 600, border: 'none', display: 'flex', alignItems: 'center', gap: 6 }}
+                  onClick={() => setZoomImage(null)}
+                >
+                  <X size={16} /> Close Preview (Esc)
+                </button>
+              </div>
+              <div
+                style={{
+                  maxHeight: '90vh',
+                  maxWidth: '94vw',
+                  overflow: 'auto',
+                  background: '#ffffff',
+                  borderRadius: 8,
+                  padding: 12,
+                  boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.4)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <img
+                  src={zoomImage}
+                  alt="Question illustration zoomed"
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: '84vh',
+                    objectFit: 'contain',
+                    display: 'block',
+                  }}
+                />
               </div>
             </div>
           )}

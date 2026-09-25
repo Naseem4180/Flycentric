@@ -3,10 +3,33 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Tag, CheckCircle2, AlertCircle } from 'lucide-react';
 import { api } from '../api';
 import { readCart, removeFromCart, addToCart } from '../utils/cart';
+import useAuth from '../context/useAuth';
+
+function loadRazorpayScript() {
+  return new Promise((resolve) => {
+    if (window.Razorpay) return resolve(true);
+    const existing = document.getElementById('razorpay-checkout-js');
+    if (existing) {
+      existing.onload = () => resolve(true);
+      return;
+    }
+    const script = document.createElement('script');
+    script.id = 'razorpay-checkout-js';
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.async = true;
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+}
 
 export default function Checkout() {
+  const { user } = useAuth();
   const { bundleId } = useParams();
   const [bundles, setBundles] = useState(() => readCart());
+  const [completedBundles, setCompletedBundles] = useState([]);
+  const [isSuccess, setIsSuccess] = useState(false);
+  const [gatewayConfig, setGatewayConfig] = useState(null);
   const [couponCode, setCouponCode] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState(null);
   const [couponLoading, setCouponLoading] = useState(false);
@@ -14,6 +37,10 @@ export default function Checkout() {
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    api.get('/payments/config').then(setGatewayConfig).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!bundleId) return;
@@ -73,28 +100,104 @@ export default function Checkout() {
     setMessage('');
     try {
       for (const bundle of bundles) {
-        const order = await api.post('/payments/order', {
+        const orderData = await api.post('/payments/order', {
           bundle_id: bundle.id,
           coupon_code: appliedCoupon ? appliedCoupon.code : null,
         });
 
-        await api.post('/payments/webhook', {
-          razorpay_order_id: order.razorpayOrderId,
-          razorpay_payment_id: `demo_${Date.now()}`,
-          event: 'payment.captured',
-        }, { auth: false });
+        // If Razorpay live/test credentials are configured on server and payment is required
+        if (orderData.isLive && orderData.keyId) {
+          const loaded = await loadRazorpayScript();
+          if (!loaded) throw new Error('Razorpay Checkout failed to load. Please check your network connection.');
+
+          await new Promise((resolve, reject) => {
+            const options = {
+              key: orderData.keyId,
+              amount: Math.round(orderData.amount * 100),
+              currency: 'INR',
+              name: 'FlyCentric',
+              description: bundle.title,
+              order_id: orderData.razorpayOrderId,
+              handler: async (response) => {
+                try {
+                  await api.post('/payments/verify', {
+                    razorpay_order_id: response.razorpay_order_id,
+                    razorpay_payment_id: response.razorpay_payment_id,
+                    razorpay_signature: response.razorpay_signature,
+                  });
+                  resolve();
+                } catch (vErr) {
+                  reject(vErr);
+                }
+              },
+              prefill: {
+                name: user?.name || '',
+                email: user?.email || '',
+                contact: user?.phone || '',
+              },
+              theme: { color: '#6366f1' },
+              modal: {
+                ondismiss: () => {
+                  reject(new Error('Payment window closed.'));
+                },
+              },
+            };
+            const rzp = new window.Razorpay(options);
+            rzp.on('payment.failed', (resp) => {
+              reject(new Error(resp.error?.description || 'Payment was unsuccessful'));
+            });
+            rzp.open();
+          });
+        } else {
+          // Dev / Demo mode (when no Razorpay keys are configured)
+          await api.post('/payments/webhook', {
+            razorpay_order_id: orderData.razorpayOrderId,
+            razorpay_payment_id: `demo_${Date.now()}`,
+            event: 'payment.captured',
+          }, { auth: false });
+        }
       }
 
+      setCompletedBundles(bundles);
       localStorage.removeItem('fc_cart_bundles');
       localStorage.removeItem('fc_cart_bundle');
       window.dispatchEvent(new Event('cartchange'));
       setBundles([]);
-      setMessage('Enrollment confirmed. Your courses are ready.');
+      setIsSuccess(true);
+      setMessage('Enrollment confirmed! Your courses are ready in your dashboard.');
     } catch (e) {
       setMessage(e.message);
     } finally {
       setBusy(false);
     }
+  }
+
+  if (isSuccess) {
+    return (
+      <main className="public-page checkout-page">
+        <div className="checkout-card center" style={{ maxWidth: 540, padding: '36px 28px' }}>
+          <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(22, 163, 74, 0.12)', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px auto' }}>
+            <CheckCircle2 size={36} />
+          </div>
+          <h1 style={{ margin: '0 0 8px 0', fontSize: '1.45rem', fontWeight: 800 }}>Enrollment Confirmed!</h1>
+          <p style={{ margin: '0 0 20px 0', color: 'var(--muted)', fontSize: '0.92rem' }}>
+            {completedBundles.length > 0 ? (
+              <>You now have full access to <strong>{completedBundles.map((b) => b.title).join(', ')}</strong>.</>
+            ) : (
+              'Your courses are now unlocked in your account.'
+            )}
+          </p>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <Link className="btn btn-hero" to="/my-subjects" style={{ textDecoration: 'none' }}>
+              Go to My Courses →
+            </Link>
+            <Link className="btn btn-outline" to="/" style={{ textDecoration: 'none' }}>
+              Dashboard
+            </Link>
+          </div>
+        </div>
+      </main>
+    );
   }
 
   if (!bundles.length) {
@@ -115,6 +218,16 @@ export default function Checkout() {
       <div className="checkout-card" style={{ maxWidth: 560 }}>
         <span className="section-kicker">Secure Checkout</span>
         <h1>Complete your enrollment</h1>
+
+        {gatewayConfig && !gatewayConfig.hasRazorpayKeys ? (
+          <div style={{ padding: '10px 14px', background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.25)', borderRadius: 10, fontSize: '0.8rem', color: '#b45309', margin: '14px 0 8px 0', lineHeight: 1.5 }}>
+            <strong>Demo Mode Active:</strong> Razorpay API keys are not set in <code>server/.env</code>. Clicking Pay will confirm enrollment instantly. To trigger the real Razorpay payment modal, add <code>RAZORPAY_KEY_ID</code> and <code>RAZORPAY_KEY_SECRET</code> in <code>server/.env</code> and restart the server.
+          </div>
+        ) : gatewayConfig?.hasRazorpayKeys ? (
+          <div style={{ padding: '8px 12px', background: 'rgba(99, 102, 241, 0.08)', border: '1px solid rgba(99, 102, 241, 0.2)', borderRadius: 10, fontSize: '0.8rem', color: '#4338ca', margin: '14px 0 8px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <CheckCircle2 size={14} color="#6366f1" /> Razorpay Payment Gateway Connected
+          </div>
+        ) : null}
 
         <div className="checkout-items" style={{ marginTop: 16 }}>
           {bundles.map((bundle) => (

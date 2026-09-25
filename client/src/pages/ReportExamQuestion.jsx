@@ -65,15 +65,6 @@ export default function ReportExamQuestion() {
     setKeywordInput('');
   }
 
-  function handleKeywordKeyDown(e) {
-    if (e.key === 'Enter' || e.key === ',') {
-      e.preventDefault();
-      addKeywordChip(keywordInput);
-    } else if (e.key === 'Backspace' && !keywordInput && keywordChips.length > 0) {
-      setKeywordChips((prev) => prev.slice(0, -1));
-    }
-  }
-
   function handleKeywordChange(val) {
     if (val.includes(',')) {
       const parts = val.split(',').map((p) => p.trim()).filter(Boolean);
@@ -90,16 +81,8 @@ export default function ReportExamQuestion() {
     setKeywordChips((prev) => prev.filter((_, i) => i !== index));
   }
 
-  async function search(e) {
-    e?.preventDefault();
-    const allKeywords = [...keywordChips];
-    if (keywordInput.trim() && allKeywords.length < 5 && !allKeywords.includes(keywordInput.trim())) {
-      allKeywords.push(keywordInput.trim());
-      setKeywordChips(allKeywords);
-      setKeywordInput('');
-    }
-
-    if (!subjectId && allKeywords.length === 0) {
+  async function executeSearch(chipsToUse) {
+    if (!subjectId && (!chipsToUse || chipsToUse.length === 0)) {
       toast.info('Please enter keywords or select a subject to search');
       return;
     }
@@ -108,7 +91,7 @@ export default function ReportExamQuestion() {
     try {
       const qs = new URLSearchParams({ limit: '100' });
       if (subjectId) qs.set('subject_id', subjectId);
-      if (allKeywords.length) qs.set('keywords', allKeywords.slice(0, 5).join(', '));
+      if (chipsToUse && chipsToUse.length) qs.set('keywords', chipsToUse.slice(0, 5).join(', '));
       const d = await api.get(`/questions?${qs.toString()}`);
       setResults(d.questions);
       if (!d.questions.length) toast.info('No questions found', 'Try refining your keywords.');
@@ -117,6 +100,37 @@ export default function ReportExamQuestion() {
       toast.error('Search failed', err.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function search(e) {
+    e?.preventDefault();
+    let allKeywords = [...keywordChips];
+    const trimmed = keywordInput.trim().replace(/^,+|,+$/g, '');
+    if (trimmed && allKeywords.length < 5 && !allKeywords.includes(trimmed)) {
+      allKeywords = [...allKeywords, trimmed];
+      setKeywordChips(allKeywords);
+    }
+    setKeywordInput('');
+    executeSearch(allKeywords);
+  }
+
+  function handleKeywordKeyDown(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      let allKeywords = [...keywordChips];
+      const trimmed = keywordInput.trim().replace(/^,+|,+$/g, '');
+      if (trimmed && allKeywords.length < 5 && !allKeywords.includes(trimmed)) {
+        allKeywords = [...allKeywords, trimmed];
+        setKeywordChips(allKeywords);
+      }
+      setKeywordInput('');
+      executeSearch(allKeywords);
+    } else if (e.key === ',') {
+      e.preventDefault();
+      addKeywordChip(keywordInput);
+    } else if (e.key === 'Backspace' && !keywordInput && keywordChips.length > 0) {
+      setKeywordChips((prev) => prev.slice(0, -1));
     }
   }
 

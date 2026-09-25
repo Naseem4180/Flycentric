@@ -12,8 +12,8 @@ const QUICK_LINKS = [
   { to: '/admin/questions', label: 'Question Bank', icon: Database },
   { to: '/admin/batches', label: 'Batches', icon: Layers },
   { to: '/admin/bundles-pricing', label: 'Bundles & Pricing', icon: PackageSearch },
-  { to: '/admin/reports', label: 'Reports', icon: Flag },
-  { to: '/admin/student-analytics', label: 'Student Analytics', icon: BarChart3 },
+  { to: '/admin/lms-reports', label: 'LMS Reports', icon: BarChart3 },
+  { to: '/admin/reports', label: 'Question Reports', icon: Flag },
   { to: '/admin/settings', label: 'Settings', icon: SettingsIcon },
 ];
 
@@ -41,7 +41,7 @@ export default function AdminLayout() {
 
   return (
     <div className={`admin-shell ${collapsed ? 'sidebar-collapsed' : ''}`}>
-      <AdminSidebar collapsed={collapsed} badges={badges} onNavigate={closeOnMobile} />
+      <AdminSidebar collapsed={collapsed} badges={badges} onNavigate={closeOnMobile} onExpand={() => setCollapsed(false)} />
       <div className="admin-sidebar-backdrop" onClick={() => setCollapsed(true)} aria-hidden="true" />
       <div className="admin-main">
         <AppTopbar

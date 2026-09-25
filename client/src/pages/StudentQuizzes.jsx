@@ -246,42 +246,50 @@ export default function StudentQuizzes() {
           </div>
 
           {/* Row 2: Mode Filter & Progress Filter Segmented Controls */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderTop: '1px solid var(--border)', paddingTop: 10, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+          <div className="student-toolbar-filters" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderTop: '1px solid var(--border)', paddingTop: 10, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', width: '100%' }}>
               {/* Type pills */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <span className="muted" style={{ fontSize: '0.74rem', marginRight: 4 }}>Mode:</span>
-                {TYPE_FILTERS.map((t) => (
-                  <button
-                    key={t.key}
-                    type="button"
-                    className={`btn btn-xs ${type === t.key ? 'btn-primary' : 'btn-ghost'}`}
-                    style={{ padding: '3px 10px', fontSize: '0.75rem' }}
-                    onClick={() => setType(t.key)}
-                  >
-                    {t.label}
-                  </button>
-                ))}
+              <div className="quiz-filter-group" style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                <span className="muted filter-group-label" style={{ fontSize: '0.74rem', marginRight: 2, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                  Mode:
+                </span>
+                <div className="quiz-filter-scroll-rail" style={{ display: 'flex', alignItems: 'center', gap: 4, overflowX: 'auto', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', msOverflowStyle: 'none', padding: '2px 0', minWidth: 0, flex: '1 1 auto' }}>
+                  {TYPE_FILTERS.map((t) => (
+                    <button
+                      key={t.key}
+                      type="button"
+                      className={`btn btn-xs ${type === t.key ? 'btn-primary' : 'btn-ghost'}`}
+                      style={{ padding: '3px 10px', fontSize: '0.75rem', flexShrink: 0, whiteSpace: 'nowrap' }}
+                      onClick={() => setType(t.key)}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* Status pills */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <span className="muted" style={{ fontSize: '0.74rem', marginRight: 4 }}>Progress:</span>
-                {STATUS_FILTERS.map((s) => (
-                  <button
-                    key={s.key}
-                    type="button"
-                    className={`btn btn-xs ${status === s.key ? 'btn-primary' : 'btn-ghost'}`}
-                    style={{ padding: '3px 10px', fontSize: '0.75rem' }}
-                    onClick={() => setStatus(s.key)}
-                  >
-                    {s.label}
-                  </button>
-                ))}
+              <div className="quiz-filter-group" style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                <span className="muted filter-group-label" style={{ fontSize: '0.74rem', marginRight: 2, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                  Progress:
+                </span>
+                <div className="quiz-filter-scroll-rail" style={{ display: 'flex', alignItems: 'center', gap: 4, overflowX: 'auto', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', msOverflowStyle: 'none', padding: '2px 0', minWidth: 0, flex: '1 1 auto' }}>
+                  {STATUS_FILTERS.map((s) => (
+                    <button
+                      key={s.key}
+                      type="button"
+                      className={`btn btn-xs ${status === s.key ? 'btn-primary' : 'btn-ghost'}`}
+                      style={{ padding: '3px 10px', fontSize: '0.75rem', flexShrink: 0, whiteSpace: 'nowrap' }}
+                      onClick={() => setStatus(s.key)}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
-            <div style={{ fontSize: '0.76rem', color: 'var(--muted)' }}>
+            <div style={{ fontSize: '0.76rem', color: 'var(--muted)', width: '100%', marginTop: 2 }}>
               Showing <strong>{filtered.length}</strong> matching assessments
             </div>
           </div>
@@ -353,7 +361,7 @@ export default function StudentQuizzes() {
                 {!isCollapsed && (
                   <div style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))',
                     gap: 16,
                     alignItems: 'stretch',
                   }}>
@@ -511,6 +519,8 @@ export default function StudentQuizzes() {
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                               <Link
                                 to={`/take-exam/${q.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
                                 className={`btn btn-sm ${isPractice ? 'cb-btn-quiz' : 'cb-btn-exam'}`}
                                 style={{ padding: '5px 12px', fontSize: '0.76rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}
                               >

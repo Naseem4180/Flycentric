@@ -171,3 +171,13 @@ export const api = {
   delete: (path, opts) => request(path, { ...opts, method: 'DELETE' }),
   postForm: (path, formData) => request(path, { method: 'POST', body: formData, isForm: true }),
 };
+
+export function resolveMediaUrl(url) {
+  if (!url) return '';
+  if (/^(https?:|\/\/|data:|blob:)/i.test(url)) {
+    return url;
+  }
+  const origin = BASE_URL.replace(/\/api\/?$/, '');
+  return `${origin}${url.startsWith('/') ? '' : '/'}${url}`;
+}
+

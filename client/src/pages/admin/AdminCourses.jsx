@@ -19,9 +19,14 @@ const BLANK_COURSE = {
   is_free: false,
   status: 'draft',
   subject_ids: [],
+  thumbnail_url: '',
+  duration_hours: 0,
+  difficulty: 'All Levels',
+  tags: '',
 };
 
 const EXAM_TYPES = ['CPL', 'ATPL', 'PPL', 'Airline Prep', 'General Aviation'];
+const DIFFICULTIES = ['All Levels', 'Beginner', 'Intermediate', 'Advanced'];
 
 export default function AdminCourses() {
   const toast = useToast();
@@ -117,6 +122,10 @@ export default function AdminCourses() {
         is_free: Boolean(course.is_free),
         status: course.status || 'draft',
         subject_ids: subjectIds,
+        thumbnail_url: course.thumbnail_url || '',
+        duration_hours: course.duration_hours || 0,
+        difficulty: course.difficulty || 'All Levels',
+        tags: Array.isArray(course.tags) ? course.tags.join(', ') : (course.tags || ''),
       });
     } else {
       setEditing(null);
@@ -149,6 +158,9 @@ export default function AdminCourses() {
 
     setSaving(true);
     try {
+      const parsedTags = typeof form.tags === 'string'
+        ? form.tags.split(',').map((t) => t.trim()).filter(Boolean)
+        : (form.tags || []);
       const payload = {
         title: form.title,
         slug: form.slug,
@@ -158,6 +170,10 @@ export default function AdminCourses() {
         is_free: form.is_free,
         status: form.status,
         subject_ids: form.subject_ids,
+        thumbnail_url: form.thumbnail_url || null,
+        duration_hours: Number(form.duration_hours) || 0,
+        difficulty: form.difficulty || 'All Levels',
+        tags: parsedTags,
       };
 
       if (editing) {
@@ -294,9 +310,16 @@ export default function AdminCourses() {
                   return (
                     <tr key={c.id}>
                       <td data-label="Course">
-                        <strong>{c.title}</strong>
-                        <div className="td-muted td-clip" style={{ fontSize: '0.78rem' }}>
-                          /{c.slug}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          {c.thumbnail_url && (
+                            <img src={c.thumbnail_url} alt="" style={{ width: 40, height: 30, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />
+                          )}
+                          <div>
+                            <strong>{c.title}</strong>
+                            <div className="td-muted td-clip" style={{ fontSize: '0.78rem' }}>
+                              /{c.slug} {c.duration_hours > 0 ? `· ${c.duration_hours}h` : ''} {c.difficulty ? `· ${c.difficulty}` : ''}
+                            </div>
+                          </div>
                         </div>
                       </td>
                       <td data-label="Exam Category">
@@ -421,6 +444,49 @@ export default function AdminCourses() {
                     ))}
                   </select>
                 </div>
+              </div>
+
+              <div className="form-row-3" style={{ marginTop: 8 }}>
+                <div className="field">
+                  <label>Duration (Hours)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="e.g. 40"
+                    value={form.duration_hours || ''}
+                    onChange={(e) => setForm({ ...form, duration_hours: e.target.value })}
+                  />
+                </div>
+                <div className="field">
+                  <label>Difficulty</label>
+                  <select
+                    value={form.difficulty}
+                    onChange={(e) => setForm({ ...form, difficulty: e.target.value })}
+                  >
+                    {DIFFICULTIES.map((d) => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field">
+                  <label>Thumbnail Image URL</label>
+                  <input
+                    type="url"
+                    placeholder="https://.../thumbnail.jpg"
+                    value={form.thumbnail_url || ''}
+                    onChange={(e) => setForm({ ...form, thumbnail_url: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="field" style={{ marginTop: 8 }}>
+                <label>Tags (Comma-separated)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Air Navigation, DGCA, Meteorology, Exam Prep"
+                  value={form.tags || ''}
+                  onChange={(e) => setForm({ ...form, tags: e.target.value })}
+                />
               </div>
 
               <div className="field" style={{ marginTop: 8 }}>

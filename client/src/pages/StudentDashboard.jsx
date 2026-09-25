@@ -281,8 +281,8 @@ export default function StudentDashboard() {
                 <Flame size={20} />
               </div>
               <div className="sd-summary-info">
-                <span className="sd-summary-label">Study streak</span>
                 <strong className="sd-summary-val">{studyStreak} {studyStreak === 1 ? 'day' : 'days'}</strong>
+                <span className="sd-summary-label">Study streak</span>
               </div>
             </div>
 
@@ -291,8 +291,8 @@ export default function StudentDashboard() {
                 <FileText size={20} />
               </div>
               <div className="sd-summary-info">
-                <span className="sd-summary-label">Submitted assessments</span>
                 <strong className="sd-summary-val">{submittedAttempts.length}</strong>
+                <span className="sd-summary-label">Submitted assessments</span>
               </div>
             </div>
 
@@ -301,8 +301,8 @@ export default function StudentDashboard() {
                 <BarChart2 size={20} />
               </div>
               <div className="sd-summary-info">
-                <span className="sd-summary-label">Practice average</span>
                 <strong className="sd-summary-val">{practiceAvg != null ? `${practiceAvg}%` : '—'}</strong>
+                <span className="sd-summary-label">Practice average</span>
               </div>
             </div>
 
@@ -311,8 +311,8 @@ export default function StudentDashboard() {
                 <GraduationCap size={20} />
               </div>
               <div className="sd-summary-info">
-                <span className="sd-summary-label">Exam average</span>
                 <strong className="sd-summary-val">{examAvg != null ? `${examAvg}%` : '—'}</strong>
+                <span className="sd-summary-label">Exam average</span>
               </div>
             </div>
           </div>
@@ -367,7 +367,7 @@ export default function StudentDashboard() {
 
                     <div className="sd-subject-stat-col sd-stat-last-active">
                       <span className="sd-subject-stat-label">Last active</span>
-                      <strong className="sd-subject-stat-val" style={{ fontSize: '0.86rem' }}>{s.lastActive}</strong>
+                      <strong className="sd-subject-stat-val">{s.lastActive}</strong>
                     </div>
                   </div>
 

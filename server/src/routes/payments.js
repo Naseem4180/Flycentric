@@ -12,9 +12,14 @@ const router = express.Router();
 // RAZORPAY_KEY_SECRET / RAZORPAY_WEBHOOK_SECRET are set as env vars for a live
 // deployment. Without live keys, /order creates a local "order" record and
 // /webhook can be called directly (as Razorpay would) to prove the
-// webhook-is-source-of-truth flow end-to-end.
+router.get('/config', async (req, res) => {
+  res.json({
+    hasRazorpayKeys: !!(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET),
+    keyId: process.env.RAZORPAY_KEY_ID || null,
+  });
+});
 
-router.post('/apply-coupon', authenticate, authorize('student'), async (req, res) => {
+router.post('/apply-coupon', authenticate, authorize('student', 'admin', 'instructor'), async (req, res) => {
   const { code, bundle_id } = req.body;
   if (!code || !code.trim()) return res.status(400).json({ error: 'Coupon code required' });
 
@@ -68,7 +73,7 @@ router.post('/apply-coupon', authenticate, authorize('student'), async (req, res
   });
 });
 
-router.post('/order', authenticate, authorize('student'), async (req, res) => {
+router.post('/order', authenticate, authorize('student', 'admin', 'instructor'), async (req, res) => {
   const { bundle_id, coupon_code } = req.body;
   const bundleResult = await pool.query('SELECT * FROM bundles WHERE id = $1 AND status = $2', [bundle_id, 'live']);
   const bundle = bundleResult.rows[0];
@@ -106,30 +111,154 @@ router.post('/order', authenticate, authorize('student'), async (req, res) => {
     }
   }
 
-  const fakeOrderId = 'order_' + crypto.randomBytes(8).toString('hex');
+  let razorpayOrderId = null;
+  const isRazorpayConfigured = !!(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET);
+
+  if (isRazorpayConfigured && finalAmount > 0) {
+    try {
+      const authHeader = 'Basic ' + Buffer.from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString('base64');
+      const rzpRes = await fetch('https://api.razorpay.com/v1/orders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': authHeader,
+        },
+        body: JSON.stringify({
+          amount: Math.round(finalAmount * 100), // Razorpay expects amount in paise
+          currency: 'INR',
+          receipt: `rcpt_${Date.now()}_${bundle.id}`,
+          notes: { bundle_id: String(bundle.id), user_id: String(req.user.id) },
+        }),
+      });
+      const rzpData = await rzpRes.json();
+      if (rzpRes.ok && rzpData.id) {
+        razorpayOrderId = rzpData.id;
+      } else {
+        console.error('[Razorpay] Order creation failed:', rzpData);
+        return res.status(502).json({ error: 'Could not create Razorpay order', detail: rzpData.error?.description || 'Gateway error' });
+      }
+    } catch (err) {
+      console.error('[Razorpay] Network request error:', err);
+      return res.status(502).json({ error: 'Could not connect to Razorpay', detail: err.message });
+    }
+  } else {
+    razorpayOrderId = 'order_' + crypto.randomBytes(8).toString('hex');
+  }
+
   const result = await pool.query(
     `INSERT INTO payments (
        user_id, bundle_id, amount_inr, status, razorpay_order_id,
        coupon_id, coupon_code, original_amount_inr, discount_amount_inr
      ) VALUES ($1,$2,$3,'created',$4,$5,$6,$7,$8) RETURNING *`,
     [
-      req.user.id, bundle.id, finalAmount, fakeOrderId,
+      req.user.id, bundle.id, finalAmount, razorpayOrderId,
       appliedCoupon ? appliedCoupon.id : null,
       appliedCoupon ? appliedCoupon.code : null,
       originalPrice, discountAmount
     ]
   );
+
   res.status(201).json({
     payment: result.rows[0],
-    razorpayOrderId: fakeOrderId,
+    razorpayOrderId,
+    keyId: process.env.RAZORPAY_KEY_ID || null,
     amount: finalAmount,
+    currency: 'INR',
     originalAmount: originalPrice,
     discountAmount,
-    couponCode: appliedCoupon ? appliedCoupon.code : null
+    couponCode: appliedCoupon ? appliedCoupon.code : null,
+    isLive: isRazorpayConfigured && finalAmount > 0,
   });
 });
 
-router.post('/enroll-free', authenticate, authorize('student'), async (req, res) => {
+// Student verification endpoint called by Razorpay modal handler
+router.post('/verify', authenticate, authorize('student', 'admin', 'instructor'), async (req, res) => {
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+  if (!razorpay_order_id || !razorpay_payment_id) {
+    return res.status(400).json({ error: 'razorpay_order_id and razorpay_payment_id required' });
+  }
+
+  const paymentResult = await pool.query(
+    'SELECT * FROM payments WHERE razorpay_order_id = $1 AND user_id = $2',
+    [razorpay_order_id, req.user.id]
+  );
+  const payment = paymentResult.rows[0];
+  if (!payment) return res.status(404).json({ error: 'Order not found' });
+
+  if (payment.status === 'paid') {
+    return res.json({ ok: true, status: 'paid', message: 'Payment already verified' });
+  }
+
+  // Verify HMAC signature if Razorpay Secret is set
+  const secret = process.env.RAZORPAY_KEY_SECRET;
+  if (secret && razorpay_signature) {
+    const expected = crypto.createHmac('sha256', secret).update(`${razorpay_order_id}|${razorpay_payment_id}`).digest('hex');
+    if (expected !== razorpay_signature) {
+      return res.status(400).json({ error: 'Invalid payment signature' });
+    }
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `UPDATE payments SET status = 'paid', razorpay_payment_id = $1, razorpay_signature = $2 WHERE id = $3`,
+      [razorpay_payment_id, razorpay_signature || null, payment.id]
+    );
+
+    if (payment.coupon_id) {
+      await client.query('UPDATE coupons SET used_count = used_count + 1 WHERE id = $1', [payment.coupon_id]);
+    }
+
+    await grantBundleAccess({ userId: payment.user_id, bundleId: payment.bundle_id, reason: 'payment.verify', req }, client);
+
+    await client.query(
+      `INSERT INTO transactions (
+         purchase_id, user_id, bundle_id, amount_inr, gateway, gateway_ref, status, payment_method,
+         coupon_id, coupon_code, original_amount_inr, discount_amount_inr
+       )
+       SELECT $1, $2, $3, $4, 'razorpay', $5, 'successful', 'online', $6, $7, $8, $9
+       WHERE NOT EXISTS (SELECT 1 FROM transactions WHERE purchase_id = $1)`,
+      [
+        payment.id, payment.user_id, payment.bundle_id, payment.amount_inr, razorpay_payment_id,
+        payment.coupon_id || null, payment.coupon_code || null,
+        payment.original_amount_inr || payment.amount_inr, payment.discount_amount_inr || 0
+      ]
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  // Fire receipt email
+  pool.query(
+    `SELECT u.email, u.name, b.title AS bundle_title
+       FROM users u, bundles b
+      WHERE u.id = $1 AND b.id = $2`,
+    [payment.user_id, payment.bundle_id]
+  ).then(({ rows }) => {
+    const recipient = rows[0];
+    if (!recipient?.email) return;
+    return enqueueMail({
+      to: recipient.email,
+      subject: 'Payment received — receipt',
+      template: 'payment-receipt',
+      data: {
+        name: recipient.name,
+        paymentId: payment.id,
+        amountInr: payment.amount_inr,
+        bundleTitle: recipient.bundle_title || 'your course bundle',
+      },
+    });
+  }).catch(() => {});
+
+  res.json({ ok: true, status: 'paid' });
+});
+
+router.post('/enroll-free', authenticate, authorize('student', 'admin', 'instructor'), async (req, res) => {
   const result = await pool.query(
     'SELECT id, is_free, price_inr FROM bundles WHERE id = $1 AND status = $2 AND deleted_at IS NULL',
     [req.body.bundle_id, 'live']
@@ -230,11 +359,27 @@ router.post('/webhook', async (req, res) => {
 
   // Fire-and-forget receipt email via the async mail queue (see
   // utils/mailQueue.js) — never blocks or fails the webhook response.
-  enqueueMail({
-    to: payment.user_id, // resolved to a real address by the mail worker/provider
-    subject: 'Payment received — receipt',
-    template: 'payment-receipt',
-    data: { paymentId: payment.id, amountInr: payment.amount_inr, bundleId: payment.bundle_id },
+  // `to` must be a real email address: the mail worker sends to exactly
+  // what it's given, it does not resolve user ids for you.
+  pool.query(
+    `SELECT u.email, u.name, b.title AS bundle_title
+       FROM users u, bundles b
+      WHERE u.id = $1 AND b.id = $2`,
+    [payment.user_id, payment.bundle_id]
+  ).then(({ rows }) => {
+    const recipient = rows[0];
+    if (!recipient?.email) return;
+    return enqueueMail({
+      to: recipient.email,
+      subject: 'Payment received — receipt',
+      template: 'payment-receipt',
+      data: {
+        name: recipient.name,
+        paymentId: payment.id,
+        amountInr: payment.amount_inr,
+        bundleTitle: recipient.bundle_title || 'your course bundle',
+      },
+    });
   }).catch(() => {});
 
   res.json({ ok: true, status: 'paid' });
@@ -244,9 +389,17 @@ router.get('/my-access', authenticate, async (req, res) => {
   const result = await pool.query(
     `SELECT DISTINCT b.* FROM bundles b
      WHERE b.id IN (
-       SELECT bundle_id FROM bundle_access WHERE user_id = $1
+       SELECT ba.bundle_id FROM bundle_access ba
+       WHERE ba.user_id = $1
+         AND NOT EXISTS (
+           SELECT 1 FROM course_enrollments ce
+           WHERE ce.user_id = ba.user_id AND ce.bundle_id = ba.bundle_id
+             AND ce.expiry_date IS NOT NULL AND ce.expiry_date < now()
+         )
        UNION
-       SELECT bundle_id FROM course_enrollments WHERE user_id = $1 AND status = 'active'
+       SELECT ce.bundle_id FROM course_enrollments ce
+       WHERE ce.user_id = $1 AND ce.status = 'active'
+         AND (ce.expiry_date IS NULL OR ce.expiry_date >= now())
      )`,
     [req.user.id]
   );

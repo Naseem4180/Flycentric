@@ -181,18 +181,18 @@ export default function AppTopbar({ onToggleSidebar, quickLinks = [], onNotifica
   /* Cart badge                                                             */
   /* ---------------------------------------------------------------------- */
   useEffect(() => {
-    function readCart() {
+    function updateCartCount() {
       if (user?.role !== 'student') { setCartCount(0); return; }
       try { setCartCount(readCart().length); } catch { setCartCount(0); }
     }
-    readCart();
-    window.addEventListener('storage', readCart);
-    window.addEventListener('cartchange', readCart);
-    window.addEventListener('focus', readCart);
+    updateCartCount();
+    window.addEventListener('storage', updateCartCount);
+    window.addEventListener('cartchange', updateCartCount);
+    window.addEventListener('focus', updateCartCount);
     return () => {
-      window.removeEventListener('storage', readCart);
-      window.removeEventListener('cartchange', readCart);
-      window.removeEventListener('focus', readCart);
+      window.removeEventListener('storage', updateCartCount);
+      window.removeEventListener('cartchange', updateCartCount);
+      window.removeEventListener('focus', updateCartCount);
     };
   }, [user?.role]);
 

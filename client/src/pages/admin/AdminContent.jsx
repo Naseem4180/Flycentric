@@ -57,7 +57,6 @@ const DEFAULT_CMS = {
     copyright: '© 2026 FlyCentric. All rights reserved.',
     links: [
       { label: 'Courses', url: '/courses' },
-      { label: 'Pricing', url: '/pricing' },
       { label: 'Jobs', url: '/jobs' },
       { label: 'Privacy Policy', url: '/privacy' },
       { label: 'Terms of Service', url: '/terms' }

@@ -1425,6 +1425,8 @@ export default function StudentAnalytics() {
                           ) : (
                             <Link
                               to={`/take-exam/${a.quiz_id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
                               className="btn btn-sm btn-primary"
                               style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
                             >

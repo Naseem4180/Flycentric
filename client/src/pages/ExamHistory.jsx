@@ -245,12 +245,12 @@ export default function ExamHistory() {
                               <button type="button" className="btn btn-outline btn-xs" onClick={() => openReport(l)}>
                                 <Eye size={12} /> View
                               </button>
-                              <Link to={`/take-exam/${l.quiz_id}`} className="btn btn-outline btn-xs">
+                              <Link to={`/take-exam/${l.quiz_id}`} target="_blank" rel="noopener noreferrer" className="btn btn-outline btn-xs">
                                 <RotateCcw size={12} /> Retake
                               </Link>
                             </div>
                           ) : (
-                            <Link to={`/take-exam/${l.quiz_id}`} className="btn btn-primary btn-xs">Start</Link>
+                            <Link to={`/take-exam/${l.quiz_id}`} target="_blank" rel="noopener noreferrer" className="btn btn-primary btn-xs">Start</Link>
                           )}
                         </td>
                       </tr>
@@ -311,7 +311,7 @@ export default function ExamHistory() {
               </div>
               <div className="modal-foot">
                 <button className="btn btn-outline" onClick={() => setReport(null)}>Close</button>
-                <Link to={`/take-exam/${report.lesson.quiz_id}`} className="btn btn-primary">
+                <Link to={`/take-exam/${report.lesson.quiz_id}`} target="_blank" rel="noopener noreferrer" className="btn btn-primary">
                   <RotateCcw size={14} /> Retake lesson
                 </Link>
               </div>

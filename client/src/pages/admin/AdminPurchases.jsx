@@ -3,7 +3,7 @@ import {
   ShoppingBag, Search, Filter, Download, Eye, DollarSign,
   CheckCircle2, Clock, AlertCircle, RotateCcw, Receipt
 } from 'lucide-react';
-import { api } from '../../api';
+import { api, BASE_URL } from '../../api';
 import {
   PageHeader, Card, Button, Modal, useToast,
   KpiCard, EmptyState, ErrorState, SkeletonTable, Badge, downloadCsv
@@ -260,7 +260,18 @@ export default function AdminPurchases() {
               </div>
             </div>
 
-            <div className="row row-end" style={{ marginTop: 8 }}>
+            <div className="row row-between" style={{ marginTop: 8 }}>
+              {selectedOrder.status === 'paid' ? (
+                <a
+                  href={`${BASE_URL}/payments/${selectedOrder.id}/receipt/html?token=${encodeURIComponent(localStorage.getItem('fc_access') || '')}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-primary btn-sm"
+                  style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                >
+                  <Receipt size={14} /> Open Official Tax Invoice ↗
+                </a>
+              ) : <div />}
               <Button variant="ghost" onClick={() => setSelectedOrder(null)}>
                 Close
               </Button>

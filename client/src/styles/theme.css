@@ -3057,6 +3057,38 @@ a.chapter-resource-icon:hover { color: var(--primary); border-color: var(--prima
   stroke: #ffffff !important;
 }
 
+.fc-btn-video {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  background: #f0fdf4;
+  border: 1.5px solid #86efac;
+  color: #16a34a;
+  border-radius: 7px;
+  font-size: 0.73rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.fc-btn-video svg {
+  color: currentColor;
+  stroke: currentColor;
+  transition: color 0.15s ease;
+}
+.fc-btn-video:hover {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #ffffff !important;
+}
+.fc-btn-video:hover svg {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+}
+
 .fc-btn-assign {
   display: inline-flex;
   align-items: center;

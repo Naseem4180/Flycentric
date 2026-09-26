@@ -29,6 +29,16 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS email_verifications (
+  id SERIAL PRIMARY KEY,
+  email TEXT NOT NULL,
+  otp TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  verified BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_email_verifications_email ON email_verifications(email);
+
 -- Phase 2: content hierarchy -------------------------------------------------
 CREATE TABLE IF NOT EXISTS bundles (
   id SERIAL PRIMARY KEY,
@@ -836,5 +846,32 @@ ALTER TABLE bundles ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT '{}';
 ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS shuffle_questions BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS shuffle_options BOOLEAN NOT NULL DEFAULT false;
 
+-- Advertisements & Promotional Banners ----------------------------------------
+CREATE TABLE IF NOT EXISTS advertisements (
+  id SERIAL PRIMARY KEY,
+  title VARCHAR(255) NOT NULL,
+  description TEXT,
+  image_url TEXT,
+  link_url TEXT NOT NULL,
+  button_text VARCHAR(100) DEFAULT 'Learn More',
+  badge_text VARCHAR(100) DEFAULT 'Sponsored',
+  status VARCHAR(50) NOT NULL DEFAULT 'published' CHECK (status IN ('published', 'draft')),
+  priority INTEGER DEFAULT 0,
+  click_count INTEGER DEFAULT 0,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  deleted_at TIMESTAMPTZ
+);
 
+CREATE INDEX IF NOT EXISTS idx_ads_status ON advertisements (status) WHERE deleted_at IS NULL;
 
+-- Chapter Video Links (YouTube, Google Drive etc.) ----------------------------------------
+ALTER TABLE chapters ADD COLUMN IF NOT EXISTS video_url TEXT;
+
+-- Course Validity & Subscription Duration ----------------------------------------
+ALTER TABLE bundle_access ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+ALTER TABLE bundle_access ADD COLUMN IF NOT EXISTS validity_months INTEGER;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS validity_months INTEGER;
+ALTER TABLE course_enrollments ADD COLUMN IF NOT EXISTS validity_months INTEGER;
+CREATE INDEX IF NOT EXISTS idx_bundle_access_expires ON bundle_access(expires_at) WHERE expires_at IS NOT NULL;

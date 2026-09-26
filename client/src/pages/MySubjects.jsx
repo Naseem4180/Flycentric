@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   BookOpen, Compass, ChevronRight, Lock, Search, Filter,
   CheckCircle2, ArrowRight, PlayCircle, Trophy, FileText,
-  Sparkles, Layers, Plane, GraduationCap, BarChart2,
+  Sparkles, Layers, Plane, GraduationCap, BarChart2, Clock,
 } from 'lucide-react';
 import { api } from '../api';
 import useAuth from '../context/useAuth';
@@ -31,6 +31,8 @@ export default function MySubjects() {
   const [subjects, setSubjects] = useState([]);
   const [chapters, setChapters] = useState([]);
   const [attempts, setAttempts] = useState([]);
+  const [courses, setCourses] = useState([]);
+  const [selectedCourse, setSelectedCourse] = useState('all');
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'in_progress' | 'completed' | 'not_started'
@@ -44,12 +46,28 @@ export default function MySubjects() {
     const fetchSubjects = fullAccess
       ? api.get('/content/subjects').catch(() => ({ subjects: [] }))
       : api.get('/payments/my-access').then(async (access) => {
-          const bundleIds = (access?.bundles || []).map((b) => b.id);
+          const myBundles = (access?.bundles || []).filter((b) => b.access_status !== 'expired');
+          setCourses(myBundles);
           const results = await Promise.all(
-            bundleIds.map((id) => api.get(`/content/bundles/${id}/subjects`).catch(() => ({ subjects: [] })))
+            myBundles.map(async (b) => {
+              const res = await api.get(`/content/bundles/${b.id}/subjects`).catch(() => ({ subjects: [] }));
+              return (res?.subjects || []).map((s) => ({
+                ...s,
+                bundle_id: b.id,
+                bundle_title: b.title,
+                enrolled_at: b.enrolled_at,
+                access_expires_at: b.expires_at,
+                access_status: b.access_status,
+                days_remaining: b.days_remaining,
+              }));
+            })
           );
           const seen = new Map();
-          results.forEach((r) => (r?.subjects || []).forEach((s) => seen.set(s.id, s)));
+          results.flat().forEach((s) => {
+            if (!seen.has(s.id) || (s.access_expires_at && !seen.get(s.id).access_expires_at)) {
+              seen.set(s.id, s);
+            }
+          });
           return { subjects: Array.from(seen.values()) };
         }).catch(() => ({ subjects: [] }));
 
@@ -94,7 +112,12 @@ export default function MySubjects() {
     });
 
     return subjects.map((s) => {
-      const subAttempts = attemptsBySub[String(s.id)] || [];
+      const rawAttempts = attemptsBySub[String(s.id)] || [];
+      // Scope attempts to enrollment start date if available
+      const subAttempts = rawAttempts.filter((a) => {
+        if (!s.enrolled_at || !a.submitted_at) return true;
+        return new Date(a.submitted_at) >= new Date(s.enrolled_at);
+      });
       const totalChapters = chaptersBySub[String(s.id)] || 0;
       const totalQuizzes = Number(s.quiz_count || 0);
 
@@ -104,11 +127,10 @@ export default function MySubjects() {
         ? Math.max(...completedAttempts.map((a) => Number(a.score || 0)))
         : null;
 
-      // Progress estimation
-      const denominator = Math.max(totalChapters, totalQuizzes, 1);
+      // Progress estimation — strictly based on completed quizzes out of available quizzes
       const progressPercent = totalQuizzes > 0
         ? Math.min(100, Math.round((uniqueQuizzesTaken / totalQuizzes) * 100))
-        : (completedAttempts.length > 0 ? 50 : 0);
+        : 0;
 
       let status = 'not_started';
       if (progressPercent >= 100 || (completedAttempts.length > 0 && uniqueQuizzesTaken >= totalQuizzes && totalQuizzes > 0)) {
@@ -134,6 +156,7 @@ export default function MySubjects() {
   const filteredSubjects = useMemo(() => {
     const term = search.trim().toLowerCase();
     let list = enrichedSubjects.filter((s) => {
+      if (selectedCourse !== 'all' && String(s.bundle_id) !== String(selectedCourse)) return false;
       if (statusFilter !== 'all' && s.status !== statusFilter) return false;
       if (!term) return true;
       const desc = (s.description || '').replace(/<[^>]*>?/gm, '').toLowerCase();
@@ -148,7 +171,7 @@ export default function MySubjects() {
       list.sort((a, b) => (Number(a.order_index) || 0) - (Number(b.order_index) || 0) || a.id - b.id);
     }
     return list;
-  }, [enrichedSubjects, search, statusFilter, sortBy]);
+  }, [enrichedSubjects, search, statusFilter, sortBy, selectedCourse]);
 
   // High-level totals
   const overallStats = useMemo(() => {
@@ -264,6 +287,24 @@ export default function MySubjects() {
                 ))}
               </div>
 
+              {/* Course filter if student has multiple enrolled courses */}
+              {courses.length > 1 && (
+                <div className="student-toolbar-sort" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontWeight: 600, color: 'var(--muted)', fontSize: '0.76rem' }}>COURSE:</span>
+                  <select
+                    value={selectedCourse}
+                    onChange={(e) => setSelectedCourse(e.target.value)}
+                    aria-label="Filter by course"
+                    style={{ borderRadius: 10, height: 34, fontSize: '0.78rem', fontWeight: 600 }}
+                  >
+                    <option value="all">All Courses ({courses.length})</option>
+                    {courses.map((c) => (
+                      <option key={c.id} value={c.id}>{c.title}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               {/* Sort */}
               <div className="student-toolbar-sort">
                 <span style={{ fontWeight: 600, color: 'var(--muted)', fontSize: '0.76rem' }}>SORT:</span>
@@ -326,9 +367,29 @@ export default function MySubjects() {
                       }}>
                         {s.title}
                       </h3>
-                      <span style={{ fontSize: '0.74rem', color: 'var(--muted)', fontWeight: 500, display: 'block', marginTop: 3 }}>
-                        DGCA Ground School
+                      <span style={{ fontSize: '0.74rem', color: 'var(--muted)', fontWeight: 600, display: 'block', marginTop: 3 }}>
+                        {s.bundle_title ? `Course: ${s.bundle_title}` : 'DGCA Ground School'}
                       </span>
+                      {s.access_expires_at ? (
+                        <div style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 5,
+                          marginTop: 6,
+                          fontSize: '0.74rem',
+                          fontWeight: 700,
+                          color: s.access_status === 'expiring_soon' ? '#b45309' : (s.access_status === 'expired' ? '#dc2626' : '#4338ca'),
+                          background: s.access_status === 'expiring_soon' ? 'rgba(245, 158, 11, 0.1)' : (s.access_status === 'expired' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(79, 70, 229, 0.08)'),
+                          border: `1px solid ${s.access_status === 'expiring_soon' ? 'rgba(245, 158, 11, 0.35)' : (s.access_status === 'expired' ? 'rgba(239, 68, 68, 0.35)' : 'rgba(79, 70, 229, 0.25)')}`,
+                          padding: '2px 8px',
+                          borderRadius: 6,
+                        }}>
+                          <Clock size={12} />
+                          {s.access_status === 'expired'
+                            ? `Access Expired (${new Date(s.access_expires_at).toLocaleDateString()})`
+                            : `Access Until: ${new Date(s.access_expires_at).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
 

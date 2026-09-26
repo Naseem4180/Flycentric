@@ -3,13 +3,10 @@
 // instead of sending them inline on the request path, with automated retry
 // and a dead-letter queue for persistent failures.
 //
-// Graceful degradation, matching the rest of this codebase's pattern for
-// optional live integrations (see routes/payments.js Razorpay handling):
+// Graceful degradation, matching the rest of this codebase's pattern:
 // if REDIS_URL isn't configured, or the bullmq/ioredis packages aren't
-// installed yet, every call below becomes a logged no-op instead of
-// crashing the request that tried to enqueue an email. This keeps local/dev
-// setups working with zero extra infrastructure while still giving a real
-// queue, retries, and a DLQ the moment REDIS_URL is set in production.
+// installed yet, every call falls back to a direct send (if SMTP is configured)
+// or a logged no-op (if SMTP is not yet set up).
 
 let Queue, Worker, QueueEvents, IORedis;
 try {
@@ -18,50 +15,154 @@ try {
   // eslint-disable-next-line global-require
   IORedis = require('ioredis');
 } catch {
-  // bullmq/ioredis not installed — fall through to the no-op path below.
+  // bullmq/ioredis not installed — fall through to direct delivery / log mode.
 }
 
-// eslint-disable-next-line global-require
 const nodemailer = require('nodemailer');
 const { renderEmail } = require('./emailTemplates');
+const pool = require('../db/pool');
 
-const SMTP_HOST = process.env.SMTP_HOST;
-const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
-const SMTP_USER = process.env.SMTP_USER;
-const SMTP_PASS = process.env.SMTP_PASS;
-const MAIL_FROM = process.env.MAIL_FROM || 'FlyCentric <support@flycentric.in>';
-
+let cachedSmtp = null;
+let lastSmtpFetch = 0;
 let transporter = null;
-function emailProviderAvailable() {
-  return !!(SMTP_HOST && SMTP_USER && SMTP_PASS);
+
+// Dynamic SMTP configuration loader — checks database settings table first,
+// falls back to environment variables.
+async function getSmtpConfig() {
+  const now = Date.now();
+  if (cachedSmtp && (now - lastSmtpFetch < 15000)) {
+    return cachedSmtp;
+  }
+
+  let dbSettings = {};
+  try {
+    const res = await pool.query(
+      "SELECT key, value FROM settings WHERE key IN ('smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'mail_from', 'smtp_secure')"
+    );
+    for (const r of res.rows) {
+      let val = r.value;
+      if (typeof val === 'string' && (val.startsWith('"') && val.endsWith('"'))) {
+        try { val = JSON.parse(val); } catch (e) {}
+      }
+      dbSettings[r.key] = val;
+    }
+  } catch (err) {
+    // If DB is temporarily unavailable, fallback to process.env
+  }
+
+  const host = dbSettings.smtp_host || process.env.SMTP_HOST;
+  const port = Number(dbSettings.smtp_port || process.env.SMTP_PORT || 587);
+  const user = dbSettings.smtp_user || process.env.SMTP_USER;
+  const pass = dbSettings.smtp_pass || process.env.SMTP_PASS;
+  const from = dbSettings.mail_from || process.env.MAIL_FROM || 'FlyCentric <support@flycentric.in>';
+  const secure = dbSettings.smtp_secure !== undefined ? Boolean(dbSettings.smtp_secure) : (port === 465);
+
+  cachedSmtp = {
+    host,
+    port,
+    user,
+    pass,
+    from,
+    secure,
+    isConfigured: !!(host && user && pass),
+  };
+  lastSmtpFetch = now;
+  return cachedSmtp;
 }
-function getTransporter() {
-  if (!emailProviderAvailable()) return null;
+
+function clearSmtpCache() {
+  cachedSmtp = null;
+  lastSmtpFetch = 0;
+  transporter = null;
+}
+
+async function emailProviderAvailable() {
+  const cfg = await getSmtpConfig();
+  return cfg.isConfigured;
+}
+
+async function getTransporter() {
+  const cfg = await getSmtpConfig();
+  if (!cfg.isConfigured) return null;
   if (!transporter) {
     transporter = nodemailer.createTransport({
-      host: SMTP_HOST,
-      port: SMTP_PORT,
-      secure: SMTP_PORT === 465, // true for 465 (implicit TLS), false for 587/25 (STARTTLS)
-      auth: { user: SMTP_USER, pass: SMTP_PASS },
+      host: cfg.host,
+      port: cfg.port,
+      secure: cfg.secure,
+      auth: { user: cfg.user, pass: cfg.pass },
+      tls: {
+        rejectUnauthorized: false,
+      },
     });
   }
-  return transporter;
+  return { mailer: transporter, from: cfg.from };
 }
 
-// The actual "sender". Renders the requested template and, when
-// SMTP_HOST/SMTP_USER/SMTP_PASS are configured, delivers it for real;
-// otherwise falls back to the previous log-only behaviour so local/dev
-// setups keep working with zero extra infrastructure.
-async function deliver({ to, subject, template, data }) {
+// Deliver actual email with template and optional attachments
+async function deliver({ to, subject, template, data, attachments }) {
   const { html, text } = renderEmail(template, data);
-  const mailer = getTransporter();
-  if (!mailer) {
-    console.log(`[mailQueue] (no SMTP_HOST/SMTP_USER/SMTP_PASS configured — logging instead of sending) "${subject}" to ${to} (template=${template})`, data);
-    return { sent: true, to, subject, delivered: false };
+  const tInfo = await getTransporter();
+  if (!tInfo) {
+    console.log(`[mailQueue] (no SMTP credentials configured — logging instead of sending) "${subject}" to ${to} (template=${template})`, data);
+    return { sent: true, to, subject, delivered: false, reason: 'smtp_not_configured' };
   }
-  const info = await mailer.sendMail({ from: MAIL_FROM, to, subject, html, text });
+
+  const mailOptions = {
+    from: tInfo.from,
+    to,
+    subject,
+    html,
+    text,
+  };
+
+  if (attachments && Array.isArray(attachments) && attachments.length > 0) {
+    mailOptions.attachments = attachments;
+  }
+
+  const info = await tInfo.mailer.sendMail(mailOptions);
   console.log(`[mailQueue] sent "${subject}" to ${to} (template=${template}) — ${info.messageId}`);
   return { sent: true, to, subject, delivered: true, messageId: info.messageId };
+}
+
+// Test SMTP connection and dispatch verification test email
+async function testSmtpConnection({ to, host, port, user, pass, from, secure }) {
+  const activeCfg = await getSmtpConfig();
+  const testHost = host || activeCfg.host;
+  const testPort = Number(port || activeCfg.port || 587);
+  const testUser = user || activeCfg.user;
+  const testPass = pass || activeCfg.pass;
+  const testFrom = from || activeCfg.from || 'FlyCentric <support@flycentric.in>';
+  const testSecure = secure !== undefined ? Boolean(secure) : (testPort === 465);
+
+  if (!testHost || !testUser || !testPass) {
+    throw new Error('Incomplete SMTP configuration. Host, User/Email, and Password/App-Password are required.');
+  }
+
+  const testMailer = nodemailer.createTransport({
+    host: testHost,
+    port: testPort,
+    secure: testSecure,
+    auth: { user: testUser, pass: testPass },
+    tls: { rejectUnauthorized: false },
+  });
+
+  // Verify connection configuration
+  await testMailer.verify();
+
+  // Send actual test email if `to` is provided
+  if (to) {
+    const { html, text } = renderEmail('test-email', { host: testHost, port: testPort });
+    const info = await testMailer.sendMail({
+      from: testFrom,
+      to,
+      subject: 'FlyCentric SMTP Test Email ✈️',
+      html,
+      text,
+    });
+    return { verified: true, messageId: info.messageId };
+  }
+
+  return { verified: true };
 }
 
 const REDIS_URL = process.env.REDIS_URL;
@@ -83,16 +184,10 @@ function init() {
   mailQueue = new Queue(QUEUE_NAME, { connection });
   dlq = new Queue(DLQ_NAME, { connection });
 
-  // Renders the requested template and, once SMTP_HOST/SMTP_USER/SMTP_PASS
-  // are configured, delivers it for real (see deliver() above). Until then
-  // it keeps the previous log-only behaviour so local/dev setups keep
-  // working with zero extra infrastructure.
   worker = new Worker(QUEUE_NAME, (job) => deliver(job.data), { connection, concurrency: 5 });
 
   worker.on('failed', async (job, err) => {
     console.error(`[mailQueue] job ${job.id} failed (attempt ${job.attemptsMade}/${job.opts.attempts}):`, err.message);
-    // Persistent failure: this job has exhausted its retries — route it to
-    // the dead-letter queue instead of losing it silently.
     if (job.attemptsMade >= (job.opts.attempts || 1)) {
       await dlq.add('failed-mail', { ...job.data, failedReason: err.message, failedAt: new Date().toISOString() });
     }
@@ -104,16 +199,11 @@ function init() {
 
 init();
 
-// enqueueMail: fire-and-forget from any route. Never throws — a mail-queue
-// outage must not fail the HTTP request that triggered the email (e.g. a
-// payment webhook succeeding but the receipt email failing to enqueue).
-async function enqueueMail({ to, subject, template, data }) {
+// enqueueMail: fire-and-forget from any route. Never throws.
+async function enqueueMail({ to, subject, template, data, attachments }) {
   if (!available()) {
-    // No queue/retry/DLQ without Redis, but still send for real if an SMTP
-    // provider is configured — Redis and "having an email provider" are
-    // independent, and most setups shouldn't need one to get the other.
     try {
-      const result = await deliver({ to, subject, template, data });
+      const result = await deliver({ to, subject, template, data, attachments });
       return { queued: false, reason: 'redis_not_configured', ...result };
     } catch (err) {
       console.error('[mailQueue] direct send failed:', err.message);
@@ -121,11 +211,11 @@ async function enqueueMail({ to, subject, template, data }) {
     }
   }
   try {
-    await mailQueue.add('send-mail', { to, subject, template, data }, {
+    await mailQueue.add('send-mail', { to, subject, template, data, attachments }, {
       attempts: 5,
       backoff: { type: 'exponential', delay: 2000 },
       removeOnComplete: 1000,
-      removeOnFail: false, // keep failed jobs around until the DLQ handler runs
+      removeOnFail: false,
     });
     return { queued: true };
   } catch (err) {
@@ -140,4 +230,12 @@ async function getDeadLetterJobs(limit = 50) {
   return jobs.map((j) => ({ id: j.id, data: j.data, timestamp: j.timestamp }));
 }
 
-module.exports = { enqueueMail, getDeadLetterJobs, available, emailProviderAvailable };
+module.exports = {
+  enqueueMail,
+  getDeadLetterJobs,
+  available,
+  emailProviderAvailable,
+  getSmtpConfig,
+  clearSmtpCache,
+  testSmtpConnection,
+};

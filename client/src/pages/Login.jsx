@@ -4,12 +4,13 @@ import { ShieldAlert, AlertTriangle } from 'lucide-react';
 import useAuth from '../context/useAuth';
 import BrandLogo from '../components/BrandLogo';
 import { Modal, Button } from '../ui';
+import GoogleLoginButton from '../components/GoogleLoginButton';
 
 export default function Login() {
-  const { login } = useAuth();
+  const { login, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState('student@flycentric.in');
-  const [password, setPassword] = useState('Password123!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [dualLoginPrompt, setDualLoginPrompt] = useState(null);
@@ -37,11 +38,39 @@ export default function Login() {
     }
   }
 
+  async function handleGoogleLogin(payload, options = {}) {
+    setError('');
+    setBusy(true);
+    try {
+      const user = await loginWithGoogle(payload, options);
+      if (user.role === 'admin') navigate('/admin');
+      else if (user.role === 'instructor') navigate('/instructor');
+      else navigate('/');
+    } catch (err) {
+      if (err.requires_confirmation) {
+        setDualLoginPrompt({
+          reason: err.reason,
+          active_assessment: err.active_assessment,
+          googlePayload: payload,
+        });
+      } else {
+        setError(err.message);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleForceLogoutAndContinue() {
     setBusy(true);
     setError('');
     try {
-      const user = await login(email, password, { forceLogout: true });
+      let user;
+      if (dualLoginPrompt?.googlePayload) {
+        user = await loginWithGoogle(dualLoginPrompt.googlePayload, { forceLogout: true });
+      } else {
+        user = await login(email, password, { forceLogout: true });
+      }
       setDualLoginPrompt(null);
       if (user.role === 'admin') navigate('/admin');
       else if (user.role === 'instructor') navigate('/instructor');
@@ -88,39 +117,22 @@ export default function Login() {
             </button>
           </form>
 
-          <p className="auth-signup-text">
+          <div className="auth-separator">
+            <div className="auth-separator-line" />
+            <span className="auth-separator-text">or continue with</span>
+            <div className="auth-separator-line" />
+          </div>
+
+          <GoogleLoginButton
+            onSuccess={handleGoogleLogin}
+            onError={(err) => setError(err.message)}
+            disabled={busy}
+          />
+
+          <p className="auth-signup-text" style={{ marginTop: 20 }}>
             No account? <Link to="/register">Register as a student</Link>
           </p>
 
-          <div className="auth-demo-box">
-            <div className="auth-demo-header">
-              <span>Quick test logins</span>
-              <span>pwd: <code>Password123!</code></span>
-            </div>
-            <div className="auth-demo-actions">
-              <button
-                type="button"
-                className={`auth-demo-btn ${email === 'student@flycentric.in' ? 'active' : ''}`}
-                onClick={() => { setEmail('student@flycentric.in'); setPassword('Password123!'); }}
-              >
-                Student
-              </button>
-              <button
-                type="button"
-                className={`auth-demo-btn ${email === 'instructor@flycentric.in' ? 'active' : ''}`}
-                onClick={() => { setEmail('instructor@flycentric.in'); setPassword('Password123!'); }}
-              >
-                Instructor
-              </button>
-              <button
-                type="button"
-                className={`auth-demo-btn ${email === 'admin@flycentric.in' ? 'active' : ''}`}
-                onClick={() => { setEmail('admin@flycentric.in'); setPassword('Password123!'); }}
-              >
-                Admin
-              </button>
-            </div>
-          </div>
         </main>
       </div>
 

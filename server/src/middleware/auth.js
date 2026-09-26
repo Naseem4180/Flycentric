@@ -43,7 +43,7 @@ async function checkSessionActive(sessionId, userId) {
 
 async function authenticate(req, res, next) {
   const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  const token = header.startsWith('Bearer ') ? header.slice(7) : (req.query?.token || null);
   if (!token) return res.status(401).json({ error: 'Missing access token' });
   try {
     const payload = verifyAccessToken(token);

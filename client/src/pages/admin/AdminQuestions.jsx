@@ -274,8 +274,38 @@ export default function AdminQuestions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
-  const subjectById = useMemo(() => Object.fromEntries(subjects.map((s) => [String(s.id), s])), [subjects]);
-  const chapterById = useMemo(() => Object.fromEntries(chapters.map((c) => [String(c.id), c])), [chapters]);
+  const subjectById = useMemo(() => {
+    const map = {};
+    (subjects || []).forEach((s) => { map[String(s.id)] = s; });
+    (questions || []).forEach((q) => {
+      if (q.subject_id && !map[String(q.subject_id)]) {
+        map[String(q.subject_id)] = { id: q.subject_id, title: q.subject_title || `Subject #${q.subject_id}` };
+      }
+    });
+    return map;
+  }, [subjects, questions]);
+
+  const allFilterSubjects = useMemo(() => {
+    const list = Object.values(subjectById);
+    return list.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+  }, [subjectById]);
+
+  const chapterById = useMemo(() => {
+    const map = {};
+    (chapters || []).forEach((c) => { map[String(c.id)] = c; });
+    (questions || []).forEach((q) => {
+      if (q.chapter_id && !map[String(q.chapter_id)]) {
+        map[String(q.chapter_id)] = { id: q.chapter_id, title: q.chapter_title || `Chapter #${q.chapter_id}`, subject_id: q.subject_id };
+      }
+    });
+    return map;
+  }, [chapters, questions]);
+
+  const allFilterChapters = useMemo(() => {
+    const list = Object.values(chapterById);
+    return list.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+  }, [chapterById]);
+
   const usedQuestionIds = useMemo(() => {
     const set = new Set();
     quizzes.forEach((q) => (q.question_ids || []).forEach((id) => set.add(String(id))));
@@ -671,7 +701,7 @@ export default function AdminQuestions() {
           aria-label="Filter by subject"
         >
           <option value="">All Subjects</option>
-          {subjects.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
+          {allFilterSubjects.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
         </select>
 
         <select
@@ -681,7 +711,7 @@ export default function AdminQuestions() {
           aria-label="Filter by chapter"
         >
           <option value="">All Chapters</option>
-          {chapters.filter((c) => !filterSubject || String(c.subject_id) === filterSubject).map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+          {allFilterChapters.filter((c) => !filterSubject || String(c.subject_id) === String(filterSubject)).map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
         </select>
 
         <select

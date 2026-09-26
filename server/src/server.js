@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ override: true });
 require('express-async-errors');
 const express = require('express');
 const nodePath = require('path');
@@ -19,6 +19,7 @@ const jobRoutes = require('./routes/jobs');
 const paymentRoutes = require('./routes/payments');
 const notificationRoutes = require('./routes/notifications');
 const uploadRoutes = require('./routes/uploads');
+const advertisementRoutes = require('./routes/advertisements');
 
 // Process error listeners
 process.on('unhandledRejection', (reason) => {
@@ -69,6 +70,15 @@ app.use(express.json({
   verify: (req, res, buf) => { req.rawBody = buf; },
 }));
 
+// HTTP Cache Control: Enforce database as single source of truth across all API routes.
+// Prevents browsers and intermediaries from caching stale LMS state.
+app.use('/api', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
+
 const apiGuide = {
   service: 'FlyCentric LMS API',
   status: 'online',
@@ -116,6 +126,7 @@ app.use('/api/jobs', jobRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/uploads', uploadRoutes);
+app.use('/api/advertisements', advertisementRoutes);
 
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 // eslint-disable-next-line no-unused-vars
@@ -135,6 +146,31 @@ app.use((err, req, res, next) => {
 const port = process.env.PORT || 4000;
 app.listen(port, () => {
   console.log(`FlyCentric API listening on :${port}`);
+  const hasRzp = process.env.RAZORPAY_KEY_ID && (process.env.RAZORPAY_KEY_ID.startsWith('rzp_test_') || process.env.RAZORPAY_KEY_ID.startsWith('rzp_live_')) && !process.env.RAZORPAY_KEY_ID.includes('yourKeyIdHere');
+  console.log(`[payments] Gateway Mode: ${hasRzp ? `Razorpay Connected (${process.env.RAZORPAY_KEY_ID})` : 'Demo Mode (Instant enrollment without Razorpay credentials)'}`);
+
+  // Self-healing schema migrations: ensures columns exist even if manual migrations were not run
+  pool.query(`
+    ALTER TABLE bundle_access ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+    ALTER TABLE bundle_access ADD COLUMN IF NOT EXISTS validity_months INTEGER;
+    ALTER TABLE payments ADD COLUMN IF NOT EXISTS validity_months INTEGER;
+    ALTER TABLE course_enrollments ADD COLUMN IF NOT EXISTS validity_months INTEGER;
+    ALTER TABLE course_enrollments ADD COLUMN IF NOT EXISTS last_expiry_warning_at TIMESTAMPTZ;
+    CREATE INDEX IF NOT EXISTS idx_bundle_access_expires ON bundle_access(expires_at) WHERE expires_at IS NOT NULL;
+    ALTER TABLE chapters ADD COLUMN IF NOT EXISTS video_url TEXT;
+    CREATE TABLE IF NOT EXISTS email_verifications (
+      id SERIAL PRIMARY KEY,
+      email TEXT NOT NULL,
+      otp TEXT NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      verified BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_email_verifications_email ON email_verifications(email);
+  `).then(() => {
+    console.log('[db] Self-healing schema check completed successfully');
+  }).catch((err) => console.error('[db] Self-healing schema check error:', err.message));
+
   // Close attempts whose server deadline has already passed. This repairs
   // abandoned sessions from before the client started submitting on exit and
   // prevents them from remaining visible as "In Progress" indefinitely.

@@ -5,8 +5,9 @@ import {
   Calendar, Flame, FileText, CheckCircle2, BarChart2, Trophy,
   AlertTriangle, TrendingUp, ChevronDown, ChevronUp, ChevronRight,
   ArrowRight, LayoutGrid, Award, Radio, GraduationCap,
+  ExternalLink, Megaphone, X, ChevronLeft, Clock, RotateCcw,
 } from 'lucide-react';
-import { api } from '../api';
+import { api, resolveMediaUrl } from '../api';
 import useAuth from '../context/useAuth';
 import { PageSkeleton, Badge } from '../ui';
 
@@ -52,6 +53,7 @@ export default function StudentDashboard() {
   const navigate = useNavigate();
 
   const [bundles, setBundles] = useState([]);
+  const [enrolledCourses, setEnrolledCourses] = useState([]);
   const [subjects, setSubjects] = useState([]);
   const [quizzes, setQuizzes] = useState([]);
   const [attempts, setAttempts] = useState([]);
@@ -60,6 +62,9 @@ export default function StudentDashboard() {
   const [unstartedExpanded, setUnstartedExpanded] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [advertisements, setAdvertisements] = useState([]);
+  const [activeAdIndex, setActiveAdIndex] = useState(0);
+  const [dismissedAdIds, setDismissedAdIds] = useState(() => new Set());
 
   useEffect(() => {
     let active = true;
@@ -69,7 +74,9 @@ export default function StudentDashboard() {
     const fetchSubjects = fullAccess
       ? api.get('/content/subjects').catch(() => ({ subjects: [] }))
       : api.get('/payments/my-access').then(async (access) => {
-          const bundleIds = (access?.bundles || []).map((b) => b.id);
+          const myBundles = access?.bundles || [];
+          if (active) setEnrolledCourses(myBundles);
+          const bundleIds = myBundles.filter((b) => b.access_status !== 'expired').map((b) => b.id);
           const results = await Promise.all(
             bundleIds.map((id) => api.get(`/content/bundles/${id}/subjects`).catch(() => ({ subjects: [] })))
           );
@@ -84,8 +91,9 @@ export default function StudentDashboard() {
       api.get('/exams/attempts/mine').catch(() => ({ attempts: [] })),
       api.get('/analytics/me').catch(() => ({})),
       fetchSubjects,
+      api.get('/advertisements').catch(() => ({ advertisements: [] })),
     ])
-      .then(([bData, qData, aData, mData, sData]) => {
+      .then(([bData, qData, aData, mData, sData, adData]) => {
         if (!active) return;
         setBundles(bData.bundles || []);
         setQuizzes(qData.quizzes || []);
@@ -93,6 +101,7 @@ export default function StudentDashboard() {
         setMasteryTopics(mData.masteryBySubtopic || []);
         const subList = sData.subjects || [];
         setSubjects(subList);
+        setAdvertisements(adData.advertisements || []);
 
         if (subList.length > 0) {
           const subAttempts = (aData.attempts || []).filter((a) => a.status === 'submitted' && a.subject_id);
@@ -248,6 +257,44 @@ export default function StudentDashboard() {
     return { weak, neutral, strong, unexplored };
   }, [masteryTopics, selectedSubjectId, subjects]);
 
+  const visibleAds = useMemo(() => {
+    return (advertisements || []).filter((ad) => !dismissedAdIds.has(ad.id));
+  }, [advertisements, dismissedAdIds]);
+
+  const currentAd = visibleAds.length > 0 ? visibleAds[activeAdIndex % visibleAds.length] : null;
+
+  const handleAdClick = (ad, e) => {
+    if (e) e.stopPropagation();
+    if (!ad) return;
+    api.post(`/advertisements/${ad.id}/click`).catch(() => {});
+    if (ad.link_url) {
+      window.open(ad.link_url, '_blank', 'noopener,noreferrer');
+    }
+  };
+
+  const handleDismissAd = (adId, e) => {
+    if (e) e.stopPropagation();
+    setDismissedAdIds((prev) => new Set([...prev, adId]));
+  };
+
+  const handlePrevAd = (e) => {
+    if (e) e.stopPropagation();
+    setActiveAdIndex((prev) => (prev > 0 ? prev - 1 : visibleAds.length - 1));
+  };
+
+  const handleNextAd = (e) => {
+    if (e) e.stopPropagation();
+    setActiveAdIndex((prev) => (prev + 1) % visibleAds.length);
+  };
+
+  const expiringSoonCourses = useMemo(() => {
+    return (enrolledCourses || []).filter((c) => c.access_status === 'expiring_soon');
+  }, [enrolledCourses]);
+
+  const expiredCourses = useMemo(() => {
+    return (enrolledCourses || []).filter((c) => c.access_status === 'expired');
+  }, [enrolledCourses]);
+
   const firstName = user?.name ? user.name.split(' ')[0] : 'Student';
 
   if (loading) {
@@ -269,6 +316,203 @@ export default function StudentDashboard() {
         </header>
 
         {error && <div className="error-banner">{error}</div>}
+
+        {/* Expiring Soon Course Alert Banner (Requirement 13) */}
+        {expiringSoonCourses.map((c) => (
+          <div
+            key={c.id}
+            className="sd-expiry-warning"
+            style={{
+              background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.09) 0%, rgba(251, 191, 36, 0.14) 100%)',
+              border: '1.5px solid rgba(245, 158, 11, 0.4)',
+              borderRadius: 12,
+              padding: '14px 18px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 14,
+              flexWrap: 'wrap',
+              marginBottom: 16
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 42, height: 42, borderRadius: 10, background: 'rgba(245, 158, 11, 0.2)', color: '#b45309', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <AlertTriangle size={22} />
+              </div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: '0.72rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.06em', color: '#b45309' }}>Course Expiring Soon</span>
+                  <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '1px 8px', borderRadius: 999, background: 'rgba(245, 158, 11, 0.22)', color: '#92400e' }}>
+                    {c.days_remaining} {c.days_remaining === 1 ? 'day' : 'days'} remaining
+                  </span>
+                </div>
+                <h4 style={{ margin: '3px 0 2px', fontSize: '0.98rem', fontWeight: 700, color: 'var(--text)' }}>{c.title}</h4>
+                <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--muted)' }}>
+                  Access expires on: <strong>{new Date(c.expires_at).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}</strong>
+                </p>
+              </div>
+            </div>
+            <Link
+              to={`/checkout/${c.id}`}
+              className="btn btn-sm"
+              style={{
+                background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                color: '#fff',
+                fontWeight: 700,
+                padding: '8px 18px',
+                borderRadius: 8,
+                textDecoration: 'none',
+                boxShadow: '0 2px 6px rgba(245, 158, 11, 0.35)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6
+              }}
+            >
+              <RotateCcw size={14} /> Renew Course
+            </Link>
+          </div>
+        ))}
+
+        {/* Expired Course Alert Banner */}
+        {expiredCourses.map((c) => (
+          <div
+            key={c.id}
+            className="sd-expiry-warning"
+            style={{
+              background: 'rgba(239, 68, 68, 0.08)',
+              border: '1.5px solid rgba(239, 68, 68, 0.35)',
+              borderRadius: 12,
+              padding: '14px 18px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 14,
+              flexWrap: 'wrap',
+              marginBottom: 16
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 42, height: 42, borderRadius: 10, background: 'rgba(239, 68, 68, 0.16)', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Clock size={22} />
+              </div>
+              <div>
+                <span style={{ fontSize: '0.72rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.06em', color: '#dc2626' }}>Access Expired</span>
+                <h4 style={{ margin: '3px 0 2px', fontSize: '0.98rem', fontWeight: 700, color: 'var(--text)' }}>{c.title}</h4>
+                <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--muted)' }}>
+                  Expired on: <strong>{new Date(c.expires_at).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}</strong>
+                </p>
+              </div>
+            </div>
+            <Link
+              to={`/checkout/${c.id}`}
+              className="btn btn-sm btn-danger"
+              style={{
+                padding: '8px 18px',
+                fontWeight: 700,
+                borderRadius: 8,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                textDecoration: 'none'
+              }}
+            >
+              <RotateCcw size={14} /> Renew Access
+            </Link>
+          </div>
+        ))}
+
+        {/* Promoted / Advertisement Panel (Configured by Admin) */}
+        {currentAd && (
+          <div
+            className="sd-ad-banner"
+            role="region"
+            aria-label="Announcement banner"
+            onClick={() => handleAdClick(currentAd)}
+          >
+            <div className="sd-ad-banner-body">
+              {currentAd.image_url ? (
+                <div className="sd-ad-media">
+                  <img
+                    src={resolveMediaUrl(currentAd.image_url)}
+                    alt=""
+                    className="sd-ad-img"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="sd-ad-media sd-ad-media-fallback">
+                  <Megaphone size={22} />
+                </div>
+              )}
+
+              <div className="sd-ad-content">
+                <div className="sd-ad-header-row">
+                  <span className="sd-ad-badge">
+                    <Sparkles size={11} />
+                    {currentAd.badge_text || 'Sponsored'}
+                  </span>
+                  {visibleAds.length > 1 && (
+                    <span className="sd-ad-counter">
+                      {((activeAdIndex % visibleAds.length) + 1)} of {visibleAds.length}
+                    </span>
+                  )}
+                </div>
+
+                <h3 className="sd-ad-title">{currentAd.title}</h3>
+
+                {currentAd.description && (
+                  <p className="sd-ad-desc">{currentAd.description}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="sd-ad-actions" onClick={(e) => e.stopPropagation()}>
+              {visibleAds.length > 1 && (
+                <div className="sd-ad-nav-group">
+                  <button
+                    type="button"
+                    className="sd-ad-nav-btn"
+                    onClick={handlePrevAd}
+                    aria-label="Previous announcement"
+                    title="Previous"
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    className="sd-ad-nav-btn"
+                    onClick={handleNextAd}
+                    aria-label="Next announcement"
+                    title="Next"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+              )}
+
+              <button
+                type="button"
+                className="sd-ad-btn"
+                onClick={() => handleAdClick(currentAd)}
+              >
+                <span>{currentAd.button_text || 'Learn More'}</span>
+                <ExternalLink size={14} />
+              </button>
+
+              <button
+                type="button"
+                className="sd-ad-close"
+                onClick={(e) => handleDismissAd(currentAd.id, e)}
+                aria-label="Dismiss announcement"
+                title="Dismiss"
+              >
+                <X size={15} />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* 2. Overall Summary Strip */}
         <section className="sd-summary-card">

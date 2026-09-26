@@ -5,17 +5,194 @@ const { authenticate, authorize } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { grantBundleAccess, revokeBundleAccess } = require('../services/entitlements');
 const { enqueueMail } = require('../utils/mailQueue');
+const { generateReceiptHtml } = require('../utils/receiptGenerator');
 
 const router = express.Router();
+
+// Configurable course access duration options with standard term discounts
+const VALIDITY_OPTIONS = [
+  { months: 1, label: '1 Month', discount_pct: 0 },
+  { months: 3, label: '3 Months', discount_pct: 5 },
+  { months: 6, label: '6 Months', discount_pct: 10 },
+  { months: 12, label: '1 Year (12 Months)', discount_pct: 20 },
+  { months: 24, label: '2 Years (24 Months)', discount_pct: 30 },
+  { months: 36, label: '3 Years (36 Months)', discount_pct: 40 },
+];
+
+async function sendPaymentReceiptEmail(paymentId) {
+  try {
+    const query = `
+      SELECT p.*, u.name AS student_name, u.email AS student_email, u.phone AS student_phone,
+             b.title AS bundle_title, b.exam_type,
+             t.id AS transaction_id, t.gateway_ref, t.payment_method, t.gateway,
+             ce.expiry_date, ce.start_date
+      FROM payments p
+      JOIN users u ON u.id = p.user_id
+      LEFT JOIN bundles b ON b.id = p.bundle_id
+      LEFT JOIN transactions t ON t.purchase_id = p.id
+      LEFT JOIN course_enrollments ce ON ce.user_id = p.user_id AND ce.bundle_id = p.bundle_id
+      WHERE p.id = $1
+      LIMIT 1
+    `;
+    const result = await pool.query(query, [paymentId]);
+    if (!result.rows.length) return;
+    const r = result.rows[0];
+    if (!r.student_email) return;
+
+    const receiptHtml = generateReceiptHtml(r);
+    const validityStr = r.validity_months ? `${r.validity_months} Months` : '12 Months';
+    const expiryStr = r.expiry_date
+      ? new Date(r.expiry_date).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' })
+      : (r.validity_months ? new Date(Date.now() + r.validity_months * 30 * 86400000).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' }) : '12 Months');
+
+    await enqueueMail({
+      to: r.student_email,
+      subject: `Tax Invoice & Payment Receipt #FC-REC-${r.id} — ${r.bundle_title || 'Course'} | FlyCentric`,
+      template: 'payment-receipt',
+      data: {
+        name: r.student_name,
+        email: r.student_email,
+        paymentId: r.id,
+        amountInr: r.amount_inr,
+        bundleTitle: r.bundle_title || 'Course Bundle',
+        orderId: r.razorpay_order_id,
+        transactionId: r.gateway_ref || r.razorpay_payment_id || `TXN-${r.id}`,
+        validityMonths: r.validity_months,
+        expiryDate: expiryStr,
+        originalAmount: r.original_amount_inr || r.amount_inr,
+        discountAmount: r.discount_amount_inr || 0,
+        couponCode: r.coupon_code,
+        paymentMethod: r.payment_method || 'Razorpay Gateway (UPI / Card)',
+      },
+      attachments: [
+        {
+          filename: `Tax-Invoice-FC-REC-${r.id}.html`,
+          content: receiptHtml,
+          contentType: 'text/html',
+        },
+      ],
+    });
+    console.log(`[payments] Tax Invoice email successfully enqueued for payment #${paymentId} to ${r.student_email}`);
+  } catch (err) {
+    console.error(`[payments] Failed to send receipt email for payment #${paymentId}:`, err.message);
+  }
+}
+
+function calculatePricing(bundlePrice, months, coupon = null) {
+  const m = Math.max(1, Number(months) || 1);
+  const monthlyRate = Math.max(0, Number(bundlePrice) || 0);
+
+  // Term discount percentage based on duration
+  let termDiscountPct = 0;
+  if (m >= 36) termDiscountPct = 40;
+  else if (m >= 24) termDiscountPct = 30;
+  else if (m >= 12) termDiscountPct = 20;
+  else if (m >= 6) termDiscountPct = 10;
+  else if (m >= 3) termDiscountPct = 5;
+
+  const rawSubtotal = monthlyRate * m;
+  const termDiscountAmount = Math.round((rawSubtotal * termDiscountPct) / 100);
+  const subtotalAfterTerm = Math.max(0, rawSubtotal - termDiscountAmount);
+
+  let couponDiscountAmount = 0;
+  let appliedCoupon = null;
+
+  if (coupon) {
+    appliedCoupon = coupon;
+    if (coupon.discount_percent != null && Number(coupon.discount_percent) > 0) {
+      couponDiscountAmount = Math.round((subtotalAfterTerm * Number(coupon.discount_percent)) / 100);
+      if (coupon.max_discount_amount_inr != null && Number(coupon.max_discount_amount_inr) > 0) {
+        couponDiscountAmount = Math.min(couponDiscountAmount, Number(coupon.max_discount_amount_inr));
+      }
+    } else if (coupon.discount_amount_inr != null && Number(coupon.discount_amount_inr) > 0) {
+      couponDiscountAmount = Math.min(subtotalAfterTerm, Number(coupon.discount_amount_inr));
+    }
+  }
+
+  const finalAmount = Math.max(0, subtotalAfterTerm - couponDiscountAmount);
+
+  return {
+    monthlyRate,
+    months: m,
+    termDiscountPct,
+    rawSubtotal,
+    subtotalAfterTerm,
+    couponDiscountAmount,
+    totalDiscountAmount: termDiscountAmount + couponDiscountAmount,
+    finalAmount,
+    appliedCoupon,
+  };
+}
+
+function getIsRazorpayConfigured() {
+  const keyId = (process.env.RAZORPAY_KEY_ID || '').trim();
+  const keySecret = (process.env.RAZORPAY_KEY_SECRET || '').trim();
+  return (
+    keyId.length > 0 &&
+    keySecret.length > 0 &&
+    !keyId.toLowerCase().includes('yourkeyidhere') &&
+    !keySecret.toLowerCase().includes('yourkeysecrethere') &&
+    !keyId.toLowerCase().includes('paste') &&
+    !keySecret.toLowerCase().includes('paste') &&
+    (keyId.startsWith('rzp_test_') || keyId.startsWith('rzp_live_'))
+  );
+}
 
 // NOTE: This runs against Razorpay's real API/webhooks once RAZORPAY_KEY_ID /
 // RAZORPAY_KEY_SECRET / RAZORPAY_WEBHOOK_SECRET are set as env vars for a live
 // deployment. Without live keys, /order creates a local "order" record and
 // /webhook can be called directly (as Razorpay would) to prove the
 router.get('/config', async (req, res) => {
+  const configured = getIsRazorpayConfigured();
   res.json({
-    hasRazorpayKeys: !!(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET),
-    keyId: process.env.RAZORPAY_KEY_ID || null,
+    hasRazorpayKeys: configured,
+    keyId: configured ? process.env.RAZORPAY_KEY_ID : null,
+    validityOptions: VALIDITY_OPTIONS,
+  });
+});
+
+// Quote endpoint: Calculates real-time price, validity duration multiplier,
+// term discounts, and validated coupon deductions on backend
+router.post('/quote', authenticate, authorize('student', 'admin', 'instructor'), async (req, res) => {
+  const { bundle_id, validity_months = 12, coupon_code } = req.body;
+  const bundleResult = await pool.query(
+    'SELECT * FROM bundles WHERE id = $1 AND status = $2 AND deleted_at IS NULL',
+    [bundle_id, 'live']
+  );
+  const bundle = bundleResult.rows[0];
+  if (!bundle) return res.status(404).json({ error: 'Course bundle not found or unavailable for purchase' });
+
+  let coupon = null;
+  if (coupon_code && coupon_code.trim()) {
+    const couponResult = await pool.query(
+      'SELECT * FROM coupons WHERE UPPER(code) = UPPER($1) AND status = $2',
+      [coupon_code.trim(), 'active']
+    );
+    const c = couponResult.rows[0];
+    if (c) {
+      const notExpired = !c.expires_at || new Date(c.expires_at) >= new Date();
+      const underMax = c.max_uses == null || Number(c.used_count) < Number(c.max_uses);
+      const matchesBundle = !c.bundle_id || Number(c.bundle_id) === Number(bundle.id);
+      if (notExpired && underMax && matchesBundle) {
+        coupon = c;
+      }
+    }
+  }
+
+  const quote = calculatePricing(bundle.price_inr, validity_months, coupon);
+  res.json({
+    bundle_id: bundle.id,
+    bundle_title: bundle.title,
+    ...quote,
+    couponCode: quote.appliedCoupon ? quote.appliedCoupon.code : null,
+    validityOptions: VALIDITY_OPTIONS.map((opt) => {
+      const optQuote = calculatePricing(bundle.price_inr, opt.months, null);
+      return {
+        ...opt,
+        monthly_rate: optQuote.monthlyRate,
+        total_price: optQuote.finalAmount,
+      };
+    }),
   });
 });
 
@@ -74,45 +251,44 @@ router.post('/apply-coupon', authenticate, authorize('student', 'admin', 'instru
 });
 
 router.post('/order', authenticate, authorize('student', 'admin', 'instructor'), async (req, res) => {
-  const { bundle_id, coupon_code } = req.body;
-  const bundleResult = await pool.query('SELECT * FROM bundles WHERE id = $1 AND status = $2', [bundle_id, 'live']);
+  const { bundle_id, coupon_code, validity_months = 12 } = req.body;
+  const validityMonths = Number(validity_months) > 0 ? Math.floor(Number(validity_months)) : 12;
+
+  // Strict validation: course must exist, be published (live), and not soft-deleted
+  const bundleResult = await pool.query(
+    'SELECT * FROM bundles WHERE id = $1 AND status = $2 AND deleted_at IS NULL',
+    [bundle_id, 'live']
+  );
   const bundle = bundleResult.rows[0];
-  if (!bundle) return res.status(404).json({ error: 'Bundle not found or not live' });
+  if (!bundle) {
+    return res.status(404).json({ error: 'This course is currently unavailable for enrollment or has been unpublished.' });
+  }
 
-  const originalPrice = Number(bundle.price_inr || 0);
-  let discountAmount = 0;
-  let finalAmount = originalPrice;
   let appliedCoupon = null;
-
   if (coupon_code && coupon_code.trim()) {
     const couponResult = await pool.query(
       'SELECT * FROM coupons WHERE UPPER(code) = UPPER($1) AND status = $2',
       [coupon_code.trim(), 'active']
     );
-    const coupon = couponResult.rows[0];
-    if (coupon) {
-      const notExpired = !coupon.expires_at || new Date(coupon.expires_at) >= new Date();
-      const underMax = coupon.max_uses == null || Number(coupon.used_count) < Number(coupon.max_uses);
-      const matchesBundle = !coupon.bundle_id || Number(coupon.bundle_id) === Number(bundle.id);
-      const meetsMinOrder = !coupon.min_order_amount_inr || originalPrice >= Number(coupon.min_order_amount_inr);
-
-      if (notExpired && underMax && matchesBundle && meetsMinOrder) {
-        appliedCoupon = coupon;
-        if (coupon.discount_percent != null && Number(coupon.discount_percent) > 0) {
-          discountAmount = Math.round((originalPrice * Number(coupon.discount_percent)) / 100);
-          if (coupon.max_discount_amount_inr != null && Number(coupon.max_discount_amount_inr) > 0) {
-            discountAmount = Math.min(discountAmount, Number(coupon.max_discount_amount_inr));
-          }
-        } else if (coupon.discount_amount_inr != null && Number(coupon.discount_amount_inr) > 0) {
-          discountAmount = Math.min(originalPrice, Number(coupon.discount_amount_inr));
-        }
-        finalAmount = Math.max(0, originalPrice - discountAmount);
+    const c = couponResult.rows[0];
+    if (c) {
+      const notExpired = !c.expires_at || new Date(c.expires_at) >= new Date();
+      const underMax = c.max_uses == null || Number(c.used_count) < Number(c.max_uses);
+      const matchesBundle = !c.bundle_id || Number(c.bundle_id) === Number(bundle.id);
+      if (notExpired && underMax && matchesBundle) {
+        appliedCoupon = c;
       }
     }
   }
 
+  // Calculate pricing server-side — NEVER trust client-submitted prices
+  const pricing = calculatePricing(bundle.price_inr, validityMonths, appliedCoupon);
+  const originalPrice = pricing.rawSubtotal;
+  const discountAmount = pricing.totalDiscountAmount;
+  const finalAmount = pricing.finalAmount;
+
   let razorpayOrderId = null;
-  const isRazorpayConfigured = !!(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET);
+  const isRazorpayConfigured = getIsRazorpayConfigured();
 
   if (isRazorpayConfigured && finalAmount > 0) {
     try {
@@ -127,7 +303,7 @@ router.post('/order', authenticate, authorize('student', 'admin', 'instructor'),
           amount: Math.round(finalAmount * 100), // Razorpay expects amount in paise
           currency: 'INR',
           receipt: `rcpt_${Date.now()}_${bundle.id}`,
-          notes: { bundle_id: String(bundle.id), user_id: String(req.user.id) },
+          notes: { bundle_id: String(bundle.id), user_id: String(req.user.id), validity_months: String(validityMonths) },
         }),
       });
       const rzpData = await rzpRes.json();
@@ -148,13 +324,13 @@ router.post('/order', authenticate, authorize('student', 'admin', 'instructor'),
   const result = await pool.query(
     `INSERT INTO payments (
        user_id, bundle_id, amount_inr, status, razorpay_order_id,
-       coupon_id, coupon_code, original_amount_inr, discount_amount_inr
-     ) VALUES ($1,$2,$3,'created',$4,$5,$6,$7,$8) RETURNING *`,
+       coupon_id, coupon_code, original_amount_inr, discount_amount_inr, validity_months
+     ) VALUES ($1,$2,$3,'created',$4,$5,$6,$7,$8,$9) RETURNING *`,
     [
       req.user.id, bundle.id, finalAmount, razorpayOrderId,
       appliedCoupon ? appliedCoupon.id : null,
       appliedCoupon ? appliedCoupon.code : null,
-      originalPrice, discountAmount
+      originalPrice, discountAmount, validityMonths
     ]
   );
 
@@ -166,10 +342,13 @@ router.post('/order', authenticate, authorize('student', 'admin', 'instructor'),
     currency: 'INR',
     originalAmount: originalPrice,
     discountAmount,
+    validityMonths,
     couponCode: appliedCoupon ? appliedCoupon.code : null,
     isLive: isRazorpayConfigured && finalAmount > 0,
   });
 });
+
+
 
 // Student verification endpoint called by Razorpay modal handler
 router.post('/verify', authenticate, authorize('student', 'admin', 'instructor'), async (req, res) => {
@@ -210,7 +389,7 @@ router.post('/verify', authenticate, authorize('student', 'admin', 'instructor')
       await client.query('UPDATE coupons SET used_count = used_count + 1 WHERE id = $1', [payment.coupon_id]);
     }
 
-    await grantBundleAccess({ userId: payment.user_id, bundleId: payment.bundle_id, reason: 'payment.verify', req }, client);
+    await grantBundleAccess({ userId: payment.user_id, bundleId: payment.bundle_id, reason: 'payment.verify', req, orderId: payment.id }, client);
 
     await client.query(
       `INSERT INTO transactions (
@@ -233,34 +412,15 @@ router.post('/verify', authenticate, authorize('student', 'admin', 'instructor')
     client.release();
   }
 
-  // Fire receipt email
-  pool.query(
-    `SELECT u.email, u.name, b.title AS bundle_title
-       FROM users u, bundles b
-      WHERE u.id = $1 AND b.id = $2`,
-    [payment.user_id, payment.bundle_id]
-  ).then(({ rows }) => {
-    const recipient = rows[0];
-    if (!recipient?.email) return;
-    return enqueueMail({
-      to: recipient.email,
-      subject: 'Payment received — receipt',
-      template: 'payment-receipt',
-      data: {
-        name: recipient.name,
-        paymentId: payment.id,
-        amountInr: payment.amount_inr,
-        bundleTitle: recipient.bundle_title || 'your course bundle',
-      },
-    });
-  }).catch(() => {});
+  // Dispatch official Tax Invoice email
+  sendPaymentReceiptEmail(payment.id);
 
   res.json({ ok: true, status: 'paid' });
 });
 
 router.post('/enroll-free', authenticate, authorize('student', 'admin', 'instructor'), async (req, res) => {
   const result = await pool.query(
-    'SELECT id, is_free, price_inr FROM bundles WHERE id = $1 AND status = $2 AND deleted_at IS NULL',
+    'SELECT id, title, is_free, price_inr FROM bundles WHERE id = $1 AND status = $2 AND deleted_at IS NULL',
     [req.body.bundle_id, 'live']
   );
   const bundle = result.rows[0];
@@ -268,20 +428,39 @@ router.post('/enroll-free', authenticate, authorize('student', 'admin', 'instruc
     return res.status(400).json({ error: 'This bundle requires payment.' });
   }
   const { granted } = await grantBundleAccess({ userId: req.user.id, bundleId: bundle.id, reason: 'free.enrollment', req });
+
+  // Send free enrollment confirmation email
+  pool.query('SELECT name, email FROM users WHERE id = $1', [req.user.id])
+    .then(({ rows }) => {
+      if (rows[0]?.email) {
+        enqueueMail({
+          to: rows[0].email,
+          subject: `Enrollment Confirmed: ${bundle.title || 'Course'} — FlyCentric`,
+          template: 'enrollment-confirmation',
+          data: {
+            name: rows[0].name,
+            bundleTitle: bundle.title || 'Course Bundle',
+          },
+        });
+      }
+    })
+    .catch((err) => console.warn('[payments] Failed to send free enrollment email:', err.message));
+
   res.status(201).json({ ok: true, granted });
 });
 
 // Server-side payment webhook handler with HMAC-SHA256 signature verification.
-router.post('/webhook', async (req, res) => {
+router.post(['/webhook', '/razorpay/webhook'], async (req, res) => {
+  const isDemo = String(req.body?.razorpay_payment_id || '').startsWith('demo_') && !getIsRazorpayConfigured();
   const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
-  if (webhookSecret) {
+  if (webhookSecret && !isDemo) {
     const signature = req.headers['x-razorpay-signature'];
     const expected = crypto.createHmac('sha256', webhookSecret).update(req.rawBody || Buffer.from(JSON.stringify(req.body))).digest('hex');
     const provided = Buffer.from(String(signature || ''), 'utf8');
     const expectedBuf = Buffer.from(expected, 'utf8');
     const valid = signature && provided.length === expectedBuf.length && crypto.timingSafeEqual(provided, expectedBuf);
     if (!valid) return res.status(400).json({ error: 'Invalid webhook signature' });
-  } else if (process.env.NODE_ENV === 'production') {
+  } else if (process.env.NODE_ENV === 'production' && !isDemo) {
     console.warn('WARNING: RAZORPAY_WEBHOOK_SECRET is not set — payment webhook signature is NOT being verified in production.');
   }
 
@@ -331,7 +510,7 @@ router.post('/webhook', async (req, res) => {
     // short-circuited above by payment.status, but defense-in-depth here
     // too) can never double-grant.
     await grantBundleAccess(
-      { userId: payment.user_id, bundleId: payment.bundle_id, reason: 'payment.webhook', req },
+      { userId: payment.user_id, bundleId: payment.bundle_id, reason: 'payment.webhook', req, orderId: payment.id },
       client
     );
     // Sync the transactions table — this is what the Commerce admin screens
@@ -357,53 +536,137 @@ router.post('/webhook', async (req, res) => {
     client.release();
   }
 
-  // Fire-and-forget receipt email via the async mail queue (see
-  // utils/mailQueue.js) — never blocks or fails the webhook response.
-  // `to` must be a real email address: the mail worker sends to exactly
-  // what it's given, it does not resolve user ids for you.
-  pool.query(
-    `SELECT u.email, u.name, b.title AS bundle_title
-       FROM users u, bundles b
-      WHERE u.id = $1 AND b.id = $2`,
-    [payment.user_id, payment.bundle_id]
-  ).then(({ rows }) => {
-    const recipient = rows[0];
-    if (!recipient?.email) return;
-    return enqueueMail({
-      to: recipient.email,
-      subject: 'Payment received — receipt',
-      template: 'payment-receipt',
-      data: {
-        name: recipient.name,
-        paymentId: payment.id,
-        amountInr: payment.amount_inr,
-        bundleTitle: recipient.bundle_title || 'your course bundle',
-      },
-    });
-  }).catch(() => {});
+  // Dispatch official Tax Invoice email
+  sendPaymentReceiptEmail(payment.id);
 
   res.json({ ok: true, status: 'paid' });
 });
 
+// Student's active and enrolled courses with precise validity, access windows, and expiry countdowns
 router.get('/my-access', authenticate, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT DISTINCT ON (b.id)
+         b.*,
+         COALESCE(ce.expiry_date, ba.expires_at) AS expires_at,
+         COALESCE(ce.start_date, ba.granted_at) AS enrolled_at,
+         COALESCE(ba.validity_months, ce.validity_months, 12) AS validity_months,
+         CASE
+           WHEN COALESCE(ce.expiry_date, ba.expires_at) IS NOT NULL AND COALESCE(ce.expiry_date, ba.expires_at) < now() THEN 'expired'
+           WHEN COALESCE(ce.expiry_date, ba.expires_at) IS NOT NULL AND COALESCE(ce.expiry_date, ba.expires_at) <= now() + interval '7 days' THEN 'expiring_soon'
+           ELSE 'active'
+         END AS access_status,
+         CASE
+           WHEN COALESCE(ce.expiry_date, ba.expires_at) IS NOT NULL
+           THEN CEIL(EXTRACT(EPOCH FROM (COALESCE(ce.expiry_date, ba.expires_at) - now())) / 86400)::int
+           ELSE NULL
+         END AS days_remaining
+       FROM bundles b
+       LEFT JOIN bundle_access ba ON ba.bundle_id = b.id AND ba.user_id = $1
+       LEFT JOIN course_enrollments ce ON ce.bundle_id = b.id AND ce.user_id = $1
+       WHERE (ba.bundle_id IS NOT NULL OR ce.bundle_id IS NOT NULL)
+         AND b.deleted_at IS NULL
+         AND COALESCE(ce.status, 'active') != 'cancelled'
+       ORDER BY b.id, COALESCE(ce.expiry_date, ba.expires_at) DESC NULLS LAST`,
+      [req.user.id]
+    );
+    res.json({ bundles: result.rows });
+  } catch (err) {
+    console.error('[/payments/my-access error]', err.message);
+    res.status(500).json({ error: 'Failed to fetch enrolled access', detail: err.message });
+  }
+});
+
+// Student purchase & transaction history with receipts, coupons, and validity details
+router.get('/my-purchases', authenticate, async (req, res) => {
   const result = await pool.query(
-    `SELECT DISTINCT b.* FROM bundles b
-     WHERE b.id IN (
-       SELECT ba.bundle_id FROM bundle_access ba
-       WHERE ba.user_id = $1
-         AND NOT EXISTS (
-           SELECT 1 FROM course_enrollments ce
-           WHERE ce.user_id = ba.user_id AND ce.bundle_id = ba.bundle_id
-             AND ce.expiry_date IS NOT NULL AND ce.expiry_date < now()
-         )
-       UNION
-       SELECT ce.bundle_id FROM course_enrollments ce
-       WHERE ce.user_id = $1 AND ce.status = 'active'
-         AND (ce.expiry_date IS NULL OR ce.expiry_date >= now())
-     )`,
+    `SELECT p.*,
+            b.title AS bundle_title, b.exam_type, b.thumbnail_url,
+            t.id AS transaction_id, t.gateway_ref, t.payment_method,
+            ce.expiry_date, ce.status AS enrollment_status,
+            CASE
+              WHEN ce.expiry_date IS NOT NULL AND ce.expiry_date < now() THEN 'expired'
+              WHEN ce.expiry_date IS NOT NULL AND ce.expiry_date <= now() + interval '7 days' THEN 'expiring_soon'
+              ELSE COALESCE(ce.status, p.status)
+            END AS calculated_access_status
+     FROM payments p
+     LEFT JOIN bundles b ON b.id = p.bundle_id
+     LEFT JOIN transactions t ON t.purchase_id = p.id
+     LEFT JOIN course_enrollments ce ON ce.user_id = p.user_id AND ce.bundle_id = p.bundle_id
+     WHERE p.user_id = $1
+     ORDER BY p.created_at DESC`,
     [req.user.id]
   );
-  res.json({ bundles: result.rows });
+  res.json({ purchases: result.rows });
+});
+
+// Fetch detailed JSON receipt data for an order
+router.get('/:id/receipt', authenticate, async (req, res) => {
+  const isStaff = req.user.role === 'admin' || req.user.role === 'instructor';
+  const query = `
+    SELECT p.*, u.name AS student_name, u.email AS student_email, u.phone AS student_phone,
+           b.title AS bundle_title, b.exam_type,
+           t.id AS transaction_id, t.gateway_ref, t.payment_method, t.gateway,
+           ce.expiry_date, ce.start_date
+    FROM payments p
+    JOIN users u ON u.id = p.user_id
+    LEFT JOIN bundles b ON b.id = p.bundle_id
+    LEFT JOIN transactions t ON t.purchase_id = p.id
+    LEFT JOIN course_enrollments ce ON ce.user_id = p.user_id AND ce.bundle_id = p.bundle_id
+    WHERE p.id = $1 ${isStaff ? '' : 'AND p.user_id = $2'}
+    LIMIT 1
+  `;
+  const params = isStaff ? [req.params.id] : [req.params.id, req.user.id];
+  const result = await pool.query(query, params);
+  if (!result.rows.length) return res.status(404).json({ error: 'Receipt not found' });
+  res.json({ receipt: result.rows[0] });
+});
+
+// Render official, printable Tax Invoice & Payment Receipt in HTML/PDF format
+router.get('/:id/receipt/html', authenticate, async (req, res) => {
+  const isStaff = req.user.role === 'admin' || req.user.role === 'instructor';
+  const query = `
+    SELECT p.*, u.name AS student_name, u.email AS student_email, u.phone AS student_phone,
+           b.title AS bundle_title, b.exam_type,
+           t.id AS transaction_id, t.gateway_ref, t.payment_method, t.gateway,
+           ce.expiry_date, ce.start_date
+    FROM payments p
+    JOIN users u ON u.id = p.user_id
+    LEFT JOIN bundles b ON b.id = p.bundle_id
+    LEFT JOIN transactions t ON t.purchase_id = p.id
+    LEFT JOIN course_enrollments ce ON ce.user_id = p.user_id AND ce.bundle_id = p.bundle_id
+    WHERE p.id = $1 ${isStaff ? '' : 'AND p.user_id = $2'}
+    LIMIT 1
+  `;
+  const params = isStaff ? [req.params.id] : [req.params.id, req.user.id];
+  const result = await pool.query(query, params);
+  if (!result.rows.length) return res.status(404).send('Receipt not found');
+  const html = generateReceiptHtml(result.rows[0]);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(html);
+});
+
+// Resend payment receipt email
+router.post('/:id/resend-receipt', authenticate, async (req, res) => {
+  const isStaff = req.user.role === 'admin' || req.user.role === 'instructor';
+  const query = `
+    SELECT p.*, u.name, u.email, b.title AS bundle_title
+    FROM payments p
+    JOIN users u ON u.id = p.user_id
+    JOIN bundles b ON b.id = p.bundle_id
+    WHERE p.id = $1 ${isStaff ? '' : 'AND p.user_id = $2'}
+  `;
+  const params = isStaff ? [req.params.id] : [req.params.id, req.user.id];
+  const result = await pool.query(query, params);
+  if (!result.rows.length) return res.status(404).json({ error: 'Order not found' });
+  const row = result.rows[0];
+
+  try {
+    await sendPaymentReceiptEmail(row.id);
+    res.json({ ok: true, message: `Official tax invoice and receipt sent to ${row.email}` });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to send receipt email', detail: err.message });
+  }
 });
 
 router.get('/', authenticate, authorize('admin'), async (req, res) => {

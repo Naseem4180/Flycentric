@@ -8,7 +8,7 @@ const pool = require('../db/pool');
 const { signAccessToken, signRefreshToken, verifyRefreshToken, verifyAccessToken } = require('../auth/tokens');
 const { authenticate, invalidateSessionCache, clearAllSessionCache } = require('../middleware/auth');
 const { authLimiter, loginLimiter, passwordResetLimiter } = require('../middleware/rateLimit');
-const { enqueueMail } = require('../utils/mailQueue');
+const { enqueueMail, emailProviderAvailable } = require('../utils/mailQueue');
 const { gradeAndSubmitAttempt } = require('./exams');
 
 const router = express.Router();
@@ -41,9 +41,73 @@ async function saveAvatarIfProvided(avatarData) {
   return `/uploads/avatars/${filename}`;
 }
 
+// Send 6-digit email verification OTP for student registration
+router.post('/send-registration-otp', authLimiter, async (req, res) => {
+  const { email, name } = req.body;
+  if (!email || !email.trim()) {
+    return res.status(400).json({ error: 'Email address is required' });
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(cleanEmail)) {
+    return res.status(400).json({ error: 'Please enter a valid email address' });
+  }
+
+  try {
+    // 1. Check if email is already in use
+    const existing = await pool.query('SELECT id FROM users WHERE email = $1', [cleanEmail]);
+    if (existing.rows.length) {
+      return res.status(409).json({ error: 'An account with this email address already exists. Please sign in instead.' });
+    }
+
+    // 2. Generate a 6-digit cryptographic numeric OTP
+    const otp = String(crypto.randomInt(100000, 999999));
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // Invalidate previous unverified OTPs for this email
+    await pool.query(
+      'UPDATE email_verifications SET verified = false, expires_at = now() WHERE email = $1 AND verified = false',
+      [cleanEmail]
+    ).catch(() => {});
+
+    // Save OTP to email_verifications table
+    await pool.query(
+      `INSERT INTO email_verifications (email, otp, expires_at) VALUES ($1, $2, $3)`,
+      [cleanEmail, otp, expiresAt]
+    );
+
+    // Enqueue verification email via transactional mail worker
+    enqueueMail({
+      to: cleanEmail,
+      subject: `Your FlyCentric Verification Code: ${otp}`,
+      template: 'otp-verification',
+      data: {
+        otp,
+        name: name ? name.trim() : 'Cadet',
+        email: cleanEmail,
+      },
+    }).catch((mailErr) => {
+      console.warn('[auth] Failed to enqueue verification email:', mailErr.message);
+    });
+
+    const isEmailConfigured = await emailProviderAvailable();
+
+    res.json({
+      ok: true,
+      message: `A 6-digit verification code has been sent to ${cleanEmail}.`,
+      expiresInSeconds: 600,
+      devOtp: !isEmailConfigured ? otp : undefined,
+    });
+  } catch (err) {
+    console.error('Error sending registration OTP:', err);
+    res.status(500).json({ error: 'Failed to send verification code. Please try again.' });
+  }
+});
+
 router.post('/register', authLimiter, async (req, res) => {
   const {
-    email, password, name, phone, date_of_birth, country, city, avatar_data, avatar_url, role
+    email, password, name, phone, date_of_birth, country, city, avatar_data, avatar_url, role, otp
   } = req.body;
 
   if (!name || !name.trim()) {
@@ -65,12 +129,35 @@ router.post('/register', authLimiter, async (req, res) => {
     return res.status(400).json({ error: 'Country is required' });
   }
 
+  const cleanEmail = email.trim().toLowerCase();
   const allowedSelfRoles = ['student', 'instructor', 'institution'];
   const finalRole = allowedSelfRoles.includes(role) ? role : 'student';
 
   try {
-    const existing = await pool.query('SELECT id FROM users WHERE email = $1', [email.trim().toLowerCase()]);
+    const existing = await pool.query('SELECT id FROM users WHERE email = $1', [cleanEmail]);
     if (existing.rows.length) return res.status(409).json({ error: 'Email already registered' });
+
+    // Verify OTP for student registrations
+    if (finalRole === 'student') {
+      if (!otp || !otp.trim()) {
+        return res.status(400).json({ error: 'Email verification code (OTP) is required' });
+      }
+
+      const cleanOtp = otp.trim();
+      const otpRes = await pool.query(
+        `SELECT id FROM email_verifications
+         WHERE email = $1 AND otp = $2 AND expires_at > now() AND verified = false
+         ORDER BY created_at DESC LIMIT 1`,
+        [cleanEmail, cleanOtp]
+      );
+
+      if (!otpRes.rows.length) {
+        return res.status(400).json({ error: 'Invalid or expired verification code. Please request a new code.' });
+      }
+
+      // Mark OTP as verified/consumed
+      await pool.query('UPDATE email_verifications SET verified = true WHERE id = $1', [otpRes.rows[0].id]);
+    }
 
     let savedAvatarUrl = null;
     try {
@@ -110,6 +197,21 @@ router.post('/register', authLimiter, async (req, res) => {
       `INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES ($1,$2, now() + interval '30 days')`,
       [user.id, refreshToken]
     );
+
+    // Enqueue welcome email for new cadet account
+    enqueueMail({
+      to: user.email,
+      subject: 'Welcome to FlyCentric Aviation Academy! ✈️',
+      template: 'welcome',
+      data: {
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      },
+    }).catch((mailErr) => {
+      console.warn('[auth] Failed to enqueue welcome email:', mailErr.message);
+    });
+
     res.status(201).json({ user, accessToken, refreshToken, sessionId });
   } catch (err) {
     console.error(err);
@@ -502,9 +604,21 @@ router.post('/reset-password', passwordResetLimiter, async (req, res) => {
   const hash = await bcrypt.hash(newPassword, 10);
   await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, reset.user_id]);
   await pool.query('UPDATE password_resets SET used_at = now() WHERE id = $1', [reset.id]);
-  // Reset all sessions on password change — a stolen refresh token should
-  // not survive the owner regaining control of their account.
   await pool.query('DELETE FROM refresh_tokens WHERE user_id = $1', [reset.user_id]);
+
+  // Send password changed security notification
+  pool.query('SELECT name, email FROM users WHERE id = $1', [reset.user_id])
+    .then(({ rows }) => {
+      if (rows[0]?.email) {
+        enqueueMail({
+          to: rows[0].email,
+          subject: 'Security Alert: Your FlyCentric password was updated 🛡️',
+          template: 'password-changed',
+          data: { name: rows[0].name },
+        });
+      }
+    })
+    .catch((err) => console.warn('[auth] Failed to enqueue password changed alert:', err.message));
 
   res.json({ ok: true, message: 'Password updated. Please sign in again.' });
 });

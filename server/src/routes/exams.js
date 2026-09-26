@@ -22,6 +22,61 @@ function normalizeChapterIds(chapterIds, legacyChapterId) {
   return out;
 }
 
+// Safely jumbles multiple choice options and remaps the correct_option key
+// to match the randomized option order. Handles single select and multi-select.
+// Also preserves "All/None of the above" at the end if present.
+function shuffleQuestionOptions(options, correctOption) {
+  if (!Array.isArray(options) || options.length <= 1) {
+    return { options, correct_option: correctOption };
+  }
+
+  const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+
+  // Keep track of the original key of each option
+  const mappedOpts = options.map((opt, idx) => ({
+    ...opt,
+    _origKey: (opt.key || LETTERS[idx] || String(idx)).trim().toUpperCase(),
+  }));
+
+  // Detect if the final option is "All of the above", "None of the above", etc.
+  // If so, pin it to the last position so it still makes grammatical sense.
+  const lastOpt = mappedOpts[mappedOpts.length - 1];
+  const lastText = String(lastOpt?.text || '').trim().toLowerCase();
+  const pinLast = /^(all of the above|none of the above|all of these|none of these|all the above|both [a-d] and [a-d]|both [a-d] & [a-d])/i.test(lastText);
+
+  const toShuffle = pinLast ? mappedOpts.slice(0, -1) : [...mappedOpts];
+  for (let i = toShuffle.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [toShuffle[i], toShuffle[j]] = [toShuffle[j], toShuffle[i]];
+  }
+
+  const shuffledAll = pinLast ? [...toShuffle, lastOpt] : toShuffle;
+
+  // Re-assign sequential keys A, B, C, D...
+  const keyMapping = {};
+  const newOptions = shuffledAll.map((opt, idx) => {
+    const newKey = LETTERS[idx] || String.fromCharCode(65 + idx);
+    keyMapping[opt._origKey] = newKey;
+    const { _origKey, ...cleanOpt } = opt;
+    return { ...cleanOpt, key: newKey };
+  });
+
+  // Re-map correct_option to the new key
+  let newCorrectOption = correctOption;
+  if (typeof correctOption === 'string' && correctOption.trim()) {
+    if (correctOption.includes(',')) {
+      const parts = correctOption.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+      const remapped = parts.map((k) => keyMapping[k] || k).sort();
+      newCorrectOption = remapped.join(',');
+    } else {
+      const upper = correctOption.trim().toUpperCase();
+      newCorrectOption = keyMapping[upper] || correctOption;
+    }
+  }
+
+  return { options: newOptions, correct_option: newCorrectOption };
+}
+
 // ---- Quiz / Test-paper management (admin) ----------------------------------
 // Covers "Test Paper / Mock Exam Upload": a full structured set uploaded as one unit.
 router.post('/quizzes', authenticate, authorize('admin', 'instructor'), async (req, res) => {
@@ -417,30 +472,11 @@ router.post('/quizzes/:id/start', authenticate, authorize('student'), async (req
   // `questions` table — so a question edited mid-exam (or edited between
   // submission and later review) cannot change this student's result or
   // rewrite what they were actually shown. See schema.sql for the rationale.
-  const snapshotResult = await pool.query(
-    `SELECT id, question_text, question_type, options, correct_option, explanation FROM questions WHERE id = ANY($1)`,
-    [quiz.question_ids]
-  );
-  const questionSnapshot = {};
-  for (const q of snapshotResult.rows) {
-    questionSnapshot[q.id] = {
-      question_text: q.question_text,
-      question_type: q.question_type,
-      options: q.options,
-      correct_option: q.correct_option,
-      explanation: q.explanation,
-    };
-  }
-
-  const attemptResult = await pool.query(
-    `INSERT INTO attempts (user_id, quiz_id, total_questions, deadline_at, question_snapshot, session_id, client_ip, client_user_agent)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-    [req.user.id, quiz.id, quiz.question_ids.length, deadline, JSON.stringify(questionSnapshot), req.sessionId || null, req.ip || null, req.headers['user-agent'] || null]
-  );
+  const isExamMode = quiz.type === 'exam' || quiz.type === 'mock' || Boolean(quiz.shuffle_questions);
+  const shouldShuffleOptions = isExamMode || Boolean(quiz.shuffle_options);
 
   // Return questions without the correct answer / explanation while exam is live
   let qIds = [...quiz.question_ids];
-  const isExamMode = quiz.type === 'exam' || quiz.type === 'mock' || Boolean(quiz.shuffle_questions);
   if (isExamMode) {
     for (let i = qIds.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -448,22 +484,60 @@ router.post('/quizzes/:id/start', authenticate, authorize('student'), async (req
     }
   }
 
-  const qResult = await pool.query(
-    `SELECT id, question_text, question_type, options, difficulty, image_url FROM questions WHERE id = ANY($1) ORDER BY array_position($1, id)`,
-    [qIds]
+  const allQResult = await pool.query(
+    `SELECT id, question_text, question_type, options, correct_option, explanation, difficulty, image_url FROM questions WHERE id = ANY($1)`,
+    [quiz.question_ids]
   );
+  const questionsById = Object.fromEntries(allQResult.rows.map((q) => [q.id, q]));
 
-  const returnedQuestions = qResult.rows.map((q) => {
-    let opts = q.options;
-    if (quiz.shuffle_options && Array.isArray(opts) && opts.length > 1) {
-      opts = [...opts];
-      for (let i = opts.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [opts[i], opts[j]] = [opts[j], opts[i]];
-      }
+  const questionSnapshot = {};
+  const returnedQuestions = [];
+
+  for (const qId of qIds) {
+    const rawQ = questionsById[qId];
+    if (!rawQ) continue;
+
+    let processedOptions = rawQ.options;
+    let processedCorrectOption = rawQ.correct_option;
+
+    const canShuffleOpts = shouldShuffleOptions &&
+      Array.isArray(rawQ.options) &&
+      rawQ.options.length > 1 &&
+      rawQ.question_type !== 'true_false' &&
+      rawQ.question_type !== 'numerical' &&
+      rawQ.question_type !== 'short_answer' &&
+      rawQ.question_type !== 'descriptive';
+
+    if (canShuffleOpts) {
+      const shuffled = shuffleQuestionOptions(rawQ.options, rawQ.correct_option);
+      processedOptions = shuffled.options;
+      processedCorrectOption = shuffled.correct_option;
     }
-    return { ...q, options: opts };
-  });
+
+    questionSnapshot[qId] = {
+      id: rawQ.id,
+      question_text: rawQ.question_text,
+      question_type: rawQ.question_type,
+      options: processedOptions,
+      correct_option: processedCorrectOption,
+      explanation: rawQ.explanation,
+    };
+
+    returnedQuestions.push({
+      id: rawQ.id,
+      question_text: rawQ.question_text,
+      question_type: rawQ.question_type,
+      options: processedOptions,
+      difficulty: rawQ.difficulty,
+      image_url: rawQ.image_url,
+    });
+  }
+
+  const attemptResult = await pool.query(
+    `INSERT INTO attempts (user_id, quiz_id, total_questions, deadline_at, question_snapshot, session_id, client_ip, client_user_agent)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+    [req.user.id, quiz.id, returnedQuestions.length, deadline, JSON.stringify(questionSnapshot), req.sessionId || null, req.ip || null, req.headers['user-agent'] || null]
+  );
 
   res.json({ attempt: attemptResult.rows[0], quiz, questions: returnedQuestions, resumed: false });
 });

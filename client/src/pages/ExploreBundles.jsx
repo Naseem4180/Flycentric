@@ -42,11 +42,6 @@ export default function ExploreBundles() {
 
   useEffect(() => { load(); }, [load, authVersion]);
 
-  // If a student purchases a paid course, hide corresponding free starter courses
-  const hasPaidCourse = useMemo(() => {
-    return myAccessBundles.some((b) => !b.is_free && Number(b.price_inr) > 0);
-  }, [myAccessBundles]);
-
   // Extract unique exam types available in bundles
   const availableExamTypes = useMemo(() => {
     const types = new Set();
@@ -60,7 +55,6 @@ export default function ExploreBundles() {
     const term = search.trim().toLowerCase();
     let list = bundles.filter((b) => {
       const free = b.is_free || !Number(b.price_inr);
-      if (hasPaidCourse && free) return false;
       if (priceFilter === 'free' && !free) return false;
       if (priceFilter === 'paid' && free) return false;
       if (priceFilter === 'enrolled' && !accessIds.has(String(b.id))) return false;
@@ -78,7 +72,7 @@ export default function ExploreBundles() {
       list.sort((a, b) => a.title.localeCompare(b.title));
     }
     return list;
-  }, [bundles, search, priceFilter, examTypeFilter, sortBy, accessIds, hasPaidCourse]);
+  }, [bundles, search, priceFilter, examTypeFilter, sortBy, accessIds]);
 
   async function enrollFree(bundle) {
     setBusyId(bundle.id);

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Lock, BookOpen, ChevronLeft, FileCheck2, FileText, ExternalLink, Zap, Check, Clock, Tag, Award, TrendingUp, User } from 'lucide-react';
+import { Lock, BookOpen, ChevronLeft, FileCheck2, FileText, ExternalLink, Zap, Check, Clock, Tag, Award, TrendingUp, User, Video } from 'lucide-react';
 import { api } from '../api';
 import useAuth from '../context/useAuth';
 import { Modal, Button } from '../ui';
@@ -49,6 +49,36 @@ function timeAgo(dateString) {
     return `${hours}h ago`;
   }
   return `${days}d ago`;
+}
+
+function getEmbedUrl(rawUrl) {
+  if (!rawUrl) return null;
+  const url = rawUrl.trim();
+
+  // YouTube standard or short links
+  const ytMatch = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i);
+  if (ytMatch && ytMatch[1]) {
+    return `https://www.youtube-nocookie.com/embed/${ytMatch[1]}?rel=0&modestbranding=1`;
+  }
+
+  // Google Drive links
+  const gDriveMatch = url.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/i);
+  if (gDriveMatch && gDriveMatch[1]) {
+    return `https://drive.google.com/file/d/${gDriveMatch[1]}/preview`;
+  }
+
+  const gDriveIdMatch = url.match(/drive\.google\.com\/open\?id=([a-zA-Z0-9_-]+)/i);
+  if (gDriveIdMatch && gDriveIdMatch[1]) {
+    return `https://drive.google.com/file/d/${gDriveIdMatch[1]}/preview`;
+  }
+
+  // Vimeo links
+  const vimeoMatch = url.match(/vimeo\.com\/(\d+)/i);
+  if (vimeoMatch && vimeoMatch[1]) {
+    return `https://player.vimeo.com/video/${vimeoMatch[1]}`;
+  }
+
+  return url;
 }
 
 export default function SubjectDetail() {
@@ -119,6 +149,7 @@ function useCurriculumRows(chapters, tests) {
 function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = [], user = null }) {
   const [viewingNotes, setViewingNotes] = useState(null);
   const [viewingCheatSheet, setViewingCheatSheet] = useState(null);
+  const [viewingVideo, setViewingVideo] = useState(null);
   const [selectedChapter, setSelectedChapter] = useState(null);
   const rows = useCurriculumRows(chapters, tests);
 
@@ -630,6 +661,21 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
                       </button>
                     )}
 
+                    {/* Video Button: shown only if chapter has a video_url */}
+                    {c.video_url && (
+                      <button
+                        type="button"
+                        className="fc-btn-video"
+                        title="Watch Chapter Video Lesson"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setViewingVideo(c);
+                        }}
+                      >
+                        <Video size={12} /> VIDEO
+                      </button>
+                    )}
+
                     {/* Assignment Button: shown only if assignment quiz exists */}
                     {c.assignment_quiz_id && c.unlocked && (
                       <Link
@@ -835,6 +881,51 @@ function SubjectDetailBody({ subject = {}, chapters = [], summary = {}, tests = 
             />
           ) : (
             <p className="muted">No written notes text provided for this chapter. Please refer to the external study link or document attached.</p>
+          )}
+        </div>
+      </Modal>
+
+      {/* ---- Video Lesson Modal ---- */}
+      <Modal
+        open={!!viewingVideo}
+        onClose={() => setViewingVideo(null)}
+        title={viewingVideo ? `🎥 ${viewingVideo.title} — Video Lesson` : 'Video Lesson'}
+        size="large"
+        footer={
+          <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+            <a
+              href={viewingVideo?.video_url}
+              target="_blank"
+              rel="noreferrer"
+              className="btn btn-sm btn-outline"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            >
+              <ExternalLink size={13} /> Open in External Window ↗
+            </a>
+            <Button variant="outline" onClick={() => setViewingVideo(null)}>Close</Button>
+          </div>
+        }
+      >
+        <div style={{ padding: '8px 0' }}>
+          {viewingVideo?.video_url ? (
+            <div style={{ position: 'relative', width: '100%', paddingTop: '56.25%', borderRadius: 8, overflow: 'hidden', background: '#000', border: '1px solid var(--border)' }}>
+              <iframe
+                src={getEmbedUrl(viewingVideo.video_url)}
+                title={viewingVideo.title || 'Chapter Video'}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  border: 0,
+                }}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+              />
+            </div>
+          ) : (
+            <p className="muted">No video link provided for this chapter.</p>
           )}
         </div>
       </Modal>

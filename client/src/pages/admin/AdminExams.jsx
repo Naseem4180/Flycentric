@@ -132,6 +132,8 @@ export default function AdminExams() {
         attempt_limit: Number(form.attempt_limit) || 1,
         status: form.status,
         question_ids: questionIds.length ? questionIds : [1],
+        shuffle_questions: true,
+        shuffle_options: true,
       };
 
       if (editing) {

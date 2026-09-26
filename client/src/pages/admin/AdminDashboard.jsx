@@ -85,6 +85,7 @@ export default function AdminDashboard() {
   const academic = adminOverview?.academic || {};
   const commerce = adminOverview?.commerce || {};
   const recentPurchases = adminOverview?.recentPurchases || [];
+  const expiringEnrollments = adminOverview?.expiringEnrollments || [];
 
   const roleChartData = useMemo(() => usersByRole.map((r) => ({
     name: r.role[0].toUpperCase() + r.role.slice(1),
@@ -190,6 +191,60 @@ export default function AdminDashboard() {
         <KpiCard icon={Database} tone="orange" value={platformData.contentVolume?.questions ?? 0} label="Questions in Bank" sub="Across all subjects" onClick={() => navigate('/admin/questions')} />
         <KpiCard icon={Radio} tone="cyan" value={academic.studentsActiveNow || platformData.onlineUsers15m || 0} label="Students Online" sub="Live study sessions" onClick={() => navigate('/admin/student-activity')} />
       </div>
+
+      {/* Courses Expiring Soon Alert for Admin */}
+      {expiringEnrollments.length > 0 && (
+        <Card style={{ marginBottom: 16, border: '1px solid #f59e0b', background: 'rgba(245, 158, 11, 0.03)' }}>
+          <CardHead
+            icon={Clock}
+            tone="orange"
+            title={`Courses Expiring Soon (${expiringEnrollments.length} Cadet${expiringEnrollments.length > 1 ? 's' : ''})`}
+            subtitle="Cadet enrollments expiring within the next 7 days"
+            actions={
+              <Link to="/admin/enrollments?status=expiring_soon" className="card-action-link">
+                Manage All Expiring <ArrowRight size={13} />
+              </Link>
+            }
+          />
+          <div className="table-wrap">
+            <table className="table-stack">
+              <thead>
+                <tr>
+                  <th>Cadet</th>
+                  <th>Course</th>
+                  <th>Expiry Date</th>
+                  <th>Remaining</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {expiringEnrollments.slice(0, 5).map((e) => (
+                  <tr key={e.id}>
+                    <td data-label="Cadet">
+                      <div><strong>{e.student_name || 'Cadet'}</strong></div>
+                      <div className="td-muted" style={{ fontSize: '0.75rem' }}>{e.student_email}</div>
+                    </td>
+                    <td data-label="Course"><strong>{e.course_title}</strong></td>
+                    <td data-label="Expiry Date">
+                      {new Date(e.expiry_date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </td>
+                    <td data-label="Remaining">
+                      <Badge tone={e.days_remaining <= 2 ? 'red' : 'orange'}>
+                        {e.days_remaining <= 0 ? 'Expires today' : `${e.days_remaining} day${e.days_remaining > 1 ? 's' : ''} left`}
+                      </Badge>
+                    </td>
+                    <td data-label="Action">
+                      <Link to="/admin/enrollments?status=expiring_soon" style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--primary)' }}>
+                        Extend Access
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
 
       {/* Row: Student Performance & Commerce Summary */}
       <div className="grid grid-2-1" style={{ gap: 16, marginBottom: 16 }}>

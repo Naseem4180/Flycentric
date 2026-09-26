@@ -94,13 +94,86 @@ export default function AdminTrash() {
     });
   }
 
+  function askPermanentDeleteItem(item) {
+    const meta = TYPE_META[item.type] || { label: item.type };
+    setConfirm({
+      tone: 'danger',
+      title: `Permanently delete this ${meta.label.toLowerCase()}?`,
+      message: `“${item.title}” will be permanently erased from the database. This action CANNOT be undone!`,
+      confirmLabel: 'Delete Permanently',
+      onConfirm: async () => {
+        setBusyKey(`del-${item.type}-${item.id}`);
+        try {
+          await api.delete(`/content/trash/${item.type}/${item.id}`);
+          toast.success(`${meta.label} permanently deleted`, item.title);
+          load();
+        } catch (err) { toast.error('Permanent delete failed', err.message); }
+        setBusyKey(null);
+        setConfirm(null);
+      },
+    });
+  }
+
+  function askPermanentDeleteQuestion(q) {
+    setConfirm({
+      tone: 'danger',
+      title: 'Permanently delete this question?',
+      message: `Question #${q.id} will be permanently erased from the database. This action CANNOT be undone!`,
+      confirmLabel: 'Delete Permanently',
+      onConfirm: async () => {
+        setBusyKey(`del-q-${q.id}`);
+        try {
+          await api.delete(`/questions/${q.id}/permanent`);
+          toast.success('Question permanently deleted', `#${q.id}`);
+          load();
+        } catch (err) { toast.error('Permanent delete failed', err.message); }
+        setBusyKey(null);
+        setConfirm(null);
+      },
+    });
+  }
+
+  function askEmptyTrash() {
+    const isContent = tab === 'content';
+    const totalCount = isContent ? counts.content : counts.questions;
+    if (!totalCount) return;
+    setConfirm({
+      tone: 'danger',
+      title: `Empty all ${isContent ? 'content items' : 'questions'} from trash?`,
+      message: `All ${totalCount} deleted ${isContent ? 'bundles, subjects, chapters and sections' : 'questions'} will be permanently erased from the database. This action CANNOT be undone!`,
+      confirmLabel: 'Empty Trash',
+      onConfirm: async () => {
+        try {
+          if (isContent) {
+            await api.post('/content/trash/empty');
+            toast.success('Content trash emptied');
+          } else {
+            await api.post('/questions/trash/empty');
+            toast.success('Questions trash emptied');
+          }
+          load();
+        } catch (err) { toast.error('Empty trash failed', err.message); }
+        setConfirm(null);
+      },
+    });
+  }
+
   return (
     <div className="accent-red">
       <PageHeader
         eyebrow="System"
         title="Trash Bin"
-        subtitle="Deleted items are kept here so you can restore them if something was removed by mistake."
-        actions={<Button icon={RotateCcw} onClick={load}>Refresh</Button>}
+        subtitle="Deleted items are kept here so you can restore them or permanently remove them from the database."
+        actions={
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button icon={RotateCcw} onClick={load}>Refresh</Button>
+            {((tab === 'content' && counts.content > 0) || (tab === 'questions' && counts.questions > 0)) && (
+              <Button variant="danger" icon={Trash2} onClick={askEmptyTrash}>
+                Empty Trash
+              </Button>
+            )}
+          </div>
+        }
       />
 
       {error && <div className="error-banner"><span>{error}</span><Button size="xs" icon={RotateCcw} onClick={load}>Retry</Button></div>}
@@ -154,13 +227,23 @@ export default function AdminTrash() {
                         <td data-label="Type"><Badge tone={meta.tone}>{meta.label}</Badge></td>
                         <td data-label="Deleted" className="td-muted td-nowrap">{item.deleted_at ? new Date(item.deleted_at).toLocaleString() : '—'}</td>
                         <td data-label="Actions" className="td-actions">
-                          <Button
-                            size="xs" variant="success-soft" icon={Undo2}
-                            loading={busyKey === `${item.type}-${item.id}`}
-                            onClick={() => askRestoreItem(item)}
-                          >
-                            Restore
-                          </Button>
+                          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                            <Button
+                              size="xs" variant="success-soft" icon={Undo2}
+                              loading={busyKey === `${item.type}-${item.id}`}
+                              onClick={() => askRestoreItem(item)}
+                            >
+                              Restore
+                            </Button>
+                            <Button
+                              size="xs" variant="danger-soft" icon={Trash2}
+                              loading={busyKey === `del-${item.type}-${item.id}`}
+                              onClick={() => askPermanentDeleteItem(item)}
+                              title="Delete permanently from database"
+                            >
+                              Delete Permanently
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -189,7 +272,19 @@ export default function AdminTrash() {
                     <td data-label="Difficulty"><DifficultyBadge difficulty={q.difficulty} /></td>
                     <td data-label="Deleted" className="td-muted td-nowrap">{q.deleted_at ? new Date(q.deleted_at).toLocaleString() : '—'}</td>
                     <td data-label="Actions" className="td-actions">
-                      <Button size="xs" variant="success-soft" icon={Undo2} loading={busyKey === `q-${q.id}`} onClick={() => askRestoreQuestion(q)}>Restore</Button>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                        <Button size="xs" variant="success-soft" icon={Undo2} loading={busyKey === `q-${q.id}`} onClick={() => askRestoreQuestion(q)}>
+                          Restore
+                        </Button>
+                        <Button
+                          size="xs" variant="danger-soft" icon={Trash2}
+                          loading={busyKey === `del-q-${q.id}`}
+                          onClick={() => askPermanentDeleteQuestion(q)}
+                          title="Delete permanently from database"
+                        >
+                          Delete Permanently
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}

@@ -80,71 +80,10 @@ async function validateQuestionPayload({ question_type, difficulty, subject_id, 
   return null;
 }
 
-// Automatically syncs questions into chapter practice assignments:
-// - If an assignment already exists for the chapter, appends the new question IDs.
-// - If no assignment exists yet (new chapter/subject), creates and publishes one.
-async function syncQuestionsToChapterQuiz(db, chapterId, questionIds, userId = 1) {
-  if (!chapterId || !questionIds || !questionIds.length) return null;
-
-  try {
-    const existingQuizRes = await db.query(
-      `SELECT id, question_ids FROM quizzes
-       WHERE chapter_id = $1 AND type = 'practice' AND deleted_at IS NULL
-       ORDER BY id ASC LIMIT 1`,
-      [chapterId]
-    );
-
-    if (existingQuizRes.rows.length) {
-      const quiz = existingQuizRes.rows[0];
-      const existingSet = new Set((quiz.question_ids || []).map(Number));
-      let added = false;
-      for (const qid of questionIds) {
-        const num = Number(qid);
-        if (num > 0 && !existingSet.has(num)) {
-          existingSet.add(num);
-          added = true;
-        }
-      }
-      if (added) {
-        await db.query(
-          `UPDATE quizzes
-           SET question_ids = $1, updated_at = NOW()
-           WHERE id = $2`,
-          [Array.from(existingSet), quiz.id]
-        );
-      }
-      return quiz.id;
-    } else {
-      const chapterRes = await db.query(
-        `SELECT id, title, subject_id FROM chapters WHERE id = $1 AND deleted_at IS NULL`,
-        [chapterId]
-      );
-      if (!chapterRes.rows.length) return null;
-      const chapter = chapterRes.rows[0];
-      const cleanTitle = String(chapter.title || 'Chapter').trim();
-      const quizTitle = `${cleanTitle} Assignment`;
-
-      const validQIds = questionIds.map(Number).filter((n) => n > 0);
-      const newQuizRes = await db.query(
-        `INSERT INTO quizzes (
-          title, type, subject_id, chapter_id, chapter_ids,
-          question_ids, pass_percent, status, source,
-          require_previous_completion, allow_review_after_submit, show_explanations,
-          created_by
-        ) VALUES (
-          $1, 'practice', $2, $3, ARRAY[$3::int],
-          $4, 70, 'published', 'auto_import',
-          false, true, true,
-          $5
-        ) RETURNING id`,
-        [quizTitle, chapter.subject_id, chapter.id, validQIds, userId || 1]
-      );
-      return newQuizRes.rows[0]?.id;
-    }
-  } catch (err) {
-    console.warn(`[syncQuestionsToChapterQuiz] Error syncing to chapter ${chapterId}:`, err.message);
-    return null;
-  }
+// Auto-quiz creation is strictly disabled.
+// Admin manually creates quizzes and assignments from the Admin portal.
+async function syncQuestionsToChapterQuiz() {
+  return null;
 }
 
 // List / search / filter
@@ -416,9 +355,11 @@ router.post('/', authenticate, authorize('admin', 'instructor'), async (req, res
 
 
   if (chapter_id) {
+    /* syncQuestionsToChapterQuiz disabled — auto-creation of chapter quizzes is no longer wanted
     await syncQuestionsToChapterQuiz(pool, Number(chapter_id), [question.id], req.user.id).catch((err) => {
       console.warn('Failed to sync single question to chapter quiz', err);
     });
+    */
   }
 
   res.status(201).json({ question });
@@ -545,9 +486,19 @@ router.patch('/:id', authenticate, authorize('admin', 'instructor'), async (req,
 });
 
 router.delete('/:id', authenticate, authorize('admin', 'instructor'), async (req, res) => {
-  await pool.query('UPDATE questions SET deleted_at = now() WHERE id = $1', [req.params.id]);
+  const qid = Number(req.params.id);
+  // Soft-delete the question itself
+  await pool.query('UPDATE questions SET deleted_at = now() WHERE id = $1', [qid]);
+  // Remove this question ID from ALL quizzes that reference it
+  await pool.query(
+    `UPDATE quizzes
+     SET question_ids = array_remove(question_ids, $1),
+         updated_at = NOW()
+     WHERE $1 = ANY(question_ids) AND deleted_at IS NULL`,
+    [qid]
+  );
   await logAudit({ req, action: 'question.delete', entityType: 'question', entityId: req.params.id });
-  res.json({ ok: true });
+  res.json({ ok: true, removedFromQuizzes: true });
 });
 
 router.get('/trash/list', authenticate, authorize('admin'), async (req, res) => {
@@ -882,9 +833,10 @@ router.post('/bulk/import', authenticate, authorize('admin'), upload.single('fil
     // Automatically sync newly imported questions into chapter practice assignments:
     // 1. If an assignment already exists for the chapter, append new questions.
     // 2. If it is a new chapter without an assignment, auto-create and publish one.
-    for (const [chId, qIds] of importedByChapter.entries()) {
+    // syncQuestionsToChapterQuiz disabled — auto-creation of chapter quizzes is no longer wanted
+    /* for (const [chId, qIds] of importedByChapter.entries()) {
       await syncQuestionsToChapterQuiz(client, chId, qIds, req.user.id);
-    }
+    } */
 
     await client.query('COMMIT');
   } catch (err) {
@@ -1083,6 +1035,51 @@ router.get('/:id', async (req, res) => {
 router.post('/:id/restore', authenticate, authorize('admin'), async (req, res) => {
   await pool.query('UPDATE questions SET deleted_at = NULL WHERE id = $1', [req.params.id]);
   res.json({ ok: true });
+});
+
+router.delete('/:id/permanent', authenticate, authorize('admin'), async (req, res) => {
+  const qid = Number(req.params.id);
+  if (!qid) return res.status(400).json({ error: 'Invalid ID' });
+
+  try {
+    await pool.query('UPDATE doubts SET question_id = NULL WHERE question_id = $1', [qid]);
+    await pool.query('UPDATE questions SET superseded_by = NULL WHERE superseded_by = $1', [qid]);
+    await pool.query(
+      `UPDATE quizzes
+       SET question_ids = array_remove(question_ids, $1),
+           updated_at = NOW()
+       WHERE $1 = ANY(question_ids)`,
+      [qid]
+    );
+    await pool.query('DELETE FROM questions WHERE id = $1', [qid]);
+    await logAudit({ req, action: 'question.permanent_delete', entityType: 'question', entityId: qid });
+    res.json({ ok: true, permanentlyDeleted: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to permanently delete question' });
+  }
+});
+
+router.post('/trash/empty', authenticate, authorize('admin'), async (req, res) => {
+  try {
+    const deletedQIds = await pool.query('SELECT id FROM questions WHERE deleted_at IS NOT NULL');
+    const ids = deletedQIds.rows.map((r) => r.id);
+    if (ids.length > 0) {
+      await pool.query('UPDATE doubts SET question_id = NULL WHERE question_id = ANY($1)', [ids]);
+      await pool.query('UPDATE questions SET superseded_by = NULL WHERE superseded_by = ANY($1)', [ids]);
+      await pool.query(
+        `UPDATE quizzes
+         SET question_ids = (SELECT COALESCE(array_agg(elem), '{}'::int[]) FROM unnest(question_ids) AS elem WHERE elem != ALL($1)),
+             updated_at = NOW()
+         WHERE question_ids && $1`,
+        [ids]
+      );
+      await pool.query('DELETE FROM questions WHERE id = ANY($1)', [ids]);
+    }
+    await logAudit({ req, action: 'questions.trash_empty', count: ids.length });
+    res.json({ ok: true, count: ids.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to empty questions trash' });
+  }
 });
 
 module.exports = router;

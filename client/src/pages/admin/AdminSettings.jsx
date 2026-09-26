@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Settings as SettingsIcon, Building2, GraduationCap, Bell, Palette, Save, RotateCcw, ShieldCheck,
+  Mail, Send, CheckCircle2, AlertCircle, Eye, EyeOff, Zap,
 } from 'lucide-react';
 import { api } from '../../api';
 import {
@@ -11,6 +12,7 @@ import useTheme from '../../hooks/useTheme';
 
 const SECTIONS = [
   { id: 'general', label: 'General', icon: Building2, description: 'Platform identity and contact details' },
+  { id: 'smtp', label: 'Email & SMTP', icon: Mail, description: 'SMTP server and transactional email configuration' },
   { id: 'exams', label: 'Exams', icon: GraduationCap, description: 'Defaults applied to new quizzes' },
   { id: 'notifications', label: 'Notifications', icon: Bell, description: 'What the platform emails and alerts on' },
   { id: 'appearance', label: 'Appearance', icon: Palette, description: 'How the admin panel looks for you' },
@@ -21,6 +23,12 @@ const DEFAULTS = {
   support_email: '',
   contact_phone: '',
   institution_name: '',
+  smtp_host: '',
+  smtp_port: 587,
+  smtp_user: '',
+  smtp_pass: '',
+  mail_from: 'FlyCentric Aviation <support@flycentric.in>',
+  smtp_secure: false,
   default_pass_percentage: 60,
   default_exam_duration_min: 60,
   allow_exam_review: true,
@@ -36,7 +44,14 @@ function normalize(raw = {}) {
     if (!(key in DEFAULTS)) { out[key] = value; return; }
     if (typeof DEFAULTS[key] === 'boolean') out[key] = value === true || value === 'true';
     else if (typeof DEFAULTS[key] === 'number') out[key] = Number(value) || 0;
-    else out[key] = value ?? '';
+    else {
+      // Remove any surrounding quotes from JSON stringified DB values
+      let str = value ?? '';
+      if (typeof str === 'string' && str.startsWith('"') && str.endsWith('"')) {
+        try { str = JSON.parse(str); } catch (e) {}
+      }
+      out[key] = str;
+    }
   });
   return out;
 }
@@ -51,6 +66,11 @@ export default function AdminSettings() {
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState({});
   const [confirmReset, setConfirmReset] = useState(false);
+
+  // Email test states
+  const [testEmailTo, setTestEmailTo] = useState('');
+  const [testingEmail, setTestingEmail] = useState(false);
+  const [showSmtpPass, setShowSmtpPass] = useState(false);
 
   const load = useCallback(() => {
     setError('');
@@ -69,6 +89,35 @@ export default function AdminSettings() {
   function set(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
     setErrors((e) => ({ ...e, [key]: undefined }));
+  }
+
+  function applyPreset(provider) {
+    if (provider === 'gmail') {
+      setForm((f) => ({
+        ...f,
+        smtp_host: 'smtp.gmail.com',
+        smtp_port: 587,
+        smtp_secure: false,
+      }));
+      toast.info('Gmail Preset Applied', 'Use your full Gmail address and a 16-character Google App Password.');
+    } else if (provider === 'brevo') {
+      setForm((f) => ({
+        ...f,
+        smtp_host: 'smtp-relay.brevo.com',
+        smtp_port: 587,
+        smtp_secure: false,
+      }));
+      toast.info('Brevo Preset Applied', 'Enter your Brevo SMTP login and master password.');
+    } else if (provider === 'sendgrid') {
+      setForm((f) => ({
+        ...f,
+        smtp_host: 'smtp.sendgrid.net',
+        smtp_port: 587,
+        smtp_user: 'apikey',
+        smtp_secure: false,
+      }));
+      toast.info('SendGrid Preset Applied', 'Enter your SendGrid API Key as the password.');
+    }
   }
 
   function validate() {
@@ -99,6 +148,30 @@ export default function AdminSettings() {
     }
   }
 
+  async function sendTestEmail() {
+    if (!testEmailTo || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(testEmailTo)) {
+      toast.warning('Invalid Email', 'Please enter a valid recipient email address for testing.');
+      return;
+    }
+    setTestingEmail(true);
+    try {
+      const res = await api.post('/admin/settings/test-email', {
+        to: testEmailTo,
+        smtp_host: form.smtp_host,
+        smtp_port: form.smtp_port,
+        smtp_user: form.smtp_user,
+        smtp_pass: form.smtp_pass,
+        mail_from: form.mail_from,
+        smtp_secure: form.smtp_secure,
+      });
+      toast.success('Test Email Sent! 🚀', res.message || `Test email dispatched to ${testEmailTo}`);
+    } catch (err) {
+      toast.error('SMTP Delivery Failed', err.message || 'Check your SMTP host, port, username, or password.');
+    } finally {
+      setTestingEmail(false);
+    }
+  }
+
   if (error) {
     return (
       <div className="accent-purple">
@@ -107,6 +180,8 @@ export default function AdminSettings() {
       </div>
     );
   }
+
+  const isSmtpConfigured = !!(form?.smtp_host && form?.smtp_user && form?.smtp_pass);
 
   return (
     <div className="accent-purple">
@@ -177,6 +252,144 @@ export default function AdminSettings() {
                 </div>
               </div>
             </Card>
+          ) : section === 'smtp' ? (
+            <>
+              <Card>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <div>
+                    <h3 style={{ fontSize: '1.05rem', fontWeight: 800, margin: 0, color: 'var(--text)' }}>Transactional Email & SMTP Server</h3>
+                    <p style={{ fontSize: '.82rem', color: 'var(--muted)', margin: '4px 0 0' }}>
+                      Sends payment invoices, welcome letters, password resets, and course expiration notices to students.
+                    </p>
+                  </div>
+                  <Badge tone={isSmtpConfigured ? 'green' : 'amber'}>
+                    {isSmtpConfigured ? <><CheckCircle2 size={12} /> SMTP Active</> : <><AlertCircle size={12} /> Log-Only Mode</>}
+                  </Badge>
+                </div>
+
+                {/* Preset quick-selector */}
+                <div style={{ background: 'var(--surface-alt,#f8fafc)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 16px', marginBottom: 20 }}>
+                  <div style={{ fontSize: '.75rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)', letterSpacing: '0.04em', marginBottom: 8 }}>
+                    <Zap size={13} style={{ display: 'inline', verticalAlign: -2, marginRight: 4, color: '#4f46e5' }} /> Quick Setup Presets
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <Button size="xs" variant="secondary" onClick={() => applyPreset('gmail')}>Gmail (App Password)</Button>
+                    <Button size="xs" variant="secondary" onClick={() => applyPreset('brevo')}>Brevo (Sendinblue)</Button>
+                    <Button size="xs" variant="secondary" onClick={() => applyPreset('sendgrid')}>SendGrid</Button>
+                  </div>
+                </div>
+
+                <div className="form-grid">
+                  <div className="field">
+                    <label htmlFor="s-smtp-host">SMTP Host</label>
+                    <input
+                      id="s-smtp-host"
+                      value={form.smtp_host || ''}
+                      onChange={(e) => set('smtp_host', e.target.value)}
+                      placeholder="e.g. smtp.gmail.com"
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="s-smtp-port">SMTP Port</label>
+                    <input
+                      id="s-smtp-port"
+                      type="number"
+                      value={form.smtp_port || 587}
+                      onChange={(e) => set('smtp_port', Number(e.target.value) || 587)}
+                      placeholder="587 or 465"
+                    />
+                  </div>
+                </div>
+
+                <div className="form-grid">
+                  <div className="field">
+                    <label htmlFor="s-smtp-user">SMTP Username / Email</label>
+                    <input
+                      id="s-smtp-user"
+                      value={form.smtp_user || ''}
+                      onChange={(e) => set('smtp_user', e.target.value)}
+                      placeholder="e.g. your-academy@gmail.com"
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="s-smtp-pass">
+                      SMTP Password / App Password
+                    </label>
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        id="s-smtp-pass"
+                        type={showSmtpPass ? 'text' : 'password'}
+                        value={form.smtp_pass || ''}
+                        onChange={(e) => set('smtp_pass', e.target.value)}
+                        placeholder="e.g. 16-character App Password"
+                        style={{ paddingRight: 40 }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowSmtpPass(!showSmtpPass)}
+                        style={{
+                          position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                          background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)',
+                          padding: 4, display: 'flex', alignItems: 'center'
+                        }}
+                      >
+                        {showSmtpPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="field">
+                  <label htmlFor="s-mail-from">Default Sender (From Header)</label>
+                  <input
+                    id="s-mail-from"
+                    value={form.mail_from || ''}
+                    onChange={(e) => set('mail_from', e.target.value)}
+                    placeholder="FlyCentric Aviation <support@flycentric.in>"
+                  />
+                </div>
+
+                <ToggleRow
+                  label="Use SSL / TLS (Port 465)"
+                  description="Enable for implicit SSL (usually port 465). Keep disabled for STARTTLS (port 587 or 25)."
+                  checked={form.smtp_secure}
+                  onChange={(v) => set('smtp_secure', v)}
+                />
+
+                <div style={{ marginTop: 16, padding: '12px 16px', background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 8, fontSize: '.8rem', color: '#1e40af', lineHeight: 1.5 }}>
+                  <strong>💡 Gmail App Password Instructions:</strong> If you use Gmail, Google requires an <strong>App Password</strong> rather than your standard account password. Go to <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 700, textDecoration: 'underline' }}>Google Account Security &rarr; App Passwords</a>, create one for "FlyCentric LMS", and paste the 16 characters into the password field above.
+                </div>
+              </Card>
+
+              {/* Real-time Email Test Tool */}
+              <Card>
+                <CardHead
+                  title="Test Live Email Delivery"
+                  subtitle="Send a real verification test email to confirm your SMTP configuration."
+                />
+                <div style={{ display: 'flex', gap: 10, marginTop: 12, alignItems: 'flex-start' }}>
+                  <div style={{ flex: 1 }}>
+                    <input
+                      type="email"
+                      placeholder="Enter recipient email (e.g. your-email@gmail.com)"
+                      value={testEmailTo}
+                      onChange={(e) => setTestEmailTo(e.target.value)}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                  <Button
+                    variant="primary"
+                    icon={Send}
+                    onClick={sendTestEmail}
+                    loading={testingEmail}
+                    loadingLabel="Sending Test…"
+                    disabled={!testEmailTo}
+                  >
+                    Send Test Email
+                  </Button>
+                </div>
+              </Card>
+            </>
           ) : section === 'exams' ? (
             <Card>
               <CardHead title="Exam Defaults" subtitle="Applied when a new quiz is created — each quiz can still override them." />

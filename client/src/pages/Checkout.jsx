@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Tag, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Tag, CheckCircle2, AlertCircle, Clock, Receipt } from 'lucide-react';
 import { api } from '../api';
 import { readCart, removeFromCart, addToCart } from '../utils/cart';
 import useAuth from '../context/useAuth';
@@ -36,6 +36,8 @@ export default function Checkout() {
   const [couponError, setCouponError] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [validityMonths, setValidityMonths] = useState(12);
+  const [quote, setQuote] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -59,9 +61,24 @@ export default function Checkout() {
   }, [bundleId]);
 
   const primaryBundle = bundles[0];
-  const originalTotal = bundles.reduce((sum, b) => sum + Number(b.price_inr || 0), 0);
-  const discountAmount = appliedCoupon ? Number(appliedCoupon.discount_amount || 0) : 0;
-  const finalPayable = Math.max(0, originalTotal - discountAmount);
+
+  // Fetch real-time server quote for validity pricing and coupon discount
+  useEffect(() => {
+    if (!primaryBundle) return;
+    api.post('/payments/quote', {
+      bundle_id: primaryBundle.id,
+      validity_months: validityMonths,
+      coupon_code: appliedCoupon ? appliedCoupon.code : (couponCode.trim() || undefined),
+    })
+      .then((q) => {
+        setQuote(q);
+      })
+      .catch(() => {});
+  }, [primaryBundle, validityMonths, appliedCoupon]);
+
+  const originalTotal = quote ? quote.rawSubtotal : bundles.reduce((sum, b) => sum + Number(b.price_inr || 0), 0);
+  const discountAmount = quote ? quote.totalDiscountAmount : (appliedCoupon ? Number(appliedCoupon.discount_amount || 0) : 0);
+  const finalPayable = quote ? quote.finalAmount : Math.max(0, originalTotal - discountAmount);
 
   async function handleApplyCoupon(e) {
     if (e) e.preventDefault();
@@ -103,6 +120,7 @@ export default function Checkout() {
         const orderData = await api.post('/payments/order', {
           bundle_id: bundle.id,
           coupon_code: appliedCoupon ? appliedCoupon.code : null,
+          validity_months: validityMonths,
         });
 
         // If Razorpay live/test credentials are configured on server and payment is required
@@ -191,6 +209,9 @@ export default function Checkout() {
             <Link className="btn btn-hero" to="/my-subjects" style={{ textDecoration: 'none' }}>
               Go to My Courses →
             </Link>
+            <Link className="btn btn-outline" to="/my-purchases" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Receipt size={15} /> View Receipt & Invoices
+            </Link>
             <Link className="btn btn-outline" to="/" style={{ textDecoration: 'none' }}>
               Dashboard
             </Link>
@@ -253,8 +274,69 @@ export default function Checkout() {
           ))}
         </div>
 
-        {/* Coupon Application Box (Requirement 8) */}
-        <div style={{ marginTop: 20, padding: 14, background: 'var(--surface-sunken)', borderRadius: 10, border: '1px solid var(--line)' }}>
+        {/* Validity / Subscription Duration (Requirement 7 & 8) */}
+        <div style={{ background: 'var(--surface-alt,#f8fafc)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', marginTop: 18 }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent: 'space-between', gap:6, marginBottom:10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Clock size={15} style={{color:'#4338ca'}} />
+              <span style={{ fontWeight:700, fontSize:'.84rem', color:'var(--text)' }}>Select Course Validity</span>
+            </div>
+            {quote?.termDiscountPct > 0 && (
+              <span style={{ fontSize: '.72rem', fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(22, 163, 74, 0.12)', color: '#16a34a' }}>
+                Save {quote.termDiscountPct}% with term plan
+              </span>
+            )}
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap:8 }}>
+            {(quote?.validityOptions || gatewayConfig?.validityOptions || [
+              { months: 1, label: '1 Month' },
+              { months: 3, label: '3 Months' },
+              { months: 6, label: '6 Months' },
+              { months: 12, label: '12 Months' },
+            ]).map((opt) => {
+              const v = opt.months;
+              const isSelected = validityMonths === v;
+              return (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setValidityMonths(v)}
+                  style={{
+                    padding:'10px 12px',
+                    borderRadius:8,
+                    border: isSelected ? '2px solid #4f46e5' : '1.5px solid var(--border)',
+                    background: isSelected ? 'rgba(79,70,229,0.08)' : 'var(--surface)',
+                    color: isSelected ? '#4338ca' : 'var(--text)',
+                    fontWeight: isSelected ? 700 : 500,
+                    fontSize:'.82rem',
+                    cursor:'pointer',
+                    display:'flex',
+                    flexDirection:'column',
+                    alignItems:'center',
+                    gap:3,
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <span>{opt.label}</span>
+                  {opt.total_price != null && (
+                    <strong style={{ fontSize: '.78rem', color: isSelected ? '#4338ca' : 'var(--text)' }}>
+                      ₹{Number(opt.total_price).toLocaleString('en-IN')}
+                    </strong>
+                  )}
+                  {opt.discount_pct > 0 && (
+                    <span style={{ fontSize: '.68rem', color: '#16a34a', fontWeight: 600 }}>
+                      {opt.discount_pct}% off
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <p style={{margin:'8px 0 0',fontSize:'.74rem',color:'var(--muted)'}}>Access valid from purchase date. Term extensions can be renewed anytime.</p>
+        </div>
+
+        {/* Coupon Application Box (Requirement 9) */}
+        <div style={{ marginTop: 16, padding: 14, background: 'var(--surface-sunken)', borderRadius: 10, border: '1px solid var(--line)' }}>
           <label style={{ fontSize: '0.84rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
             <Tag size={15} style={{ color: 'var(--blue)' }} /> Have a Promo / Coupon Code?
           </label>
@@ -263,7 +345,7 @@ export default function Checkout() {
               type="text"
               className="input"
               style={{ textTransform: 'uppercase', fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.05em' }}
-              placeholder="e.g. ABC100"
+              placeholder="e.g. SAVE20"
               value={couponCode}
               disabled={Boolean(appliedCoupon)}
               onChange={(e) => { setCouponCode(e.target.value.toUpperCase()); setCouponError(''); }}
@@ -300,16 +382,16 @@ export default function Checkout() {
           )}
         </div>
 
-        {/* Price Breakdown Calculation (Requirement 8: Original Price -> Coupon Discount -> Final Payable Amount) */}
-        <div style={{ marginTop: 20, padding: '14px 16px', background: '#f8fafc', borderRadius: 10, border: '1px solid var(--line)' }}>
+        {/* Price Breakdown Calculation (Requirement 8 & 9) */}
+        <div style={{ marginTop: 16, padding: '14px 16px', background: '#f8fafc', borderRadius: 10, border: '1px solid var(--line)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: '0.88rem' }}>
-            <span className="muted">Original Price:</span>
+            <span className="muted">Course Subtotal ({validityMonths} Months):</span>
             <span>₹{originalTotal.toLocaleString('en-IN')}</span>
           </div>
 
-          {appliedCoupon && (
+          {discountAmount > 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: '0.88rem', color: '#16a34a' }}>
-              <span>Coupon Discount ({appliedCoupon.code}):</span>
+              <span>Total Savings / Discount {appliedCoupon ? `(${appliedCoupon.code})` : ''}:</span>
               <span>-₹{discountAmount.toLocaleString('en-IN')}</span>
             </div>
           )}

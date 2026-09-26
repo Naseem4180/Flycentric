@@ -24,6 +24,7 @@ import MyResults from './pages/MyResults';
 import StudentQuizzes from './pages/StudentQuizzes';
 import ExamHistory from './pages/ExamHistory';
 import Jobs from './pages/Jobs';
+import MyPurchases from './pages/MyPurchases';
 import StudentShell from './pages/StudentShell';
 import NotFound from './pages/NotFound';
 import AdminLayout from './pages/AdminLayout';
@@ -61,6 +62,7 @@ import AdminStudentDetail from './pages/admin/AdminStudentDetail';
 import AdminEnrollments from './pages/admin/AdminEnrollments';
 import AdminStudentActivity from './pages/admin/AdminStudentActivity';
 import AdminLmsReports from './pages/admin/AdminLmsReports';
+import AdminAdvertisements from './pages/admin/AdminAdvertisements';
 import InstructorDashboard from './pages/InstructorDashboard';
 import InstructorShell from './pages/InstructorShell';
 import Landing from './pages/Landing';
@@ -144,6 +146,7 @@ function AppRoutes() {
         {/* Explore Bundles is now its own page rather than an anchor that
             scrolled the dashboard. */}
         <Route path="/explore" element={<Protected roles={['student']}><StudentShell><ExploreBundles /></StudentShell></Protected>} />
+        <Route path="/my-purchases" element={<Protected roles={['student', 'admin', 'instructor']}><StudentShell><MyPurchases /></StudentShell></Protected>} />
         <Route path="/subjects/:subjectId" element={<Protected roles={['student', 'admin', 'instructor']}><StudentAware><SubjectDetail /></StudentAware></Protected>} />
         <Route path="/my-doubts" element={<Protected roles={['student']}><StudentShell><MyDoubts /></StudentShell></Protected>} />
         <Route path="/report-exam-question" element={<Protected roles={['student']}><StudentShell><ReportExamQuestion /></StudentShell></Protected>} />
@@ -180,6 +183,7 @@ function AppRoutes() {
           <Route path="memory-bank" element={<AdminMemoryBank />} />
           <Route path="notifications" element={<AdminNotifications />} />
           <Route path="email-campaigns" element={<AdminEmailCampaigns />} />
+          <Route path="advertisements" element={<AdminAdvertisements />} />
           <Route path="student-analytics" element={<AdminStudentInsights />} />
           <Route path="trash" element={<AdminTrash />} />
           <Route path="settings" element={<AdminSettings />} />

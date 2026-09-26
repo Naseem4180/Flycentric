@@ -61,7 +61,13 @@ export default function AdminEnrollments() {
   const filtered = useMemo(() => {
     let list = enrollments || [];
     if (statusFilter !== 'all') {
-      list = list.filter((e) => e.status === statusFilter);
+      if (statusFilter === 'expiring_soon') {
+        list = list.filter((e) => e.calculated_status === 'expiring_soon');
+      } else if (statusFilter === 'expired') {
+        list = list.filter((e) => e.calculated_status === 'expired' || e.status === 'expired');
+      } else {
+        list = list.filter((e) => e.status === statusFilter);
+      }
     }
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -165,6 +171,7 @@ export default function AdminEnrollments() {
             >
               <option value="all">All Access Statuses</option>
               <option value="active">Active</option>
+              <option value="expiring_soon">Expiring Soon (Next 7 Days)</option>
               <option value="expired">Expired</option>
               <option value="revoked">Revoked</option>
             </select>
@@ -226,14 +233,19 @@ export default function AdminEnrollments() {
                       </div>
                     </td>
                     <td data-label="Status">
-                      <Badge tone={e.status === 'active' ? 'green' : 'amber'}>
-                        {e.status}
+                      <Badge tone={e.calculated_status === 'expiring_soon' ? 'amber' : (e.calculated_status === 'expired' ? 'red' : (e.status === 'active' ? 'green' : 'slate'))}>
+                        {e.calculated_status === 'expiring_soon' ? 'EXPIRING SOON' : (e.calculated_status === 'expired' ? 'EXPIRED' : (e.status || 'ACTIVE').toUpperCase())}
                       </Badge>
                     </td>
                     <td data-label="Expiry">
-                      <div className="td-muted" style={{ fontSize: '0.82rem' }}>
-                        {e.expires_at ? new Date(e.expires_at).toLocaleDateString() : 'Lifetime'}
+                      <div style={{ fontSize: '0.82rem', fontWeight: 600, color: e.calculated_status === 'expiring_soon' ? '#b45309' : (e.calculated_status === 'expired' ? '#dc2626' : 'var(--text)') }}>
+                        {e.expiry_date || e.expires_at ? new Date(e.expiry_date || e.expires_at).toLocaleDateString() : 'Lifetime'}
                       </div>
+                      {e.days_remaining != null && (
+                        <div style={{ fontSize: '0.72rem', color: e.days_remaining <= 7 ? '#b45309' : 'var(--muted)' }}>
+                          {e.days_remaining < 0 ? 'Expired' : `${e.days_remaining}d remaining`}
+                        </div>
+                      )}
                     </td>
                     <td data-label="Actions" style={{ textAlign: 'right' }}>
                       <Button

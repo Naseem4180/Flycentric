@@ -8,7 +8,7 @@ const router = express.Router();
 
 // Lightweight in-memory cache for high-frequency taxonomy endpoints
 const taxonomyCache = new Map();
-const TAXONOMY_CACHE_TTL_MS = 30000; // 30 seconds
+const TAXONOMY_CACHE_TTL_MS = 2000; // 2-second burst debounce (prevents stale admin/student UI data)
 
 function getCachedTaxonomy(key) {
   const item = taxonomyCache.get(key);
@@ -573,7 +573,7 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
   const subject = subjectResult.rows[0];
 
   const chaptersResult = await pool.query(
-    'SELECT id, title, order_index, is_free, notes_url, has_exam, notes FROM chapters WHERE subject_id = $1 AND deleted_at IS NULL ORDER BY order_index ASC, id ASC',
+    'SELECT id, title, order_index, is_free, notes_url, has_exam, notes, video_url FROM chapters WHERE subject_id = $1 AND deleted_at IS NULL ORDER BY order_index ASC, id ASC',
     [subjectId]
   );
 
@@ -601,15 +601,30 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
     [subjectId]
   );
 
-  // Every submitted attempt this student has on those quizzes.
+  // Look up when the student was granted access to this subject under their active bundle
+  const enrollRes = await pool.query(
+    `SELECT COALESCE(ce.start_date, ba.granted_at) as enrolled_at
+     FROM bundle_access ba
+     JOIN bundle_subjects bs ON bs.bundle_id = ba.bundle_id
+     LEFT JOIN course_enrollments ce ON ce.bundle_id = ba.bundle_id AND ce.user_id = $1
+     JOIN bundles b ON b.id = ba.bundle_id AND b.deleted_at IS NULL
+     WHERE ba.user_id = $1 AND bs.subject_id = $2
+       AND (ba.expires_at IS NULL OR ba.expires_at > now())
+     ORDER BY COALESCE(ce.start_date, ba.granted_at) DESC LIMIT 1`,
+    [req.user.id, subjectId]
+  );
+  const enrolledAt = enrollRes.rows[0]?.enrolled_at || null;
+
+  // Every submitted attempt this student has on those quizzes since enrollment.
   const quizIds = quizResult.rows.map((q) => q.id);
   const attemptsResult = quizIds.length
     ? await pool.query(
         `SELECT quiz_id, score, submitted_at
          FROM attempts
          WHERE user_id = $1 AND quiz_id = ANY($2) AND status = 'submitted'
+           AND ($3::timestamptz IS NULL OR submitted_at >= $3)
          ORDER BY submitted_at ASC`,
-        [req.user.id, quizIds]
+        [req.user.id, quizIds, enrolledAt]
       )
     : { rows: [] };
 
@@ -681,6 +696,7 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
       is_free: c.is_free,
       notes_url: c.notes_url || null,
       notes: c.notes || null,
+      video_url: c.video_url || null,
       has_notes: hasNotes,
       has_exam: !!singleTest,
       has_quiz: !!singleAssignment,
@@ -894,7 +910,7 @@ router.get('/subjects/:subjectId/progress', authenticate, async (req, res) => {
 });
 
 router.post('/subjects/:subjectId/chapters', authenticate, authorize('admin'), async (req, res) => {
-  const { title, order_index, is_free, notes_url, has_exam, notes, source_chapter_id } = req.body;
+  const { title, order_index, is_free, notes_url, has_exam, notes, source_chapter_id, video_url } = req.body;
   const cleanTitle = String(title || '').trim();
   if (!cleanTitle) return res.status(400).json({ error: 'title required' });
   const existing = await pool.query(
@@ -917,6 +933,7 @@ router.post('/subjects/:subjectId/chapters', authenticate, authorize('admin'), a
   let finalNotes = notes || null;
   let finalHasExam = !!has_exam;
   let finalIsFree = !!is_free;
+  let finalVideoUrl = video_url || null;
 
   if (source_chapter_id) {
     const src = await pool.query('SELECT * FROM chapters WHERE id = $1 AND deleted_at IS NULL', [source_chapter_id]);
@@ -925,6 +942,7 @@ router.post('/subjects/:subjectId/chapters', authenticate, authorize('admin'), a
       finalNotes = finalNotes || src.rows[0].notes;
       finalHasExam = finalHasExam || src.rows[0].has_exam;
       finalIsFree = finalIsFree || src.rows[0].is_free;
+      finalVideoUrl = finalVideoUrl || src.rows[0].video_url;
     }
   }
 
@@ -933,8 +951,8 @@ router.post('/subjects/:subjectId/chapters', authenticate, authorize('admin'), a
     // existing manual order unless a specific position was requested.
     const resolvedOrder = order_index == null ? await nextOrderIndex(req.params.subjectId) : Number(order_index);
     const result = await pool.query(
-      'INSERT INTO chapters (subject_id, title, order_index, is_free, notes_url, has_exam, notes) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
-      [req.params.subjectId, cleanTitle, resolvedOrder, finalIsFree, finalNotesUrl, finalHasExam, finalNotes]
+      'INSERT INTO chapters (subject_id, title, order_index, is_free, notes_url, has_exam, notes, video_url) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',
+      [req.params.subjectId, cleanTitle, resolvedOrder, finalIsFree, finalNotesUrl, finalHasExam, finalNotes, finalVideoUrl]
     );
     const fresh = await pool.query('SELECT * FROM chapters WHERE id = $1', [result.rows[0].id]);
     res.status(201).json({ chapter: fresh.rows[0] });
@@ -949,7 +967,7 @@ router.post('/subjects/:subjectId/chapters', authenticate, authorize('admin'), a
 });
 
 router.patch('/chapters/:id', authenticate, authorize('admin'), async (req, res) => {
-  const { title, order_index, is_free, notes_url, has_exam, notes, status, subject_id } = req.body;
+  const { title, order_index, is_free, notes_url, has_exam, notes, status, subject_id, video_url } = req.body;
   // Custom Chapter Sequencing: order_index is the sole, strict source of
   // truth for curriculum order — renaming a chapter never moves it, and no
   // automatic re-sort runs here. Admins reorder explicitly (drag/drop sends
@@ -963,9 +981,10 @@ router.patch('/chapters/:id', authenticate, authorize('admin'), async (req, res)
        has_exam = COALESCE($7,has_exam),
        notes = CASE WHEN $8 THEN $9 ELSE notes END,
        status = COALESCE($10,status),
-       subject_id = COALESCE($11,subject_id)
+       subject_id = COALESCE($11,subject_id),
+       video_url = CASE WHEN $12 THEN NULLIF($13, '') ELSE video_url END
      WHERE id = $4 AND deleted_at IS NULL RETURNING *`,
-    [title, order_index, is_free, req.params.id, notes_url !== undefined, notes_url, has_exam, notes !== undefined, notes, status, subject_id || null]
+    [title, order_index, is_free, req.params.id, notes_url !== undefined, notes_url, has_exam, notes !== undefined, notes, status, subject_id || null, video_url !== undefined, video_url]
   );
   if (!result.rows.length) return res.status(404).json({ error: 'Chapter not found' });
   res.json({ chapter: result.rows[0] });
@@ -1095,6 +1114,45 @@ router.post('/trash/:type/:id/restore', authenticate, authorize('admin'), async 
   if (!table) return res.status(400).json({ error: 'Invalid type' });
   await pool.query(`UPDATE ${table} SET deleted_at = NULL WHERE id = $1`, [req.params.id]);
   res.json({ ok: true });
+});
+
+router.delete('/trash/:type/:id', authenticate, authorize('admin'), async (req, res) => {
+  const { type, id } = req.params;
+  const numId = Number(id);
+  if (!numId) return res.status(400).json({ error: 'Invalid ID' });
+
+  try {
+    if (type === 'bundle') {
+      await pool.query('UPDATE payments SET bundle_id = NULL WHERE bundle_id = $1', [numId]);
+      await pool.query('DELETE FROM bundles WHERE id = $1', [numId]);
+    } else if (type === 'subject') {
+      await pool.query('UPDATE exam_appearances SET subject_id = NULL WHERE subject_id = $1', [numId]);
+      await pool.query('DELETE FROM subjects WHERE id = $1', [numId]);
+    } else if (type === 'chapter') {
+      await pool.query('DELETE FROM chapters WHERE id = $1', [numId]);
+    } else if (type === 'section') {
+      await pool.query('DELETE FROM sections WHERE id = $1', [numId]);
+    } else {
+      return res.status(400).json({ error: 'Invalid type' });
+    }
+    res.json({ ok: true, deleted: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to permanently delete item' });
+  }
+});
+
+router.post('/trash/empty', authenticate, authorize('admin'), async (req, res) => {
+  try {
+    await pool.query('UPDATE payments SET bundle_id = NULL WHERE bundle_id IN (SELECT id FROM bundles WHERE deleted_at IS NOT NULL)');
+    await pool.query('DELETE FROM bundles WHERE deleted_at IS NOT NULL');
+    await pool.query('UPDATE exam_appearances SET subject_id = NULL WHERE subject_id IN (SELECT id FROM subjects WHERE deleted_at IS NOT NULL)');
+    await pool.query('DELETE FROM subjects WHERE deleted_at IS NOT NULL');
+    await pool.query('DELETE FROM chapters WHERE deleted_at IS NOT NULL');
+    await pool.query('DELETE FROM sections WHERE deleted_at IS NOT NULL');
+    res.json({ ok: true, emptied: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to empty trash' });
+  }
 });
 
 // ---- Homepage & Website CMS ------------------------------------------------

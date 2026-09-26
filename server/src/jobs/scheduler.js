@@ -184,28 +184,73 @@ async function sendBirthdayGreetings() {
   if (users.length) console.log(`[scheduler] sent ${users.length} birthday email(s)`);
 }
 
+// ----------------------------------------------------------------------------
+// 14. Course Expiry Warning Emails — 7 days before course access expires
+// ----------------------------------------------------------------------------
+async function sendCourseExpiryWarnings() {
+  try {
+    const { rows: expiring } = await pool.query(
+      `SELECT ce.id, ce.user_id, ce.bundle_id, ce.expiry_date,
+              u.name, u.email, b.title AS bundle_title
+       FROM course_enrollments ce
+       JOIN users u ON u.id = ce.user_id
+       JOIN bundles b ON b.id = ce.bundle_id
+       WHERE ce.status = 'active'
+         AND ce.expiry_date IS NOT NULL
+         AND ce.expiry_date > now()
+         AND ce.expiry_date <= now() + interval '7 days'
+         AND (ce.last_expiry_warning_at IS NULL OR ce.last_expiry_warning_at < now() - interval '7 days')`
+    );
+
+    for (const item of expiring) {
+      const daysRemaining = Math.max(1, Math.ceil((new Date(item.expiry_date) - Date.now()) / (1000 * 60 * 60 * 24)));
+      const formattedExpiry = new Date(item.expiry_date).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' });
+
+      await enqueueMail({
+        to: item.email,
+        subject: `⚠️ Access Expiring Soon: ${item.bundle_title || 'Your Course'} (${daysRemaining} days left) — FlyCentric`,
+        template: 'course-expiring',
+        data: {
+          name: item.name,
+          bundleTitle: item.bundle_title,
+          expiryDate: formattedExpiry,
+          daysRemaining,
+        },
+      });
+
+      await pool.query('UPDATE course_enrollments SET last_expiry_warning_at = now() WHERE id = $1', [item.id]);
+    }
+    if (expiring.length) console.log(`[scheduler] sent ${expiring.length} course expiry warning email(s)`);
+  } catch (err) {
+    console.error('[scheduler] sendCourseExpiryWarnings failed:', err.message);
+  }
+}
+
 async function runAllDailyJobs() {
   await sweepIdleAttempts().catch((e) => console.error('[scheduler] sweepIdleAttempts failed', e));
   await sendProgressReports().catch((e) => console.error('[scheduler] sendProgressReports failed', e));
   await sendReengagementEmails().catch((e) => console.error('[scheduler] sendReengagementEmails failed', e));
   await dispatchDueCampaigns().catch((e) => console.error('[scheduler] dispatchDueCampaigns failed', e));
   await sendBirthdayGreetings().catch((e) => console.error('[scheduler] sendBirthdayGreetings failed', e));
+  await sendCourseExpiryWarnings().catch((e) => console.error('[scheduler] sendCourseExpiryWarnings failed', e));
 }
 
 let started = false;
 function start() {
   if (started) return;
   started = true;
-  // The idle-attempt sweep and campaign dispatch are time-sensitive (a
-  // student shouldn't wait hours for an overdue submit, and a scheduled
-  // campaign should go out close to its chosen minute), so they run every
-  // 5 minutes. The once-daily jobs are cheap to check that often too (the
-  // timestamp guards make repeat checks a no-op), so one shared interval is
-  // enough instead of five separate timers.
   const CHECK_INTERVAL = 5 * MINUTE;
   runAllDailyJobs();
   setInterval(runAllDailyJobs, CHECK_INTERVAL);
-  console.log('[scheduler] started (idle-submit sweep, progress reports, re-engagement, campaigns, birthdays)');
+  console.log('[scheduler] started (idle-submit sweep, progress reports, re-engagement, campaigns, birthdays, expiry-warnings)');
 }
 
-module.exports = { start, sweepIdleAttempts, sendProgressReports, sendReengagementEmails, dispatchDueCampaigns, sendBirthdayGreetings };
+module.exports = {
+  start,
+  sweepIdleAttempts,
+  sendProgressReports,
+  sendReengagementEmails,
+  dispatchDueCampaigns,
+  sendBirthdayGreetings,
+  sendCourseExpiryWarnings,
+};

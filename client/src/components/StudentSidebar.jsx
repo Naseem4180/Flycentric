@@ -5,7 +5,7 @@ import SidebarProCard from './SidebarProCard';
 import {
   LayoutGrid, BookOpen, Compass, ListChecks, Brain,
   Award, History, CalendarClock, BarChart3,
-  MessageCircle, Flag, Briefcase, HelpCircle, ChevronDown, ChevronRight
+  MessageCircle, Flag, Briefcase, HelpCircle, ChevronDown, ChevronRight, Receipt
 } from 'lucide-react';
 
 const STUDENT_NAV = [
@@ -28,6 +28,7 @@ const STUDENT_NAV = [
     children: [
       { to: '/my-subjects', icon: BookOpen, label: 'My Subjects' },
       { to: '/explore', icon: Compass, label: 'Explore Bundles' },
+      { to: '/my-purchases', icon: Receipt, label: 'My Purchases' },
       { to: '/quizzes', icon: ListChecks, label: 'Practice Quizzes' },
       { to: '/memory-bank', icon: Brain, label: 'Memory Box' },
     ],

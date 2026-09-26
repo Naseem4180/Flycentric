@@ -106,6 +106,7 @@ async function fire(path, { method, body, isForm, auth }) {
     return await fetch(`${BASE_URL}${path}`, {
       method,
       headers,
+      cache: 'no-store',
       body: body ? (isForm ? body : JSON.stringify(body)) : undefined,
       signal: controller.signal,
     });

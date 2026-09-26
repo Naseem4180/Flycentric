@@ -3,7 +3,7 @@ import {
   Plus, BookOpen, Pencil, Trash2, Copy, Search, ChevronDown, ChevronUp,
   FileQuestion, Globe, EyeOff, Layers, ListChecks, GripVertical, ArrowDownAZ,
   Maximize2, Minimize2, Eye, Check, FileText, ExternalLink, Award, Hash, Sparkles,
-  Plane, GraduationCap, CheckCircle2, X, FolderTree,
+  Plane, GraduationCap, CheckCircle2, X, FolderTree, Video,
 } from 'lucide-react';
 import { api } from '../../api';
 import {
@@ -64,6 +64,7 @@ export default function AdminSubjectsQuizzes() {
   const [chapterOrderId, setChapterOrderId] = useState(1);
   const [chapterNotes, setChapterNotes] = useState('');
   const [chapterNotesUrl, setChapterNotesUrl] = useState('');
+  const [chapterVideoUrl, setChapterVideoUrl] = useState('');
   const [chapterHasExam, setChapterHasExam] = useState(false);
   const [chapterEditing, setChapterEditing] = useState(null);
   const [savingChapter, setSavingChapter] = useState(false);
@@ -73,6 +74,7 @@ export default function AdminSubjectsQuizzes() {
   const [notesChapter, setNotesChapter] = useState(null);
   const [notesContent, setNotesContent] = useState('');
   const [notesUrl, setNotesUrl] = useState('');
+  const [notesVideoUrl, setNotesVideoUrl] = useState('');
   const [savingNotes, setSavingNotes] = useState(false);
 
   // Quiz dialog
@@ -531,6 +533,7 @@ export default function AdminSubjectsQuizzes() {
     setChapterTitle(chapter ? chapter.title : '');
     setChapterNotes(chapter?.notes || '');
     setChapterNotesUrl(chapter?.notes_url || '');
+    setChapterVideoUrl(chapter?.video_url || '');
     setChapterHasExam(!!chapter?.has_exam);
     if (chapter) {
       setChapterOrderId(chapter.order_index ?? 1);
@@ -556,6 +559,7 @@ export default function AdminSubjectsQuizzes() {
           : (chapterEditing?.order_index || 1),
         notes: chapterNotes.trim() || null,
         notes_url: chapterNotesUrl.trim() || null,
+        video_url: chapterVideoUrl.trim() || null,
         has_exam: chapterHasExam,
       };
       if (chapterEditing) {
@@ -568,6 +572,7 @@ export default function AdminSubjectsQuizzes() {
       setChapterTitle('');
       setChapterNotes('');
       setChapterNotesUrl('');
+      setChapterVideoUrl('');
       setChapterHasExam(false);
       setChapterEditing(null);
       setChapterOpen(false);
@@ -593,6 +598,7 @@ export default function AdminSubjectsQuizzes() {
     setNotesChapter(chapter);
     setNotesContent(chapter?.notes || '');
     setNotesUrl(chapter?.notes_url || '');
+    setNotesVideoUrl(chapter?.video_url || '');
     setNotesOpen(true);
   }
 
@@ -606,10 +612,11 @@ export default function AdminSubjectsQuizzes() {
         order_index: notesChapter.order_index ?? 1,
         notes: notesContent.trim() || null,
         notes_url: notesUrl.trim() || null,
+        video_url: notesVideoUrl.trim() || null,
         has_exam: notesChapter.has_exam,
       };
       await api.patch(`/content/chapters/${notesChapter.id}`, payload);
-      toast.success('Study notes saved', notesChapter.title);
+      toast.success('Study notes and video saved', notesChapter.title);
       setNotesOpen(false);
       await loadTree();
     } catch (err) {
@@ -688,6 +695,8 @@ export default function AdminSubjectsQuizzes() {
         ...BLANK_QUIZ,
         type: initialType,
         chapter_ids: presetChapterId ? [String(presetChapterId)] : [],
+        shuffle_questions: initialType === 'exam',
+        shuffle_options: initialType === 'exam',
       });
     }
     setQuizOpen(true);
@@ -1113,6 +1122,11 @@ export default function AdminSubjectsQuizzes() {
                                 <FileText size={10} style={{ marginRight: 3, verticalAlign: -1 }} /> Notes Added
                               </span>
                             )}
+                            {c.video_url && (
+                              <span className="badge" style={{ fontSize: '0.68rem', background: '#dcfce7', color: '#15803d', fontWeight: 700, padding: '2px 8px', borderRadius: 999 }}>
+                                <Video size={10} style={{ marginRight: 3, verticalAlign: -1 }} /> Video Attached
+                              </span>
+                            )}
                             {c.has_exam && (
                               <span className="badge" style={{ fontSize: '0.68rem', background: '#fef3c7', color: '#92400e', fontWeight: 600 }}>
                                 Exam
@@ -1125,6 +1139,25 @@ export default function AdminSubjectsQuizzes() {
                           </span>
 
                           <div className="cb-chapter-row-actions" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              className={`btn btn-xs ${(c.notes || c.notes_url) ? 'cb-btn-notes is-active' : 'cb-btn-notes'}`}
+                              onClick={() => openNotesDialog(c)}
+                              title={(c.notes || c.notes_url) ? 'Edit study notes and document link' : 'Add study notes or document link for this chapter'}
+                            >
+                              {(c.notes || c.notes_url) ? <Check size={12} /> : <Plus size={12} />}
+                              Notes
+                            </button>
+                            <button
+                              type="button"
+                              className={`btn btn-xs ${c.video_url ? 'cb-btn-video is-active' : 'cb-btn-video'}`}
+                              onClick={() => openNotesDialog(c)}
+                              title={c.video_url ? `Video URL attached: ${c.video_url}. Click to edit.` : 'Add video URL for this chapter'}
+                            >
+                              {c.video_url ? <Check size={12} /> : <Plus size={12} />}
+                              <Video size={12} style={{ marginRight: 2 }} />
+                              Video
+                            </button>
                             <button
                               type="button"
                               className="btn btn-xs cb-btn-quiz"
@@ -1140,15 +1173,6 @@ export default function AdminSubjectsQuizzes() {
                               title="Create exam for this chapter"
                             >
                               <Plus size={12} /> Exam
-                            </button>
-                            <button
-                              type="button"
-                              className={`btn btn-xs ${(c.notes || c.notes_url) ? 'cb-btn-notes is-active' : 'cb-btn-notes'}`}
-                              onClick={() => openNotesDialog(c)}
-                              title={(c.notes || c.notes_url) ? 'Edit study notes and document link' : 'Add study notes or document link for this chapter'}
-                            >
-                              {(c.notes || c.notes_url) ? <Check size={12} /> : <Plus size={12} />}
-                              {(c.notes || c.notes_url) ? 'Notes' : 'Notes'}
                             </button>
                             <button
                               type="button"
@@ -1199,6 +1223,43 @@ export default function AdminSubjectsQuizzes() {
                                   style={{ flexShrink: 0, padding: '2px 8px', fontSize: '0.74rem' }}
                                 >
                                   <Pencil size={11} style={{ marginRight: 4 }} /> Edit Notes
+                                </button>
+                              </div>
+                            )}
+                            {c.video_url && (
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  padding: '8px 12px',
+                                  marginBottom: 6,
+                                  borderRadius: 8,
+                                  background: 'rgba(22, 163, 74, 0.08)',
+                                  border: '1px solid rgba(22, 163, 74, 0.22)',
+                                  fontSize: '0.8rem',
+                                }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
+                                  <Video size={14} style={{ color: '#16a34a', flexShrink: 0 }} />
+                                  <span style={{ fontWeight: 600, color: 'var(--text)' }}>Video Lesson:</span>
+                                  <a
+                                    href={c.video_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{ color: '#16a34a', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', textDecoration: 'underline' }}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {c.video_url}
+                                  </a>
+                                </div>
+                                <button
+                                  type="button"
+                                  className="btn btn-xs btn-ghost"
+                                  onClick={() => openNotesDialog(c)}
+                                  style={{ flexShrink: 0, padding: '2px 8px', fontSize: '0.74rem' }}
+                                >
+                                  <Pencil size={11} style={{ marginRight: 4 }} /> Edit Video
                                 </button>
                               </div>
                             )}
@@ -1877,6 +1938,24 @@ Chapter 4: CAR Section 2`}
               </div>
               <small style={{ color: 'var(--muted)', fontSize: '0.73rem', display: 'block', marginTop: 4 }}>
                 Direct link to online PDF or lesson handouts.
+              </small>
+            </div>
+            <div className="field" style={{ marginTop: 10 }}>
+              <label style={{ fontSize: '0.80rem', fontWeight: 700, color: 'var(--text)', marginBottom: 5 }}>
+                Video URL <span className="muted" style={{ fontWeight: 400 }}>(YouTube or Google Drive link)</span>
+              </label>
+              <div className="input-with-icon">
+                <ExternalLink size={14} style={{ color: '#16a34a' }} />
+                <input
+                  type="url"
+                  className="input"
+                  value={chapterVideoUrl}
+                  onChange={(e) => setChapterVideoUrl(e.target.value)}
+                  placeholder="https://youtube.com/watch?v=... or https://drive.google.com/..."
+                />
+              </div>
+              <small style={{ color: 'var(--muted)', fontSize: '0.73rem', display: 'block', marginTop: 4 }}>
+                Students with chapter access will see a VIDEO button linking to this URL.
               </small>
             </div>
           </div>
@@ -2673,6 +2752,33 @@ Chapter 4: CAR Section 2`}
               </div>
               <small style={{ color: 'var(--muted)', fontSize: '0.73rem', display: 'block', marginTop: 4 }}>
                 Direct document or handout link for students to download or view.
+              </small>
+            </div>
+          </div>
+
+          <div style={{
+            background: 'var(--surface-alt)',
+            border: '1px solid var(--border)',
+            borderRadius: 12,
+            padding: '16px 18px',
+            marginTop: 16,
+          }}>
+            <div className="field">
+              <label htmlFor="modal-chapter-video-url" style={{ fontSize: '0.80rem', fontWeight: 700, color: 'var(--text)', marginBottom: 5 }}>
+                Chapter Video Lesson URL (YouTube, Google Drive, Vimeo)
+              </label>
+              <div className="input-with-icon">
+                <Video size={14} style={{ color: '#16a34a' }} />
+                <input
+                  id="modal-chapter-video-url"
+                  className="input"
+                  value={notesVideoUrl}
+                  onChange={(e) => setNotesVideoUrl(e.target.value)}
+                  placeholder="https://www.youtube.com/watch?v=... or https://drive.google.com/..."
+                />
+              </div>
+              <small style={{ color: 'var(--muted)', fontSize: '0.73rem', display: 'block', marginTop: 4 }}>
+                Students will see an active [VIDEO] button linking to this video lesson player.
               </small>
             </div>
           </div>

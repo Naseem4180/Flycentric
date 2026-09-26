@@ -161,10 +161,36 @@ router.put('/settings', async (req, res) => {
     );
   }
   await logAudit({ req, action: 'settings.update', entityType: 'settings', meta: { keys: entries.map(([k]) => k) } });
+  try {
+    const { clearSmtpCache } = require('../utils/mailQueue');
+    clearSmtpCache();
+  } catch (e) {}
+
   const result = await pool.query('SELECT key, value FROM settings');
   const settings = {};
   for (const row of result.rows) settings[row.key] = row.value;
   res.json({ settings });
+});
+
+router.post('/settings/test-email', async (req, res) => {
+  const { to, smtp_host, smtp_port, smtp_user, smtp_pass, mail_from, smtp_secure } = req.body;
+  if (!to) return res.status(400).json({ error: 'Recipient email address is required' });
+
+  try {
+    const { testSmtpConnection } = require('../utils/mailQueue');
+    const result = await testSmtpConnection({
+      to,
+      host: smtp_host,
+      port: smtp_port,
+      user: smtp_user,
+      pass: smtp_pass,
+      from: mail_from,
+      secure: smtp_secure,
+    });
+    res.json({ ok: true, message: `Test email sent successfully to ${to}`, result });
+  } catch (err) {
+    res.status(400).json({ error: 'SMTP connection or delivery failed', details: err.message });
+  }
 });
 
 // Audit Log ------------------------------------------------------------------------
@@ -286,6 +312,7 @@ router.get('/dashboard-overview', async (req, res) => {
       enrollmentsCount, paidEnrollmentsCount, freeEnrollmentsCount,
       purchasesCount, paymentsStats, refundsStats, revenueStats,
       academicStats, assignmentRateStats, recentPurchases, recentActivity,
+      expiringEnrollments,
     ] = await Promise.all([
       // Total Students
       pool.query("SELECT COUNT(*)::int AS c FROM users WHERE role = 'student'"),
@@ -365,6 +392,21 @@ router.get('/dashboard-overview', async (req, res) => {
         FROM audit_log
         ORDER BY created_at DESC LIMIT 12
       `),
+      // Courses Expiring Soon (within 7 days)
+      pool.query(`
+        SELECT ce.id, ce.user_id, ce.bundle_id, ce.expiry_date,
+               u.name AS student_name, u.email AS student_email,
+               b.title AS course_title,
+               CEIL(EXTRACT(EPOCH FROM (ce.expiry_date - now())) / 86400)::int AS days_remaining
+        FROM course_enrollments ce
+        JOIN users u ON u.id = ce.user_id
+        JOIN bundles b ON b.id = ce.bundle_id
+        WHERE ce.status = 'active'
+          AND ce.expiry_date IS NOT NULL
+          AND ce.expiry_date <= now() + interval '7 days'
+          AND ce.expiry_date >= now()
+        ORDER BY ce.expiry_date ASC LIMIT 10
+      `),
     ]);
 
     // Active right now and inactive for 7+ days
@@ -406,6 +448,7 @@ router.get('/dashboard-overview', async (req, res) => {
       },
       recentPurchases: recentPurchases.rows,
       recentActivity: recentActivity.rows,
+      expiringEnrollments: expiringEnrollments.rows,
     });
   } catch (err) {
     console.error('dashboard-overview error', err);
@@ -619,7 +662,15 @@ router.get('/enrollments', async (req, res) => {
   const clauses = ['1=1'];
   const params = [];
 
-  if (status) { params.push(status); clauses.push(`ce.status = $${params.length}`); }
+  if (status === 'expiring_soon') {
+    clauses.push(`ce.status = 'active' AND ce.expiry_date IS NOT NULL AND ce.expiry_date <= now() + interval '7 days' AND ce.expiry_date >= now()`);
+  } else if (status === 'expired') {
+    clauses.push(`ce.expiry_date IS NOT NULL AND ce.expiry_date < now()`);
+  } else if (status && status !== 'all') {
+    params.push(status);
+    clauses.push(`ce.status = $${params.length}`);
+  }
+
   if (course_id) { params.push(course_id); clauses.push(`ce.bundle_id = $${params.length}`); }
   if (q) {
     params.push(`%${q}%`);
@@ -630,7 +681,16 @@ router.get('/enrollments', async (req, res) => {
 
   const result = await pool.query(
     `SELECT ce.*, u.name AS student_name, u.email AS student_email,
-            b.title AS course_title, b.exam_type, bt.name AS batch_name
+            b.title AS course_title, b.exam_type, bt.name AS batch_name,
+            CASE
+              WHEN ce.expiry_date IS NOT NULL AND ce.expiry_date < now() THEN 'expired'
+              WHEN ce.expiry_date IS NOT NULL AND ce.expiry_date <= now() + interval '7 days' THEN 'expiring_soon'
+              ELSE ce.status
+            END AS calculated_status,
+            CASE
+              WHEN ce.expiry_date IS NOT NULL THEN CEIL(EXTRACT(EPOCH FROM (ce.expiry_date - now())) / 86400)::int
+              ELSE NULL
+            END AS days_remaining
      FROM course_enrollments ce
      JOIN users u ON u.id = ce.user_id
      JOIN bundles b ON b.id = ce.bundle_id
@@ -655,7 +715,13 @@ router.post('/enrollments', async (req, res) => {
      RETURNING *`,
     [user_id, bundle_id, batch_id || null, enrollment_type, expiry_date || null]
   );
-  await pool.query('INSERT INTO bundle_access (user_id, bundle_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [user_id, bundle_id]);
+  await pool.query(
+    `INSERT INTO bundle_access (user_id, bundle_id, expires_at)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (user_id, bundle_id)
+     DO UPDATE SET expires_at = EXCLUDED.expires_at`,
+    [user_id, bundle_id, expiry_date || null]
+  );
   await logAudit({ req, action: 'enrollment.create', entityType: 'enrollment', entityId: result.rows[0].id });
   res.status(201).json({ enrollment: result.rows[0] });
 });
@@ -671,6 +737,23 @@ router.patch('/enrollments/:id', async (req, res) => {
     [status || null, expiry_date !== undefined, expiry_date || null, batch_id || null, req.params.id]
   );
   if (!result.rows.length) return res.status(404).json({ error: 'Enrollment not found' });
+  const en = result.rows[0];
+  if (status === 'cancelled' || status === 'inactive') {
+    await pool.query('DELETE FROM bundle_access WHERE user_id = $1 AND bundle_id = $2', [en.user_id, en.bundle_id]);
+  } else if (status === 'active') {
+    await pool.query(
+      `INSERT INTO bundle_access (user_id, bundle_id, expires_at)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, bundle_id)
+       DO UPDATE SET expires_at = COALESCE(EXCLUDED.expires_at, bundle_access.expires_at)`,
+      [en.user_id, en.bundle_id, en.expiry_date]
+    );
+  } else if (expiry_date !== undefined) {
+    await pool.query(
+      'UPDATE bundle_access SET expires_at = $1 WHERE user_id = $2 AND bundle_id = $3',
+      [expiry_date || null, en.user_id, en.bundle_id]
+    );
+  }
   await logAudit({ req, action: 'enrollment.update', entityType: 'enrollment', entityId: req.params.id });
   res.json({ enrollment: result.rows[0] });
 });

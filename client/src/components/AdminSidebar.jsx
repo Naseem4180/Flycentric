@@ -15,7 +15,7 @@ const NAV_STRUCTURE = [
     to: '/home',
     end: true,
     icon: Home,
-    label: 'Home Page',
+    label: 'Home',
     accent: '#3b82f6',
     accentRgb: '59, 130, 246',
   },

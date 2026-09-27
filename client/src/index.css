@@ -1985,39 +1985,81 @@ tbody tr:hover { background: var(--page-bg); }
 @media (max-width: 767px) {
   /* iPhone layout: one compact row without clipping or horizontal scroll */
   .cbt-topbar {
-    padding: 0 10px; height: 50px; gap: 8px;
+    padding: 0 8px !important;
+    height: 50px !important;
+    gap: 6px !important;
+    overflow-x: hidden !important;
   }
-  .cbt-topbar-left { gap: 8px; }
-  .cbt-topbar-right { gap: 6px; }
+  .cbt-topbar-left {
+    gap: 6px !important;
+    min-width: 0 !important;
+    flex-shrink: 1 !important;
+  }
+  .cbt-topbar-right {
+    gap: 4px !important;
+    flex-shrink: 0 !important;
+  }
 
   .cbt-mode-pill {
-    padding: 2px 8px; font-size: 0.68rem;
+    padding: 2px 6px !important;
+    font-size: 0.68rem !important;
+    white-space: nowrap !important;
   }
 
   .cbt-ctrl-btn {
-    padding: 2px 7px; font-size: 0.72rem;
+    padding: 2px 5px !important;
+    font-size: 0.70rem !important;
+    min-width: 24px !important;
+    height: 28px !important;
   }
   .cbt-theme-toggle {
-    width: 40px; height: 22px; padding: 0 4px;
+    width: 36px !important;
+    height: 20px !important;
+    padding: 0 3px !important;
   }
   .cbt-theme-slider {
-    width: 16px; height: 16px; top: 2px; left: 2px;
+    width: 14px !important;
+    height: 14px !important;
+    top: 2px !important;
+    left: 2px !important;
   }
   .cbt-theme-toggle.is-light .cbt-theme-slider {
-    transform: translateX(18px);
+    transform: translateX(16px) !important;
   }
 
   .cbt-timer {
-    padding: 3px 8px; gap: 4px;
+    padding: 2px 6px !important;
+    gap: 4px !important;
+    height: 28px !important;
   }
-  .cbt-timer-label { display: none; }
-  .cbt-timer-icon { display: inline-block; }
-  .cbt-timer-val { font-size: 0.78rem; }
+  .cbt-timer-label { display: none !important; }
+  .cbt-timer-icon { display: inline-block !important; }
+  .cbt-timer-val { font-size: 0.76rem !important; }
 
-  /* Submit / End button for iPhone */
+  /* Submit / End button for iPhone — guaranteed zero clipping */
   .cbt-desktop-only { display: none !important; }
   .cbt-mobile-only { display: inline-flex !important; }
-  .cbt-btn-end { padding: 4px 10px; font-size: 0.74rem; }
+  .cbt-mobile-submit {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 4px !important;
+    flex-shrink: 0 !important;
+    padding: 4px 8px !important;
+    font-size: 0.72rem !important;
+    height: 28px !important;
+    white-space: nowrap !important;
+    background: #dc2626 !important;
+    color: #ffffff !important;
+    border: none !important;
+    border-radius: 6px !important;
+  }
+  .cbt-btn-end {
+    padding: 4px 8px !important;
+    font-size: 0.72rem !important;
+    height: 28px !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+  }
 
   /* Question header compact */
   .cbt-question-header {
@@ -2034,26 +2076,80 @@ tbody tr:hover { background: var(--page-bg); }
     padding: 12px 14px; gap: 10px;
   }
 
-  /* Bottom bar on iPhone */
+  /* Bottom bar on iPhone / mobile */
   .cbt-bottombar {
-    padding: 10px 12px;
-    padding-bottom: max(10px, env(safe-area-inset-bottom));
-    gap: 8px;
+    padding: 8px 12px !important;
+    padding-bottom: max(10px, env(safe-area-inset-bottom)) !important;
+    gap: 8px !important;
   }
-  .cbt-btn {
-    height: 38px; padding: 0 12px; font-size: 0.78rem;
+  .cbt-bottombar .cbt-btn {
+    height: 40px !important;
+    font-size: 0.78rem !important;
+    white-space: nowrap !important;
   }
-  .cbt-bottombar-actions { gap: 6px; }
-  .cbt-btn-autoreveal { font-size: 0.72rem; padding: 0 8px; }
-  .cbt-toggle-pill { width: 22px; height: 14px; }
-  .cbt-toggle-thumb { width: 10px; height: 10px; top: 2px; left: 2px; }
-  .cbt-toggle-pill.active .cbt-toggle-thumb { transform: translateX(8px); }
+
+  /* Exam mode 2x2 grid layout */
+  .cbt-bottombar.is-exam {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px !important;
+  }
+  .cbt-bottombar.is-exam .cbt-btn-prev {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 8px !important;
+  }
+  .cbt-bottombar.is-exam .cbt-bottombar-actions {
+    display: contents !important;
+  }
+  .cbt-bottombar.is-exam .cbt-btn-clear {
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+    width: 100% !important;
+    padding: 0 8px !important;
+  }
+  .cbt-bottombar.is-exam .cbt-btn-mark-review {
+    grid-column: 1 !important;
+    grid-row: 2 !important;
+    width: 100% !important;
+    padding: 0 6px !important;
+    font-size: 0.74rem !important;
+  }
+  .cbt-bottombar.is-exam .cbt-btn-confirm {
+    grid-column: 2 !important;
+    grid-row: 2 !important;
+    width: 100% !important;
+    padding: 0 8px !important;
+  }
+
+  /* Practice mode 3-button flex row */
+  .cbt-bottombar.is-practice {
+    display: flex !important;
+    gap: 8px !important;
+  }
+  .cbt-bottombar.is-practice .cbt-btn-prev {
+    flex: 1 !important;
+    width: auto !important;
+    padding: 0 8px !important;
+  }
+  .cbt-bottombar.is-practice .cbt-bottombar-actions {
+    display: flex !important;
+    flex: 2 !important;
+    gap: 8px !important;
+  }
+  .cbt-bottombar.is-practice .cbt-bottombar-actions .cbt-btn {
+    flex: 1 !important;
+    width: auto !important;
+    padding: 0 8px !important;
+  }
 }
 
 @media (max-width: 380px) {
-  .cbt-topbar { padding: 0 6px; gap: 4px; }
-  .cbt-mode-pill { display: none; }
-  .cbt-btn { padding: 0 8px; font-size: 0.74rem; }
+  .cbt-topbar { padding: 0 6px !important; gap: 4px !important; }
+  .cbt-mode-pill { display: none !important; }
+  .cbt-bottombar.is-exam .cbt-btn-mark-review { font-size: 0.68rem !important; }
 }
 
 

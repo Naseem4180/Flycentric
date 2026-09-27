@@ -75,6 +75,7 @@ export default function TakeExam() {
   const [lockedNotice, setLockedNotice] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
   const [fullscreenLost, setFullscreenLost] = useState(false);
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
   const [showSummary, setShowSummary] = useState(false);
@@ -137,14 +138,61 @@ export default function TakeExam() {
     }
   }, [navigate, quiz]);
 
-  // Start or resume assessment immediately on mount
+  // Load quiz details or resume active attempt
   useEffect(() => {
     let cancelled = false;
     setError('');
 
-    api.post(`/exams/quizzes/${quizId}/start`)
+    api.get(`/exams/quizzes/${quizId}`)
       .then((d) => {
         if (cancelled) return;
+        if (d.quiz) setQuiz(d.quiz);
+        if (d.active_attempt) {
+          setAttempt(d.active_attempt);
+          const savedAnswers = d.active_attempt.answers || {};
+          setAnswers(savedAnswers);
+          if (d.quiz?.type !== 'practice') {
+            const conf = {};
+            Object.entries(savedAnswers).forEach(([qid, val]) => {
+              if (val != null && String(val).trim() !== '') conf[qid] = true;
+            });
+            setConfirmedMap(conf);
+          }
+          const qs = d.questions || [];
+          setQuestions(qs);
+          if (qs.length) {
+            const answeredIds = Object.keys(savedAnswers).map(Number);
+            setVisited(new Set([qs[0].id, ...answeredIds]));
+          }
+          setTotalDurationSeconds((d.quiz?.duration_minutes || 0) * 60);
+          setConfirmed(true);
+          entryTimeRef.current = Date.now();
+        }
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        const errMsg = e.response?.data?.message || e.response?.data?.error || e.message || 'Failed to load assessment';
+        setError(errMsg);
+      });
+
+    api.get('/memory-bank')
+      .then((d) => {
+        if (!cancelled) setSavedIds(new Set((d.items || []).map((i) => i.id)));
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [quizId]);
+
+  function beginExam() {
+    setError('');
+    // Trigger fullscreen directly on user click gesture so browser allows it
+    containerRef.current?.requestFullscreen?.().catch(() => {});
+    setConfirmed(true);
+    api.post(`/exams/quizzes/${quizId}/start`)
+      .then((d) => {
         setAttempt(d.attempt);
         setQuiz(d.quiz);
         const savedAnswers = d.attempt?.answers || {};
@@ -166,21 +214,23 @@ export default function TakeExam() {
         entryTimeRef.current = Date.now();
       })
       .catch((e) => {
-        if (cancelled) return;
+        setConfirmed(false);
         const errMsg = e.response?.data?.message || e.response?.data?.error || e.message || 'Cannot start assessment';
         setError(errMsg);
       });
 
     api.get('/memory-bank')
-      .then((d) => {
-        if (!cancelled) setSavedIds(new Set((d.items || []).map((i) => i.id)));
-      })
+      .then((d) => setSavedIds(new Set((d.items || []).map((i) => i.id))))
       .catch(() => {});
+  }
 
-    return () => {
-      cancelled = true;
-    };
-  }, [quizId]);
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) {
+      containerRef.current?.requestFullscreen?.().catch(() => {});
+    } else {
+      document.exitFullscreen?.().catch(() => {});
+    }
+  }
 
   function exitFullscreenIfActive() {
     if (document.fullscreenElement) {
@@ -189,7 +239,7 @@ export default function TakeExam() {
   }
 
   useEffect(() => {
-    if (!isExam || !attempt || submittedRef.current) return undefined;
+    if (!confirmed || !isExam || !attempt || submittedRef.current) return undefined;
     function onFullscreenChange() {
       if (!document.fullscreenElement && !submittedRef.current) {
         setFullscreenLost(true);
@@ -199,10 +249,10 @@ export default function TakeExam() {
     }
     document.addEventListener('fullscreenchange', onFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
-  }, [isExam, attempt]);
+  }, [confirmed, isExam, attempt]);
 
   useEffect(() => {
-    if (!attempt || submittedRef.current) return undefined;
+    if (!confirmed || !attempt || submittedRef.current) return undefined;
     function onVisibilityChange() {
       if (document.hidden && !submittedRef.current) {
         setTabSwitchCount((c) => c + 1);
@@ -210,10 +260,10 @@ export default function TakeExam() {
     }
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => document.removeEventListener('visibilitychange', onVisibilityChange);
-  }, [attempt]);
+  }, [confirmed, attempt]);
 
   useEffect(() => {
-    if (!isExam || !attempt) return undefined;
+    if (!confirmed || !isExam || !attempt) return undefined;
     function block(e) {
       const tag = e.target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
@@ -227,10 +277,10 @@ export default function TakeExam() {
       document.removeEventListener('cut', block);
       document.removeEventListener('contextmenu', block);
     };
-  }, [isExam, attempt]);
+  }, [confirmed, isExam, attempt]);
 
   useEffect(() => {
-    if (!attempt) return undefined;
+    if (!confirmed || !attempt) return undefined;
     function onPopState() {
       if (submittedRef.current) return;
       window.history.pushState(null, '', window.location.href);
@@ -241,7 +291,7 @@ export default function TakeExam() {
     window.history.pushState(null, '', window.location.href);
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
-  }, [attempt, isPractice]);
+  }, [confirmed, attempt, isPractice]);
 
   useEffect(() => {
     if (!attempt?.id || submittedRef.current) return undefined;
@@ -570,7 +620,46 @@ export default function TakeExam() {
 
   return (
     <div className="cbt-shell" ref={containerRef} data-theme={theme}>
-      {!attempt ? (
+      {!confirmed ? (
+        <div className="page" style={{ background: 'var(--paper, #0b0f1d)', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div className="container" style={{ maxWidth: 480, margin: '0 auto' }}>
+            <div className="card exam-confirm-card" style={{ background: '#12182b', border: '1px solid #1f2945', color: '#f8fafc', padding: '28px 24px', borderRadius: 14, boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}>
+              <span style={{ fontSize: '.8rem', color: '#6366f1', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 8 }}>
+                {quiz?.type === 'practice' ? 'Practice Assignment' : 'Formal Examination'}
+              </span>
+              <h2 style={{ color: '#ffffff', margin: '0 0 12px', fontSize: '1.4rem' }}>{quiz?.title || 'Proceed with assessment?'}</h2>
+              <p className="muted" style={{ color: '#94a3b8', fontSize: '0.9rem', lineHeight: 1.6, margin: '0 0 24px' }}>
+                {quiz?.type === 'practice'
+                  ? 'This is an untimed practice assignment. You can explore questions at your own pace, get immediate explanations, and submit when you are ready.'
+                  : `This is a timed attempt (${quiz?.duration_minutes ? quiz.duration_minutes + ' minutes' : 'timed'}). Once you proceed, the exam opens in full-screen mode and the timer starts immediately.`}
+              </p>
+              {error && (
+                <div style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(239, 68, 68, 0.15)', border: '1px solid #ef4444', color: '#fca5a5', marginBottom: 16, fontSize: '0.85rem' }}>
+                  {error}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="cbt-btn cbt-btn-confirm"
+                  style={{ flex: 1, minWidth: 140, height: 42 }}
+                  onClick={beginExam}
+                >
+                  {quiz?.type === 'practice' ? 'Start Assignment' : 'Proceed with exam'}
+                </button>
+                <button
+                  type="button"
+                  className="cbt-btn cbt-btn-prev"
+                  style={{ height: 42 }}
+                  onClick={safeExit}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : !attempt ? (
         <div className="cbt-loading">Loading assessment…</div>
       ) : !questions.length ? (
         <div className="cbt-loading">
@@ -590,14 +679,20 @@ export default function TakeExam() {
               </Link>
               <span className="cbt-brand-text">FlyCentric Examination Portal</span>
               {isPractice ? (
-                <span className="cbt-mode-pill cbt-mode-practice">Practice mode · Untimed</span>
+                <span className="cbt-mode-pill cbt-mode-practice">
+                  <span className="cbt-desktop-only">Practice mode · Untimed</span>
+                  <span className="cbt-mobile-only">Practice</span>
+                </span>
               ) : (
-                <span className="cbt-mode-pill cbt-mode-exam">Exam mode</span>
+                <span className="cbt-mode-pill cbt-mode-exam">
+                  <span className="cbt-desktop-only">Exam mode</span>
+                  <span className="cbt-mobile-only">Exam</span>
+                </span>
               )}
             </div>
 
             {/* Desktop Center: Single Course/Quiz Title */}
-            <div className="cbt-topbar-center">{quiz.title}</div>
+            <div className="cbt-topbar-center">{quiz?.title}</div>
 
             {/* Topbar Right Controls */}
             <div className="cbt-topbar-right">
@@ -622,6 +717,17 @@ export default function TakeExam() {
                   A+
                 </button>
               </div>
+
+              {/* Fullscreen Toggle */}
+              <button
+                type="button"
+                className="cbt-ctrl-btn"
+                onClick={toggleFullscreen}
+                title="Toggle Fullscreen"
+                aria-label="Toggle Fullscreen"
+              >
+                <Maximize2 size={13} />
+              </button>
 
               {/* Theme Toggle (Moon / Sun Switch) */}
               <button
@@ -977,7 +1083,7 @@ export default function TakeExam() {
               </div>
 
               {/* Sticky Bottom Navigation — strictly inside left panel */}
-              <div className="cbt-bottombar">
+              <div className={`cbt-bottombar ${isPractice ? 'is-practice' : 'is-exam'}`}>
                 <button
                   type="button"
                   className="cbt-btn cbt-btn-prev"

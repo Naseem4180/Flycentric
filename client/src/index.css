@@ -2110,18 +2110,18 @@ tbody tr:hover { background: var(--page-bg); }
     width: 100% !important;
     padding: 0 8px !important;
   }
-  .cbt-bottombar.is-exam .cbt-btn-mark-review {
+  .cbt-bottombar.is-exam .cbt-btn-confirm {
     grid-column: 1 !important;
+    grid-row: 2 !important;
+    width: 100% !important;
+    padding: 0 8px !important;
+  }
+  .cbt-bottombar.is-exam .cbt-btn-mark-review {
+    grid-column: 2 !important;
     grid-row: 2 !important;
     width: 100% !important;
     padding: 0 6px !important;
     font-size: 0.74rem !important;
-  }
-  .cbt-bottombar.is-exam .cbt-btn-confirm {
-    grid-column: 2 !important;
-    grid-row: 2 !important;
-    width: 100% !important;
-    padding: 0 8px !important;
   }
 
   /* Practice mode 3-button flex row */

@@ -61,8 +61,8 @@ export default function TakeExam() {
   const [elapsed, setElapsed] = useState(0);
   const [totalDurationSeconds, setTotalDurationSeconds] = useState(null);
 
-  // Assessment mode flags
-  const isPractice = !!attempt ? !attempt.deadline_at : (quiz?.type === 'practice');
+  // Assessment mode flags - authoritative source of truth is quiz.type ('practice' vs 'exam')
+  const isPractice = quiz?.type === 'practice';
   const isExam = !isPractice;
 
   // UI / Display settings
@@ -621,44 +621,48 @@ export default function TakeExam() {
   return (
     <div className="cbt-shell" ref={containerRef} data-theme={theme}>
       {!confirmed ? (
-        <div className="page" style={{ background: 'var(--paper, #0b0f1d)', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-          <div className="container" style={{ maxWidth: 480, margin: '0 auto' }}>
-            <div className="card exam-confirm-card" style={{ background: '#12182b', border: '1px solid #1f2945', color: '#f8fafc', padding: '28px 24px', borderRadius: 14, boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}>
-              <span style={{ fontSize: '.8rem', color: '#6366f1', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 8 }}>
-                {quiz?.type === 'practice' ? 'Practice Assignment' : 'Formal Examination'}
-              </span>
-              <h2 style={{ color: '#ffffff', margin: '0 0 12px', fontSize: '1.4rem' }}>{quiz?.title || 'Proceed with assessment?'}</h2>
-              <p className="muted" style={{ color: '#94a3b8', fontSize: '0.9rem', lineHeight: 1.6, margin: '0 0 24px' }}>
-                {quiz?.type === 'practice'
-                  ? 'This is an untimed practice assignment. You can explore questions at your own pace, get immediate explanations, and submit when you are ready.'
-                  : `This is a timed attempt (${quiz?.duration_minutes ? quiz.duration_minutes + ' minutes' : 'timed'}). Once you proceed, the exam opens in full-screen mode and the timer starts immediately.`}
-              </p>
-              {error && (
-                <div style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(239, 68, 68, 0.15)', border: '1px solid #ef4444', color: '#fca5a5', marginBottom: 16, fontSize: '0.85rem' }}>
-                  {error}
+        !quiz ? (
+          <div className="cbt-loading">Loading assessment…</div>
+        ) : (
+          <div className="page" style={{ background: 'var(--paper, #0b0f1d)', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+            <div className="container" style={{ maxWidth: 480, margin: '0 auto' }}>
+              <div className="card exam-confirm-card" style={{ background: '#12182b', border: '1px solid #1f2945', color: '#f8fafc', padding: '28px 24px', borderRadius: 14, boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}>
+                <span style={{ fontSize: '.8rem', color: '#6366f1', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 8 }}>
+                  {isPractice ? 'Practice Assignment' : 'Formal Examination'}
+                </span>
+                <h2 style={{ color: '#ffffff', margin: '0 0 12px', fontSize: '1.4rem' }}>{quiz.title}</h2>
+                <p className="muted" style={{ color: '#94a3b8', fontSize: '0.9rem', lineHeight: 1.6, margin: '0 0 24px' }}>
+                  {isPractice
+                    ? 'This is an untimed practice assignment. You can explore questions at your own pace, get immediate explanations, and submit when you are ready.'
+                    : `This is a timed attempt (${quiz.duration_minutes ? quiz.duration_minutes + ' minutes' : 'timed'}). Once you proceed, the exam opens in full-screen mode and the timer starts immediately.`}
+                </p>
+                {error && (
+                  <div style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(239, 68, 68, 0.15)', border: '1px solid #ef4444', color: '#fca5a5', marginBottom: 16, fontSize: '0.85rem' }}>
+                    {error}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="cbt-btn cbt-btn-confirm"
+                    style={{ flex: 1, minWidth: 140, height: 42 }}
+                    onClick={beginExam}
+                  >
+                    {isPractice ? 'Start Assignment' : 'Proceed with exam'}
+                  </button>
+                  <button
+                    type="button"
+                    className="cbt-btn cbt-btn-prev"
+                    style={{ height: 42 }}
+                    onClick={safeExit}
+                  >
+                    Cancel
+                  </button>
                 </div>
-              )}
-              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  className="cbt-btn cbt-btn-confirm"
-                  style={{ flex: 1, minWidth: 140, height: 42 }}
-                  onClick={beginExam}
-                >
-                  {quiz?.type === 'practice' ? 'Start Assignment' : 'Proceed with exam'}
-                </button>
-                <button
-                  type="button"
-                  className="cbt-btn cbt-btn-prev"
-                  style={{ height: 42 }}
-                  onClick={safeExit}
-                >
-                  Cancel
-                </button>
               </div>
             </div>
           </div>
-        </div>
+        )
       ) : !attempt ? (
         <div className="cbt-loading">Loading assessment…</div>
       ) : !questions.length ? (
@@ -678,15 +682,10 @@ export default function TakeExam() {
                 <Logo size={28} />
               </Link>
               <span className="cbt-brand-text">FlyCentric Examination Portal</span>
-              {isPractice ? (
+              {isPractice && (
                 <span className="cbt-mode-pill cbt-mode-practice">
                   <span className="cbt-desktop-only">Practice mode · Untimed</span>
                   <span className="cbt-mobile-only">Practice</span>
-                </span>
-              ) : (
-                <span className="cbt-mode-pill cbt-mode-exam">
-                  <span className="cbt-desktop-only">Exam mode</span>
-                  <span className="cbt-mobile-only">Exam</span>
                 </span>
               )}
             </div>

@@ -327,38 +327,26 @@ router.get('/quizzes/:id', authenticate, async (req, res) => {
     return res.status(403).json({ error: 'This quiz is not published yet' });
   }
 
-  // Active attempt check for seamless resume on refresh
-  let activeAttempt = null;
-  let activeQuestions = null;
+  // Any existing in-progress attempt for this quiz is automatically finalized and graded
   if (req.user) {
     const activeAttemptRes = await pool.query(
-      `SELECT * FROM attempts
-       WHERE user_id = $1 AND quiz_id = $2 AND status = 'in_progress'
-         AND (deadline_at IS NULL OR deadline_at > now())
-       ORDER BY started_at DESC LIMIT 1`,
+      `SELECT id FROM attempts
+       WHERE user_id = $1 AND quiz_id = $2 AND status = 'in_progress'`,
       [req.user.id, quiz.id]
     );
-    if (activeAttemptRes.rows.length) {
-      activeAttempt = activeAttemptRes.rows[0];
-      const snapshot = activeAttempt.question_snapshot || {};
-      let orderedQIds = Array.isArray(quiz.question_ids) ? quiz.question_ids : [];
-      let resumeQIds = orderedQIds.filter((id) => snapshot[id]);
-      if (!resumeQIds.length) resumeQIds = Object.keys(snapshot).map(Number);
-      activeQuestions = resumeQIds.map((id) => {
-        const q = snapshot[id] || {};
-        return {
-          id: q.id || Number(id),
-          question_text: q.question_text,
-          question_type: q.question_type,
-          options: q.options,
-          difficulty: q.difficulty,
-          image_url: q.image_url,
-        };
-      });
+    for (const row of activeAttemptRes.rows) {
+      try {
+        await gradeAndSubmitAttempt(row.id, req.user.id, {
+          is_auto_submitted: true,
+          auto_submit_reason: 'screen_exit'
+        });
+      } catch (e) {
+        await pool.query("UPDATE attempts SET status = 'submitted', submitted_at = now() WHERE id = $1", [row.id]);
+      }
     }
   }
 
-  res.json({ quiz, active_attempt: activeAttempt, questions: activeQuestions });
+  res.json({ quiz, active_attempt: null, questions: null });
 });
 
 // ---- Attempts ----------------------------------------------------------------
@@ -528,44 +516,18 @@ router.post('/quizzes/:id/start', authenticate, authorize('student', 'admin', 'i
 
 
 
-  // Seamless Resume on reload: If an attempt is ALREADY in progress and not past deadline, resume it!
-  const existingActive = await pool.query(
-    `SELECT * FROM attempts
-     WHERE user_id = $1 AND quiz_id = $2 AND status = 'in_progress'
-       AND (deadline_at IS NULL OR deadline_at > now())
-     ORDER BY started_at DESC LIMIT 1`,
+  // Any prior unsubmitted or abandoned attempt for this user & quiz is auto-submitted and graded
+  const priorAttempts = await pool.query(
+    `SELECT id FROM attempts WHERE user_id = $1 AND quiz_id = $2 AND status = 'in_progress'`,
     [req.user.id, quiz.id]
   );
-  if (existingActive.rows.length) {
-    const existingAttempt = existingActive.rows[0];
-    const snapshot = existingAttempt.question_snapshot || {};
-    let orderedQIds = Array.isArray(quiz.question_ids) ? quiz.question_ids : [];
-    let resumeQIds = orderedQIds.filter((id) => snapshot[id]);
-    if (!resumeQIds.length) resumeQIds = Object.keys(snapshot).map(Number);
-    const resumedQuestions = resumeQIds.map((id) => {
-      const q = snapshot[id] || {};
-      return {
-        id: q.id || Number(id),
-        question_text: q.question_text,
-        question_type: q.question_type,
-        options: q.options,
-        difficulty: q.difficulty,
-        image_url: q.image_url,
-      };
-    });
-    return res.json({
-      attempt: existingAttempt,
-      quiz,
-      questions: resumedQuestions,
-      resumed: true,
-    });
+  for (const row of priorAttempts.rows) {
+    try {
+      await gradeAndSubmitAttempt(row.id, req.user.id, { is_auto_submitted: true, auto_submit_reason: 'superseded_by_new_attempt' });
+    } catch (e) {
+      await pool.query("UPDATE attempts SET status = 'submitted', submitted_at = now() WHERE id = $1", [row.id]);
+    }
   }
-
-  // Any abandoned or past-deadline attempt is closed first
-  await pool.query(
-    "UPDATE attempts SET status = 'expired' WHERE user_id = $1 AND quiz_id = $2 AND status = 'in_progress'",
-    [req.user.id, quiz.id]
-  );
 
   // Practice attempts have no deadline at all — the client shows a count-up
   // stopwatch instead of a countdown, and nothing is ever auto-submitted.

@@ -95,6 +95,10 @@ export default function TakeExam() {
   const currentStripItemRef = useRef(null);
   const entryTimeRef = useRef(Date.now());
   const lockedNoticeTimeoutRef = useRef(null);
+  const attemptRef = useRef(attempt);
+  attemptRef.current = attempt;
+  const confirmedRef = useRef(confirmed);
+  confirmedRef.current = confirmed;
 
   // Sync theme to root DOM
   useEffect(() => {
@@ -129,6 +133,14 @@ export default function TakeExam() {
   }, [current]);
 
   const safeExit = useCallback(() => {
+    // If active attempt is in progress, auto-submit immediately when exiting screen
+    if (attemptRef.current?.id && !submittedRef.current && confirmedRef.current) {
+      submittedRef.current = true;
+      api.post(`/exams/attempts/${attemptRef.current.id}/submit`, { is_auto_submitted: true, auto_submit_reason: 'screen_exit' }, { silent: true }).catch(() => {});
+    }
+    if (document.fullscreenElement) {
+      document.exitFullscreen?.().catch(() => {});
+    }
     if (window.history.length > 1) {
       navigate(-1);
     } else if (quiz?.subject_id) {
@@ -138,7 +150,40 @@ export default function TakeExam() {
     }
   }, [navigate, quiz]);
 
-  // Load quiz details or resume active attempt
+  // Auto-submit when user exits screen, navigates away, or closes browser tab
+  useEffect(() => {
+    function handlePageHide() {
+      if (attemptRef.current?.id && !submittedRef.current && confirmedRef.current) {
+        submittedRef.current = true;
+        const token = localStorage.getItem('fc_token') || sessionStorage.getItem('fc_token');
+        const submitUrl = `/api/exams/attempts/${attemptRef.current.id}/submit`;
+        try {
+          fetch(submitUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({ is_auto_submitted: true, auto_submit_reason: 'screen_exit' }),
+            keepalive: true
+          });
+        } catch (e) {}
+      }
+    }
+
+    window.addEventListener('pagehide', handlePageHide);
+
+    return () => {
+      window.removeEventListener('pagehide', handlePageHide);
+      // Auto-submit on component unmount (user navigated away inside the application)
+      if (attemptRef.current?.id && !submittedRef.current && confirmedRef.current) {
+        submittedRef.current = true;
+        api.post(`/exams/attempts/${attemptRef.current.id}/submit`, { is_auto_submitted: true, auto_submit_reason: 'screen_exit' }, { silent: true }).catch(() => {});
+      }
+    };
+  }, []);
+
+  // Load quiz details (always start fresh, never resume prior abandoned state)
   useEffect(() => {
     let cancelled = false;
     setError('');
@@ -147,27 +192,6 @@ export default function TakeExam() {
       .then((d) => {
         if (cancelled) return;
         if (d.quiz) setQuiz(d.quiz);
-        if (d.active_attempt) {
-          setAttempt(d.active_attempt);
-          const savedAnswers = d.active_attempt.answers || {};
-          setAnswers(savedAnswers);
-          if (d.quiz?.type !== 'practice') {
-            const conf = {};
-            Object.entries(savedAnswers).forEach(([qid, val]) => {
-              if (val != null && String(val).trim() !== '') conf[qid] = true;
-            });
-            setConfirmedMap(conf);
-          }
-          const qs = d.questions || [];
-          setQuestions(qs);
-          if (qs.length) {
-            const answeredIds = Object.keys(savedAnswers).map(Number);
-            setVisited(new Set([qs[0].id, ...answeredIds]));
-          }
-          setTotalDurationSeconds((d.quiz?.duration_minutes || 0) * 60);
-          setConfirmed(true);
-          entryTimeRef.current = Date.now();
-        }
       })
       .catch((e) => {
         if (cancelled) return;
@@ -191,24 +215,24 @@ export default function TakeExam() {
     // Trigger fullscreen directly on user click gesture so browser allows it
     containerRef.current?.requestFullscreen?.().catch(() => {});
     setConfirmed(true);
+    // Explicitly start fresh: reset answers, confirmed states, and position
+    setAnswers({});
+    setConfirmedMap({});
+    setRevealedMap({});
+    setMarked(new Set());
+    setCurrent(0);
+
     api.post(`/exams/quizzes/${quizId}/start`)
       .then((d) => {
         setAttempt(d.attempt);
         setQuiz(d.quiz);
-        const savedAnswers = d.attempt?.answers || {};
-        setAnswers(savedAnswers);
-        if (d.quiz?.type !== 'practice') {
-          const conf = {};
-          Object.entries(savedAnswers).forEach(([qid, val]) => {
-            if (val != null && String(val).trim() !== '') conf[qid] = true;
-          });
-          setConfirmedMap(conf);
-        }
+        setAnswers({});
+        setConfirmedMap({});
+        setRevealedMap({});
         const qs = d.questions || [];
         setQuestions(qs);
         if (qs.length) {
-          const answeredIds = Object.keys(savedAnswers).map(Number);
-          setVisited(new Set([qs[0].id, ...answeredIds]));
+          setVisited(new Set([qs[0].id]));
         }
         setTotalDurationSeconds((d.quiz?.duration_minutes || 0) * 60);
         entryTimeRef.current = Date.now();
@@ -283,15 +307,16 @@ export default function TakeExam() {
     if (!confirmed || !attempt) return undefined;
     function onPopState() {
       if (submittedRef.current) return;
-      window.history.pushState(null, '', window.location.href);
-      window.alert(isPractice
-        ? 'Practice in progress. Use the End practice button if you need to leave.'
-        : 'This exam is in progress. Use the End exam button if you need to leave.');
+      submittedRef.current = true;
+      flushTiming();
+      api.post(`/exams/attempts/${attempt.id}/submit`, { is_auto_submitted: true, auto_submit_reason: 'screen_exit' }, { silent: true }).catch(() => {});
+      exitFullscreenIfActive();
+      safeExit();
     }
     window.history.pushState(null, '', window.location.href);
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
-  }, [confirmed, attempt, isPractice]);
+  }, [confirmed, attempt, safeExit]);
 
   useEffect(() => {
     if (!attempt?.id || submittedRef.current) return undefined;

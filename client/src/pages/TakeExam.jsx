@@ -1,13 +1,27 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { X, Brain, Flag, ChevronDown, Eraser, AlertCircle, Maximize2 } from 'lucide-react';
+import {
+  X,
+  Brain,
+  Flag,
+  AlertCircle,
+  Maximize2,
+  Moon,
+  Sun,
+  Clock,
+  Send,
+  Check,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react';
 import { api, resolveMediaUrl } from '../api';
 import useAuth from '../context/useAuth';
+import Logo from '../components/Logo';
+import {
+  paletteStatus,
+} from '../utils/examBehavior';
 
-// Kept in sync with REPORT_REASONS in server/src/routes/questions.js, which
-// validates the submitted value. The two exam-appearance options let a
-// student tell us a question showed up in a real exam and whether it was
-// word-for-word or a close variant.
 const REPORT_REASONS = [
   { key: 'appeared_in_exam_exact', label: 'Appeared in exam (Exact match)' },
   { key: 'appeared_in_exam_similar', label: 'Appeared in exam (Similar)' },
@@ -17,23 +31,6 @@ const REPORT_REASONS = [
   { key: 'general', label: 'Other feedback' },
 ];
 
-// Palette status priority: flagged > answered > visited-but-unanswered >
-// never-visited. Four visually distinct states (see index.css):
-//   answered            -> Green
-//   visited-unanswered  -> Red   (opened but skipped)
-//   unanswered          -> Light grey (never opened)
-//   flagged             -> Purple (marked for review)
-// An answer of '' (cleared response) counts as NOT answered, which is why
-// this tests the trimmed string rather than plain truthiness.
-function paletteStatus(qId, visited, answers, marked) {
-  const raw = answers[qId];
-  const isAnswered = raw != null && String(raw).trim() !== '';
-  if (marked.has(qId)) return 'flagged';
-  if (isAnswered) return 'answered';
-  if (visited.has(qId)) return 'visited-unanswered';
-  return 'unanswered';
-}
-
 function formatClock(totalSeconds) {
   const s = Math.max(0, Math.floor(totalSeconds || 0));
   return [Math.floor(s / 3600), Math.floor((s % 3600) / 60), s % 60]
@@ -41,43 +38,38 @@ function formatClock(totalSeconds) {
     .join(':');
 }
 
-// Gradient exam timer: interpolates from green (plenty of time) through
-// amber to red (running out) as the fraction of time remaining shrinks,
-// instead of a single fixed color for the whole attempt.
-function timerGradientColor(fractionRemaining) {
-  const f = Math.max(0, Math.min(1, fractionRemaining));
-  const stops = [
-    { at: 1, rgb: [0, 210, 122] },   // var(--success) — plenty of time
-    { at: 0.5, rgb: [245, 128, 62] }, // var(--warning) — halfway
-    { at: 0, rgb: [230, 55, 87] },   // var(--danger) — nearly out
-  ];
-  let lo = stops[stops.length - 1];
-  let hi = stops[0];
-  for (let i = 0; i < stops.length - 1; i += 1) {
-    if (f <= stops[i].at && f >= stops[i + 1].at) { hi = stops[i]; lo = stops[i + 1]; break; }
-  }
-  const span = hi.at - lo.at || 1;
-  const t = (f - lo.at) / span;
-  const rgb = hi.rgb.map((c, i) => Math.round(lo.rgb[i] + (c - lo.rgb[i]) * t));
-  return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
-}
-
 export default function TakeExam() {
   const { quizId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+
   const [attempt, setAttempt] = useState(null);
   const [quiz, setQuiz] = useState(null);
   const [questions, setQuestions] = useState([]);
   const [current, setCurrent] = useState(0);
+
+  // Core answer & state dictionaries
   const [answers, setAnswers] = useState({});
+  const [confirmedMap, setConfirmedMap] = useState({});
+  const [revealedMap, setRevealedMap] = useState({});
+  const [autoReveal, setAutoReveal] = useState(() => localStorage.getItem('fc_auto_reveal') === 'true');
+
   const [visited, setVisited] = useState(() => new Set());
   const [marked, setMarked] = useState(() => new Set());
+
+  // Timer states
   const [remaining, setRemaining] = useState(null);
-  // Practice mode counts UP from 00:00:00 instead of down; nothing is ever
-  // auto-submitted, the student just sees how long they've spent.
   const [elapsed, setElapsed] = useState(0);
   const [totalDurationSeconds, setTotalDurationSeconds] = useState(null);
+
+  // UI / Display settings
+  const [theme, setTheme] = useState(() => localStorage.getItem('fc_cbt_theme') || 'dark');
+  const [fontDelta, setFontDelta] = useState(() => {
+    const saved = sessionStorage.getItem('fc_cbt_font_delta');
+    return saved != null ? Number(saved) : 0;
+  });
+
+  const [lockedNotice, setLockedNotice] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
@@ -85,20 +77,39 @@ export default function TakeExam() {
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
   const [showSummary, setShowSummary] = useState(false);
   const [textDraft, setTextDraft] = useState({});
-  const [paletteOpen, setPaletteOpen] = useState(false);
   const [savedIds, setSavedIds] = useState(() => new Set());
-  // Practice-mode "Immediate Feedback": populated per-question from the
-  // /answer response whenever quiz.show_explanations is on. Never populated
-  // for Mock/exam quizzes — the backend simply won't send it.
   const [feedback, setFeedback] = useState({});
+
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState('doubtful');
   const [reportNote, setReportNote] = useState('');
+  const [reportSent, setReportSent] = useState(false);
   const [zoomImage, setZoomImage] = useState(null);
+
   const submittedRef = useRef(false);
   const containerRef = useRef(null);
+  const stripRef = useRef(null);
+  const currentStripItemRef = useRef(null);
   const entryTimeRef = useRef(Date.now());
+  const lockedNoticeTimeoutRef = useRef(null);
 
+  // Sync theme to root DOM
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('fc_cbt_theme', theme);
+  }, [theme]);
+
+  // Sync font delta
+  useEffect(() => {
+    sessionStorage.setItem('fc_cbt_font_delta', String(fontDelta));
+  }, [fontDelta]);
+
+  // Sync auto reveal preference
+  useEffect(() => {
+    localStorage.setItem('fc_auto_reveal', String(autoReveal));
+  }, [autoReveal]);
+
+  // Handle escape on zoom image
   useEffect(() => {
     if (!zoomImage) return undefined;
     function handleKeyDown(e) {
@@ -108,10 +119,16 @@ export default function TakeExam() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [zoomImage]);
 
-  // Time-Per-Question tracking: reset every time the visible question
-  // changes (see goTo/flushTiming below) or an answer is recorded — the
-  // elapsed window since the last reset is what gets sent to the server.
-  const [loadingQuiz, setLoadingQuiz] = useState(true);
+  // Auto-scroll horizontal strip on mobile/tablet when current question changes
+  useEffect(() => {
+    if (currentStripItemRef.current) {
+      currentStripItemRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+        inline: 'center',
+      });
+    }
+  }, [current]);
 
   const safeExit = useCallback(() => {
     if (window.history.length > 1) {
@@ -123,18 +140,28 @@ export default function TakeExam() {
     }
   }, [navigate, quiz]);
 
+  // Load quiz details or resume active attempt
   useEffect(() => {
-    setLoadingQuiz(true);
     api.get(`/exams/quizzes/${quizId}`)
       .then((d) => {
         if (d.quiz) setQuiz(d.quiz);
-        // Seamless Reload / Resume: If the student refreshed or reopened an active attempt, resume it immediately
         if (d.active_attempt) {
           setAttempt(d.active_attempt);
-          setAnswers(d.active_attempt.answers || {});
+          const savedAnswers = d.active_attempt.answers || {};
+          setAnswers(savedAnswers);
+
+          // In exam mode, any existing non-empty answer is considered confirmed
+          if (d.quiz?.type !== 'practice') {
+            const conf = {};
+            Object.entries(savedAnswers).forEach(([qid, val]) => {
+              if (val != null && String(val).trim() !== '') conf[qid] = true;
+            });
+            setConfirmedMap(conf);
+          }
+
           if (d.questions?.length) {
             setQuestions(d.questions);
-            const answeredIds = Object.keys(d.active_attempt.answers || {}).map(Number);
+            const answeredIds = Object.keys(savedAnswers).map(Number);
             setVisited(new Set([d.questions[0].id, ...answeredIds]));
           }
           setTotalDurationSeconds((d.quiz?.duration_minutes || 0) * 60);
@@ -144,11 +171,9 @@ export default function TakeExam() {
       })
       .catch((e) => {
         setError(e.message || 'Failed to load assessment details');
-      })
-      .finally(() => setLoadingQuiz(false));
+      });
   }, [quizId]);
 
-  // Request fullscreen and initialize exam attempt
   function beginExam() {
     setError('');
     if (quiz?.type !== 'practice') {
@@ -159,7 +184,15 @@ export default function TakeExam() {
       .then((d) => {
         setAttempt(d.attempt);
         setQuiz(d.quiz);
-        setAnswers(d.attempt.answers || {});
+        const savedAnswers = d.attempt.answers || {};
+        setAnswers(savedAnswers);
+        if (d.quiz?.type !== 'practice') {
+          const conf = {};
+          Object.entries(savedAnswers).forEach(([qid, val]) => {
+            if (val != null && String(val).trim() !== '') conf[qid] = true;
+          });
+          setConfirmedMap(conf);
+        }
         setQuestions(d.questions || []);
         setTotalDurationSeconds((d.quiz?.duration_minutes || 0) * 60);
         if (d.questions?.length) setVisited(new Set([d.questions[0].id]));
@@ -170,8 +203,7 @@ export default function TakeExam() {
         const errMsg = e.response?.data?.message || e.response?.data?.error || e.message || 'Exam Still in Progress';
         setError(errMsg);
       });
-    // Hydrate the Memory Box state so questions already saved by this student
-    // show as "Saved" instead of appearing unsaved and being toggled off.
+
     api.get('/memory-bank')
       .then((d) => setSavedIds(new Set((d.items || []).map((i) => i.id))))
       .catch(() => {});
@@ -195,7 +227,6 @@ export default function TakeExam() {
     return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
   }, [confirmed]);
 
-  // Exam Proctoring: track window focus and tab switches
   useEffect(() => {
     function onVisibilityChange() {
       if (document.hidden && confirmed && !submittedRef.current) {
@@ -206,7 +237,6 @@ export default function TakeExam() {
     return () => document.removeEventListener('visibilitychange', onVisibilityChange);
   }, [confirmed]);
 
-  // Exam Proctoring: prevent unauthorized copy/cut/context menu on question text
   useEffect(() => {
     if (!confirmed) return undefined;
     function block(e) {
@@ -224,40 +254,29 @@ export default function TakeExam() {
     };
   }, [confirmed]);
 
-  // Exam Proctoring: prevent accidental back/forward browser navigation during live attempt
   useEffect(() => {
     if (!confirmed) return undefined;
     function onPopState() {
       if (submittedRef.current) return;
       window.history.pushState(null, '', window.location.href);
-      // eslint-disable-next-line no-alert
-      window.alert('This exam is in progress. Use the Exit button if you need to leave.');
+      window.alert('This exam is in progress. Use the End exam button if you need to leave.');
     }
     window.history.pushState(null, '', window.location.href);
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   }, [confirmed]);
 
-  // Liveness heartbeat. Without this the admin Live Monitor had no way to
-  // tell an actively-working candidate from one who closed their laptop —
-  // every unsubmitted attempt simply read as "Active" until it was submitted.
-  // Pings every 20s while the attempt is open, plus once immediately, and
-  // once more whenever the tab regains focus so a returning student flips
-  // back to Online without waiting for the next interval.
   useEffect(() => {
     if (!attempt?.id || submittedRef.current) return undefined;
-
     let stopped = false;
     const ping = () => {
       if (stopped || submittedRef.current) return;
       api.post(`/exams/attempts/${attempt.id}/heartbeat`, {}, { silent: true }).catch(() => {});
     };
-
     ping();
     const interval = setInterval(ping, 20000);
     const onVisible = () => { if (!document.hidden) ping(); };
     document.addEventListener('visibilitychange', onVisible);
-
     return () => {
       stopped = true;
       clearInterval(interval);
@@ -265,41 +284,12 @@ export default function TakeExam() {
     };
   }, [attempt?.id]);
 
-  // Always leave fullscreen when navigating away from the exam page.
   useEffect(() => () => exitFullscreenIfActive(), []);
 
-  // Inactivity Timeout & Auto-Submit: a system-level safety net independent
-  // of the exam/practice countdown above. If the student shows no mouse
-  // movement, click, or keystroke for 180 minutes (3 hours) while an
-  // assignment or exam is open, the attempt is force-submitted — this
-  // protects against a forgotten open tab holding an attempt "in_progress"
-  // indefinitely, on top of whatever timer (if any) the quiz itself has.
-  const IDLE_LIMIT_MS = 180 * 60 * 1000;
-  const lastActivityRef = useRef(Date.now());
-  useEffect(() => {
-    if (!attempt?.id) return undefined;
+  // Timer logic
+  const isPractice = !!attempt && !attempt.deadline_at;
+  const isExam = !isPractice;
 
-    const markActive = () => { lastActivityRef.current = Date.now(); };
-    const events = ['mousemove', 'mousedown', 'click', 'keydown', 'touchstart', 'scroll'];
-    events.forEach((ev) => window.addEventListener(ev, markActive, { passive: true }));
-
-    const idleCheck = setInterval(() => {
-      if (submittedRef.current) return;
-      if (Date.now() - lastActivityRef.current >= IDLE_LIMIT_MS) {
-        handleSubmit();
-      }
-    }, 30000);
-
-    return () => {
-      events.forEach((ev) => window.removeEventListener(ev, markActive));
-      clearInterval(idleCheck);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attempt?.id]);
-
-  // Mode-specific timer. An exam attempt has a server-issued deadline_at and
-  // counts down to a forced auto-submit. A practice attempt has deadline_at
-  // = null, so it counts up from started_at and never auto-submits.
   useEffect(() => {
     if (!attempt) return undefined;
 
@@ -322,47 +312,159 @@ export default function TakeExam() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attempt]);
 
-  // Flushes the elapsed time on the CURRENTLY-visible question to the
-  // server (Time-Per-Question tracking), then resets the timing window.
-  // Called before navigating away from a question so time is captured even
-  // when a student skips it without answering.
   const flushTiming = useCallback((questionIdOverride) => {
     const qId = questionIdOverride ?? questions[current]?.id;
     if (qId == null || !attempt) return;
     const now = Date.now();
-    const elapsed = Math.max(0, Math.round((now - entryTimeRef.current) / 1000));
+    const elapsedSecs = Math.max(0, Math.round((now - entryTimeRef.current) / 1000));
     entryTimeRef.current = now;
-    if (elapsed <= 0) return;
+    if (elapsedSecs <= 0) return;
     const existing = textDraft[qId] ?? answers[qId] ?? '';
-    api.post(`/exams/attempts/${attempt.id}/answer`, { question_id: qId, selected_option: existing, time_spent_seconds: elapsed }).catch(() => {});
+    api.post(`/exams/attempts/${attempt.id}/answer`, { question_id: qId, selected_option: existing, time_spent_seconds: elapsedSecs }).catch(() => {});
   }, [attempt, current, questions, textDraft, answers]);
 
   const selectAnswer = useCallback(async (questionId, key) => {
     const now = Date.now();
-    const elapsed = Math.max(0, Math.round((now - entryTimeRef.current) / 1000));
+    const elapsedSecs = Math.max(0, Math.round((now - entryTimeRef.current) / 1000));
     entryTimeRef.current = now;
-    setAnswers((prev) => ({ ...prev, [questionId]: key }));
     try {
-      const d = await api.post(`/exams/attempts/${attempt.id}/answer`, { question_id: questionId, selected_option: key, time_spent_seconds: elapsed });
-      if (d.feedback) setFeedback((prev) => ({ ...prev, [questionId]: d.feedback }));
+      const d = await api.post(`/exams/attempts/${attempt.id}/answer`, {
+        question_id: questionId,
+        selected_option: key,
+        time_spent_seconds: elapsedSecs,
+      });
+      if (d.feedback) {
+        setFeedback((prev) => ({ ...prev, [questionId]: d.feedback }));
+      }
     } catch (e) {
       setError(e.message);
     }
   }, [attempt]);
 
-  function toggleMultiSelect(questionId, key) {
-    const current = (answers[questionId] || '').split(',').filter(Boolean);
-    const next = current.includes(key) ? current.filter((k) => k !== key) : [...current, key];
-    selectAnswer(questionId, next.join(','));
+  function commitDraft() {
+    const qId = questions[current]?.id;
+    if (qId == null) return;
+    const draft = textDraft[qId];
+    if (draft != null && draft !== answers[qId]) {
+      setAnswers((prev) => ({ ...prev, [qId]: draft }));
+      selectAnswer(qId, draft);
+    }
   }
 
   function goTo(idx) {
     flushTiming();
     commitDraft();
     setCurrent(idx);
-    setPaletteOpen(false);
+    setLockedNotice(false);
     const qId = questions[idx]?.id;
     if (qId != null) setVisited((prev) => new Set(prev).add(qId));
+  }
+
+  // Option selection logic
+  function handleOptionClick(qId, key) {
+    if (isExam && confirmedMap[qId]) {
+      // Locked confirmed answer in exam mode
+      if (answers[qId] !== key) {
+        setLockedNotice(true);
+        if (lockedNoticeTimeoutRef.current) clearTimeout(lockedNoticeTimeoutRef.current);
+        lockedNoticeTimeoutRef.current = setTimeout(() => setLockedNotice(false), 3500);
+      }
+      return;
+    }
+
+    setAnswers((prev) => ({ ...prev, [qId]: key }));
+    setLockedNotice(false);
+
+    if (isPractice) {
+      selectAnswer(qId, key);
+      if (autoReveal) {
+        setRevealedMap((prev) => ({ ...prev, [qId]: true }));
+      }
+    }
+  }
+
+  function handleMultiSelectToggle(qId, key) {
+    if (isExam && confirmedMap[qId]) {
+      setLockedNotice(true);
+      if (lockedNoticeTimeoutRef.current) clearTimeout(lockedNoticeTimeoutRef.current);
+      lockedNoticeTimeoutRef.current = setTimeout(() => setLockedNotice(false), 3500);
+      return;
+    }
+    const currentSel = (answers[qId] || '').split(',').filter(Boolean);
+    const nextSel = currentSel.includes(key) ? currentSel.filter((k) => k !== key) : [...currentSel, key];
+    const joined = nextSel.join(',');
+    setAnswers((prev) => ({ ...prev, [qId]: joined }));
+    if (isPractice) {
+      selectAnswer(qId, joined);
+      if (autoReveal) setRevealedMap((prev) => ({ ...prev, [qId]: true }));
+    }
+  }
+
+  // Practice mode: Reveal Answer
+  function handleRevealAnswer() {
+    const qId = questions[current]?.id;
+    if (qId == null) return;
+    setRevealedMap((prev) => ({ ...prev, [qId]: true }));
+    if (!feedback[qId]) {
+      selectAnswer(qId, answers[qId] || '');
+    }
+  }
+
+  // Exam mode: Clear Answer
+  function handleClearAnswer() {
+    const qId = questions[current]?.id;
+    if (qId == null) return;
+    setAnswers((prev) => {
+      const next = { ...prev };
+      delete next[qId];
+      return next;
+    });
+    setConfirmedMap((prev) => {
+      const next = { ...prev };
+      delete next[qId];
+      return next;
+    });
+    setTextDraft((prev) => {
+      const next = { ...prev };
+      delete next[qId];
+      return next;
+    });
+    setLockedNotice(false);
+    api.post(`/exams/attempts/${attempt.id}/answer`, { question_id: qId, selected_option: '' }).catch(() => {});
+  }
+
+  // Exam mode: Confirm
+  function handleConfirmAnswer() {
+    const qId = questions[current]?.id;
+    if (qId == null) return;
+    commitDraft();
+    const hasAnswer = answers[qId] != null && String(answers[qId]).trim() !== '';
+    if (hasAnswer) {
+      setConfirmedMap((prev) => ({ ...prev, [qId]: true }));
+      selectAnswer(qId, answers[qId]);
+    }
+    setLockedNotice(false);
+    advanceOrReview();
+  }
+
+  // Exam mode: Mark review & Next
+  function handleMarkReviewAndNext() {
+    const qId = questions[current]?.id;
+    if (qId != null) {
+      setMarked((prev) => new Set(prev).add(qId));
+    }
+    setLockedNotice(false);
+    advanceOrReview();
+  }
+
+  function advanceOrReview() {
+    if (current < questions.length - 1) {
+      goTo(current + 1);
+    } else {
+      flushTiming();
+      commitDraft();
+      setShowSummary(true);
+    }
   }
 
   async function toggleMemoryBank(questionId) {
@@ -376,8 +478,6 @@ export default function TakeExam() {
       if (isSaved) await api.del(`/memory-bank/${questionId}`);
       else await api.post(`/memory-bank/${questionId}`);
     } catch {
-      // Roll the icon back so it never claims a question was saved when the
-      // write to the Memory Box actually failed.
       setSavedIds((prev) => {
         const next = new Set(prev);
         if (isSaved) next.add(questionId); else next.delete(questionId);
@@ -402,48 +502,6 @@ export default function TakeExam() {
     } catch (e) {
       setError(e.message);
     }
-  }
-
-  function commitDraft() {
-    const qId = questions[current]?.id;
-    if (qId == null) return;
-    const draft = textDraft[qId];
-    if (draft != null && draft !== answers[qId]) selectAnswer(qId, draft);
-  }
-
-  function clearResponse() {
-    const qId = questions[current]?.id;
-    if (qId == null) return;
-    setAnswers((prev) => {
-      const next = { ...prev };
-      delete next[qId];
-      return next;
-    });
-    setTextDraft((prev) => {
-      const next = { ...prev };
-      delete next[qId];
-      return next;
-    });
-    setFeedback((prev) => {
-      const next = { ...prev };
-      delete next[qId];
-      return next;
-    });
-    api.post(`/exams/attempts/${attempt.id}/answer`, { question_id: qId, selected_option: '' }).catch(() => {});
-  }
-
-  function markForReviewAndNext() {
-    const qId = questions[current]?.id;
-    if (qId != null) setMarked((prev) => new Set(prev).add(qId));
-    advance();
-  }
-
-  function saveAndNext() {
-    advance();
-  }
-
-  function advance() {
-    if (current < questions.length - 1) goTo(current + 1);
   }
 
   async function handleSubmit() {
@@ -481,34 +539,39 @@ export default function TakeExam() {
     }
   }
 
+  // Question & Stats summary
   const counts = useMemo(() => {
     const isAnswered = (qq) => {
-      const raw = answers[qq.id];
-      return raw != null && String(raw).trim() !== '';
+      if (isPractice) {
+        const raw = answers[qq.id];
+        return raw != null && String(raw).trim() !== '';
+      }
+      return Boolean(confirmedMap[qq.id] && answers[qq.id] != null && String(answers[qq.id]).trim() !== '');
     };
     const answered = questions.filter(isAnswered).length;
-    const skipped = questions.filter((qq) => !isAnswered(qq) && visited.has(qq.id)).length;
-    const markedCount = questions.filter((qq) => marked.has(qq.id)).length;
+    const flagged = questions.filter((qq) => marked.has(qq.id)).length;
+    const skipped = questions.filter((qq) => !isAnswered(qq) && visited.has(qq.id) && !marked.has(qq.id)).length;
+    const untouched = questions.length - answered - skipped - flagged;
     return {
       total: questions.length,
       answered,
       skipped,
-      untouched: questions.length - answered - skipped,
+      untouched: Math.max(0, untouched),
+      flagged,
       notAnswered: questions.length - answered,
-      marked: markedCount,
     };
-  }, [questions, answers, marked, visited]);
+  }, [questions, answers, marked, visited, confirmedMap, isPractice]);
 
   if (error) {
     const isExamInProgress = typeof error === 'string' && (error.includes('Exam Still in Progress') || error.includes('already have an exam in progress'));
     return (
-      <div className="page">
+      <div className="page" data-theme={theme}>
         <div className="container" style={{ maxWidth: 540, paddingTop: 60 }}>
           <div className="card" style={{ padding: '36px 32px', textAlign: 'center', borderRadius: 14 }}>
-            <div style={{ width: 60, height: 60, borderRadius: '50%', background: '#fee2e2', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+            <div style={{ width: 60, height: 60, borderRadius: '50%', background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
               <AlertCircle size={32} />
             </div>
-            <h2 style={{ fontSize: '1.45rem', fontWeight: 800, color: '#0f172a', marginBottom: 8 }}>
+            <h2 style={{ fontSize: '1.45rem', fontWeight: 800, marginBottom: 8 }}>
               {isExamInProgress ? 'Exam Still in Progress' : 'Cannot Start Assessment'}
             </h2>
             <p className="muted" style={{ fontSize: '0.94rem', lineHeight: 1.6, marginBottom: 24 }}>
@@ -526,41 +589,36 @@ export default function TakeExam() {
     );
   }
 
-  // isPractice is derived from the attempt the SERVER handed back (no
-  // deadline == untimed), not from a client-side guess, so the two can never
-  // disagree about whether this paper is timed.
-  const isPractice = !!attempt && !attempt.deadline_at;
-  const clockLabel = isPractice ? 'Time Elapsed' : 'Time Left';
+  const clockLabel = isPractice ? 'Time elapsed' : 'Remaining Time';
   const clockValue = isPractice
     ? formatClock(elapsed)
     : (remaining != null ? formatClock(remaining) : '--:--:--');
-  const timeLow = !isPractice && remaining != null && remaining <= 60;
   const q = questions[current];
-  const initial = (user?.name || 'C').trim().charAt(0).toUpperCase();
+  const initial = (user?.name || 'A').trim().charAt(0).toUpperCase();
+  const progressPercent = questions.length ? Math.round(((current + 1) / questions.length) * 100) : 0;
+  const isRevealed = isPractice && q && Boolean(revealedMap[q.id]);
+  const currentFeedback = q ? feedback[q.id] : null;
 
-  // The container div is ALWAYS mounted (confirm screen, loading state, and
-  // the live exam all render inside it) so containerRef.current exists the
-  // instant the user clicks "Proceed" — that's what makes fullscreen work.
   return (
-    <div className="cbt-shell" ref={containerRef}>
+    <div className="cbt-shell" ref={containerRef} data-theme={theme}>
       {!confirmed ? (
-        <div className="page" style={{ background: 'var(--paper)' }}>
+        <div className="page" style={{ background: 'var(--paper, #0b0f1d)' }}>
           <div className="container" style={{ maxWidth: 480, paddingTop: 40 }}>
-            <div className="card exam-confirm-card">
-              <span style={{ fontSize: '.8rem', color: 'var(--primary, #4f46e5)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 6 }}>
+            <div className="card exam-confirm-card" style={{ background: '#12182b', border: '1px solid #1f2945', color: '#f8fafc', padding: 28, borderRadius: 14 }}>
+              <span style={{ fontSize: '.8rem', color: '#6366f1', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 6 }}>
                 {quiz?.type === 'practice' ? 'Practice Assignment' : 'Formal Examination'}
               </span>
-              <h2>{quiz?.title || 'Proceed with assessment?'}</h2>
-              <p className="muted">
+              <h2 style={{ color: '#ffffff' }}>{quiz?.title || 'Proceed with assessment?'}</h2>
+              <p className="muted" style={{ color: '#94a3b8' }}>
                 {quiz?.type === 'practice'
                   ? 'This is an untimed practice assignment. You can explore questions at your own pace, get immediate explanations, and submit when you are ready.'
-                  : `This is a timed attempt (${quiz?.duration_minutes ? quiz.duration_minutes + ' minutes' : 'timed'}). Once you proceed, the exam opens in full-screen mode and the timer starts immediately. It will return to normal view automatically when you submit.`}
+                  : `This is a timed attempt (${quiz?.duration_minutes ? quiz.duration_minutes + ' minutes' : 'timed'}). Once you proceed, the exam opens in full-screen mode and the timer starts immediately.`}
               </p>
-              <div className="row" style={{ marginTop: 20 }}>
-                <button className="btn btn-primary" onClick={beginExam}>
+              <div className="row" style={{ marginTop: 24, gap: 12 }}>
+                <button className="cbt-btn cbt-btn-confirm" onClick={beginExam}>
                   {quiz?.type === 'practice' ? 'Start Assignment' : 'Proceed with exam'}
                 </button>
-                <button className="btn btn-outline" onClick={safeExit}>Cancel</button>
+                <button className="cbt-btn cbt-btn-prev" onClick={safeExit}>Cancel</button>
               </div>
             </div>
           </div>
@@ -576,143 +634,204 @@ export default function TakeExam() {
         </div>
       ) : (
         <>
-          <div className="cbt-topbar">
+          {/* Top Bar */}
+          <header className="cbt-topbar">
             <div className="cbt-topbar-left">
-              <strong>FlyCentric Examination Portal</strong>
-              <span>{quiz.title}</span>
+              {/* Mobile / Tablet Icon Logo (text hidden on <= 1024px) */}
+              <Link to="/" className="cbt-logo-icon-link" aria-label="FlyCentric home">
+                <Logo size={28} />
+              </Link>
+              <span className="cbt-brand-text">FlyCentric Examination Portal</span>
               {isPractice ? (
-                <span className="cbt-mode-chip cbt-mode-practice" title="Untimed — answers and explanations shown as you go">Practice · untimed</span>
+                <span className="cbt-mode-pill cbt-mode-practice">Practice mode · Untimed</span>
               ) : (
-                <span className="cbt-mode-chip cbt-mode-protected" title="Timed — auto-submits when the clock runs out">Exam · timed</span>
+                <span className="cbt-mode-pill cbt-mode-exam">Exam mode</span>
               )}
             </div>
+
+            {/* Desktop Center: Single Course/Quiz Title */}
             <div className="cbt-topbar-center">{quiz.title}</div>
+
+            {/* Topbar Right Controls */}
             <div className="cbt-topbar-right">
-              <div className={`cbt-timer ${timeLow ? 'low' : ''} ${isPractice ? 'stopwatch' : ''}`}>
-                <span>{clockLabel}</span>
-                <strong>{clockValue}</strong>
+              {/* Font Size A- and A+ Controls */}
+              <div className="cbt-font-controls" role="group" aria-label="Font size controls">
+                <button
+                  type="button"
+                  className="cbt-ctrl-btn"
+                  onClick={() => setFontDelta((d) => Math.max(-3, d - 1))}
+                  title="Decrease font size"
+                  aria-label="Decrease font size"
+                >
+                  A−
+                </button>
+                <button
+                  type="button"
+                  className="cbt-ctrl-btn"
+                  onClick={() => setFontDelta((d) => Math.min(5, d + 1))}
+                  title="Increase font size"
+                  aria-label="Increase font size"
+                >
+                  A+
+                </button>
               </div>
-              {/* Sticky top submit — the same guarded flow as the bottom bar
-                  (flush timings, commit any draft, then confirm), so a student
-                  never has to scroll to the end of a long paper to finish. */}
+
+              {/* Theme Toggle (Moon / Sun Switch) */}
               <button
                 type="button"
-                className="cbt-topbar-submit"
-                onClick={() => { flushTiming(); commitDraft(); setShowSummary(true); }}
-                disabled={submitting}
+                className={`cbt-theme-toggle ${theme === 'dark' ? 'is-dark' : 'is-light'}`}
+                onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+                title={theme === 'dark' ? 'Switch to Bright Mode' : 'Switch to Dark Mode'}
+                aria-label="Toggle bright / dark mode"
               >
-                {submitting ? 'Submitting…' : 'Submit Exam'}
+                <Moon size={13} className="cbt-theme-moon" />
+                <Sun size={13} className="cbt-theme-sun" />
+                <span className="cbt-theme-slider" />
               </button>
-              <button className="cbt-exit-btn" title="Submit and exit" onClick={handleExit} disabled={submitting}><X size={16} /></button>
-            </div>
-          </div>
 
-          {/* Gradient exam timer — a slim bar under the topbar that shrinks
-              from full-width to empty as time runs out, shifting color from
-              green through amber to red (see timerGradientColor above) so
-              remaining time is visible at a glance without reading digits. */}
-          {!isPractice && totalDurationSeconds > 0 && (
-            <div className="cbt-timer-track" role="progressbar" aria-label="Time remaining" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(((remaining ?? totalDurationSeconds) / totalDurationSeconds) * 100)}>
-              <div
-                className="cbt-timer-fill"
-                style={{
-                  width: `${Math.max(0, Math.min(100, ((remaining ?? totalDurationSeconds) / totalDurationSeconds) * 100))}%`,
-                  background: timerGradientColor((remaining ?? totalDurationSeconds) / totalDurationSeconds),
-                }}
-              />
-            </div>
-          )}
+              {/* Timer */}
+              <div className={`cbt-timer ${isPractice ? 'cbt-timer-practice' : 'cbt-timer-exam'}`}>
+                <Clock size={13} className="cbt-timer-icon" />
+                <span className="cbt-timer-label">{clockLabel}</span>
+                <strong className="cbt-timer-val">{clockValue}</strong>
+              </div>
 
+              {/* End / Submit Action */}
+              {isPractice ? (
+                <button
+                  type="button"
+                  className="cbt-btn-end cbt-btn-end-practice"
+                  onClick={handleExit}
+                >
+                  End practice
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="cbt-btn-end cbt-btn-end-exam cbt-desktop-only"
+                    onClick={() => { flushTiming(); commitDraft(); setShowSummary(true); }}
+                  >
+                    End exam
+                  </button>
+                  <button
+                    type="button"
+                    className="cbt-mobile-submit cbt-mobile-only"
+                    onClick={() => { flushTiming(); commitDraft(); setShowSummary(true); }}
+                    title="Submit exam"
+                  >
+                    <Send size={13} />
+                    <span>Submit</span>
+                  </button>
+                </>
+              )}
+            </div>
+          </header>
+
+          {/* Fullscreen / Tabswitch Warnings */}
           {fullscreenLost && (
-            <div className="exam-fullscreen-banner" style={{ margin: '10px 20px 0' }}>
+            <div className="cbt-banner cbt-banner-warning">
               <span>You exited full-screen. The exam is still running.</span>
-              <button className="btn btn-sm btn-dark" onClick={() => containerRef.current?.requestFullscreen?.().catch(() => {})}>
+              <button className="cbt-banner-btn" onClick={() => containerRef.current?.requestFullscreen?.().catch(() => {})}>
                 Return to full screen
               </button>
             </div>
           )}
 
           {tabSwitchCount > 0 && (
-            <div className="exam-fullscreen-banner exam-tabswitch-banner" style={{ margin: '10px 20px 0' }}>
+            <div className="cbt-banner cbt-banner-danger">
               <span>
-                Tab/app switch detected ({tabSwitchCount}× this attempt). Stay on this screen — switching away is
-                logged as part of exam integrity.
+                Tab/app switch detected ({tabSwitchCount}× this attempt). Stay on this screen — switching away is logged as part of exam integrity.
               </span>
             </div>
           )}
 
-          <div className="cbt-sections">
-            <button className="cbt-section-tab active" type="button">
-              {quiz.title}
-              <small>{questions.length} question{questions.length === 1 ? '' : 's'}</small>
+          {/* Horizontal Question Strip for Mobile / Tablet (<= 1024px) */}
+          <div className="cbt-substrip" role="tablist" aria-label="Question strip">
+            <button
+              type="button"
+              className="cbt-strip-nav"
+              onClick={() => goTo(Math.max(0, current - 1))}
+              disabled={current === 0}
+              aria-label="Previous question"
+            >
+              <ChevronLeft size={16} />
             </button>
-            <button className="cbt-palette-toggle" type="button" onClick={() => setPaletteOpen(true)}>
-              Q{current + 1}/{questions.length} · Palette <ChevronDown size={13} />
+            <div className="cbt-strip-scroller" ref={stripRef}>
+              {questions.map((qq, idx) => {
+                const status = paletteStatus(qq.id, visited, answers, marked, confirmedMap, isPractice);
+                const isCurrent = idx === current;
+                return (
+                  <button
+                    key={qq.id}
+                    type="button"
+                    ref={isCurrent ? currentStripItemRef : null}
+                    className={`cbt-strip-btn ${status} ${isCurrent ? 'is-current' : ''}`}
+                    onClick={() => goTo(idx)}
+                  >
+                    {idx + 1}
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              className="cbt-strip-nav"
+              onClick={() => goTo(Math.min(questions.length - 1, current + 1))}
+              disabled={current === questions.length - 1}
+              aria-label="Next question"
+            >
+              <ChevronRight size={16} />
             </button>
           </div>
 
-          {/* Dual-Pane Exam Simulator — question navigator. On desktop this
-              sits in the persistent right-hand palette pane (30% width); on
-              tablet/phone widths it becomes this horizontally-scrollable top
-              strip instead (see the max-width:1200px rule in index.css) so
-              there's always a persistent map of the full question set, never
-              hidden behind an extra tap. */}
-          <div className="cbt-qnav" role="tablist" aria-label="Question navigator">
-            {questions.map((qq, idx) => (
-              <button
-                key={qq.id}
-                type="button"
-                className={`cbt-qnav-btn ${paletteStatus(qq.id, visited, answers, marked)} ${idx === current ? 'current' : ''}`}
-                onClick={() => goTo(idx)}
-              >
-                {idx + 1}
-              </button>
-            ))}
-          </div>
-
-          {/* Compact progress summary for mobile/tablet — the two-pane
-              desktop layout already shows this (cbt-summary-strip in the
-              sidebar), but that sidebar is hidden below 1200px, which used
-              to leave dead, unused space under the question strip. This
-              mirrors the same live counts inline instead of leaving it empty. */}
-          <div className="cbt-qnav-summary">
-            <span><strong style={{ color: 'var(--success)' }}>{counts.answered}</strong> Answered</span>
-            <span><strong style={{ color: 'var(--danger)' }}>{counts.skipped}</strong> Skipped</span>
-            <span><strong style={{ color: '#8a94a6' }}>{counts.untouched}</strong> Not seen</span>
-            <span><strong style={{ color: '#6b5eae' }}>{counts.marked}</strong> Flagged</span>
-          </div>
-
+          {/* Main Dual-Pane Body */}
           <div className="cbt-body">
-            <div className="cbt-main">
-              <div className="cbt-question-meta">
-                <strong>Question No. {current + 1}</strong>
-                <div className="cbt-question-actions">
-                  <span className="cbt-marks">Difficulty: <b>{q.difficulty || 'medium'}</b></span>
-                  {/* Moved up from the bottom action bar: on mobile, four
-                      bottom buttons (Clear Response, Mark for Review & Next,
-                      Previous, Save & Next) overflowed and hid the primary
-                      Save & Next CTA. Clear Response is the least-used of
-                      the four, so it lives here — next to Save/Report —
-                      leaving the bottom bar with just three, always-visible
-                      buttons. */}
-                  <button type="button" className="cbt-icon-action" onClick={clearResponse} title="Clear your response">
-                    <Eraser size={14} />Clear
+            {/* Left / Main Question Panel */}
+            <main className="cbt-main">
+              {/* Question Header */}
+              <div className="cbt-question-header">
+                <div className="cbt-question-header-left">
+                  <span className="cbt-qnum-title">Question {current + 1} of {questions.length}</span>
+                  <div className="cbt-progress-wrap">
+                    <div className="cbt-progress-track">
+                      <div
+                        className="cbt-progress-bar"
+                        style={{ width: `${progressPercent}%` }}
+                      />
+                    </div>
+                    <span className="cbt-progress-pct">{progressPercent}%</span>
+                  </div>
+                </div>
+
+                <div className="cbt-question-header-right">
+                  <span className="cbt-difficulty">
+                    Difficulty: <b className={`cbt-diff-${q?.difficulty || 'easy'}`}>{q?.difficulty || 'easy'}</b>
+                  </span>
+                  <button
+                    type="button"
+                    className={`cbt-pill-action ${savedIds.has(q?.id) ? 'active' : ''}`}
+                    onClick={() => toggleMemoryBank(q?.id)}
+                    title="Save to Memory Bank"
+                  >
+                    <Brain size={14} />
+                    <span>{savedIds.has(q?.id) ? 'Saved' : 'Save'}</span>
                   </button>
                   <button
                     type="button"
-                    className={`cbt-icon-action ${savedIds.has(q.id) ? 'active' : ''}`}
-                    onClick={() => toggleMemoryBank(q.id)}
-                    title="Add to Memory Bank"
+                    className="cbt-pill-action"
+                    onClick={openReport}
+                    title="Report question"
                   >
-                    <Brain size={14} />{savedIds.has(q.id) ? 'Saved' : 'Save'}
-                  </button>
-                  <button type="button" className="cbt-icon-action" onClick={openReport} title="Report this question">
-                    <Flag size={14} />Report
+                    <Flag size={14} />
+                    <span>Report</span>
                   </button>
                 </div>
               </div>
+
+              {/* Question Area */}
               <div className="cbt-question-area">
-                {q.image_url && (
+                {q?.image_url && (
                   <div className="cbt-image-container">
                     <div
                       className="cbt-image-wrapper"
@@ -737,54 +856,115 @@ export default function TakeExam() {
                     </div>
                   </div>
                 )}
-                <p className="cbt-question-text">{q.question_text}</p>
 
-                {(q.question_type === 'mcq' || q.question_type === 'image' || q.question_type === 'true_false' || !q.question_type) && (
+                <p
+                  className="cbt-question-text"
+                  style={{ fontSize: `calc(1.04rem + ${fontDelta * 0.07}rem)` }}
+                >
+                  {q?.question_text}
+                </p>
+
+                {/* Warning Toast for Locked Confirmed Answers in Exam Mode */}
+                {lockedNotice && (
+                  <div className="cbt-locked-toast" role="alert">
+                    <AlertCircle size={15} />
+                    <span>Clear Answer first to change your response.</span>
+                  </div>
+                )}
+
+                {/* Multiple Choice Options */}
+                {(q?.question_type === 'mcq' || q?.question_type === 'image' || q?.question_type === 'true_false' || !q?.question_type) && (
                   <div className="cbt-options">
-                    {(q.options || []).map((opt) => {
-                      const fb = feedback[q.id];
-                      let optionState = '';
-                      if (fb) {
-                        if (opt.key === fb.correct_option) optionState = 'correct';
-                        else if (answers[q.id] === opt.key) optionState = 'incorrect';
+                    {(q?.options || []).map((opt) => {
+                      const isSelected = answers[q.id] === opt.key;
+                      const fb = currentFeedback;
+                      let optionClass = 'cbt-option';
+                      if (isSelected) optionClass += ' is-selected';
+
+                      let isCorrect = false;
+                      let isWrong = false;
+
+                      if (isRevealed && fb) {
+                        if (String(opt.key).trim().toLowerCase() === String(fb.correct_option || '').trim().toLowerCase()) {
+                          optionClass += ' is-correct';
+                          isCorrect = true;
+                        } else if (isSelected) {
+                          optionClass += ' is-incorrect';
+                          isWrong = true;
+                        }
                       }
+
                       return (
                         <div
                           key={opt.key}
                           role="button"
                           tabIndex={0}
-                          className={`cbt-option ${answers[q.id] === opt.key ? 'selected' : ''} ${optionState ? `cbt-option-${optionState}` : ''}`}
-                          onClick={() => selectAnswer(q.id, opt.key)}
-                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') selectAnswer(q.id, opt.key); }}
+                          className={optionClass}
+                          onClick={() => handleOptionClick(q.id, opt.key)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              handleOptionClick(q.id, opt.key);
+                            }
+                          }}
                         >
-                          <span className="cbt-option-radio" />
-                          <span className="cbt-option-key">{opt.key}.</span>
-                          <span className="cbt-option-text">{opt.text}</span>
+                          <span className="cbt-radio-indicator">
+                            {isSelected && <span className="cbt-radio-dot" />}
+                          </span>
+                          <span className="cbt-letter-badge">{opt.key}.</span>
+                          <span
+                            className="cbt-option-text"
+                            style={{ fontSize: `calc(0.95rem + ${fontDelta * 0.07}rem)` }}
+                          >
+                            {opt.text}
+                          </span>
+                          {isRevealed && isWrong && (
+                            <X size={20} className="cbt-option-status-icon is-wrong" />
+                          )}
+                          {isRevealed && isCorrect && (
+                            <Check size={20} className="cbt-option-status-icon is-right" />
+                          )}
                         </div>
                       );
                     })}
                   </div>
                 )}
 
-                {q.question_type === 'multi_select' && (
+                {/* Multi Select */}
+                {q?.question_type === 'multi_select' && (
                   <>
-                    <p className="muted" style={{ marginTop: -12, marginBottom: 14 }}>Select all options that apply.</p>
+                    <p className="cbt-instruction-text">Select all options that apply.</p>
                     <div className="cbt-options">
-                      {q.options.map((opt) => {
-                        const selected = (answers[q.id] || '').split(',').includes(opt.key);
+                      {(q?.options || []).map((opt) => {
+                        const isSelected = (answers[q.id] || '').split(',').includes(opt.key);
+                        let optionClass = 'cbt-option';
+                        if (isSelected) optionClass += ' is-selected';
+
                         return (
                           <div
                             key={opt.key}
                             role="checkbox"
-                            aria-checked={selected}
+                            aria-checked={isSelected}
                             tabIndex={0}
-                            className={`cbt-option ${selected ? 'selected' : ''}`}
-                            onClick={() => toggleMultiSelect(q.id, opt.key)}
-                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleMultiSelect(q.id, opt.key); }}
+                            className={optionClass}
+                            onClick={() => handleMultiSelectToggle(q.id, opt.key)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                handleMultiSelectToggle(q.id, opt.key);
+                              }
+                            }}
                           >
-                            <span className="cbt-option-checkbox" />
-                            <span className="cbt-option-key">{opt.key}.</span>
-                            <span className="cbt-option-text">{opt.text}</span>
+                            <span className="cbt-checkbox-indicator">
+                              {isSelected && <Check size={12} />}
+                            </span>
+                            <span className="cbt-letter-badge">{opt.key}.</span>
+                            <span
+                              className="cbt-option-text"
+                              style={{ fontSize: `calc(0.95rem + ${fontDelta * 0.07}rem)` }}
+                            >
+                              {opt.text}
+                            </span>
                           </div>
                         );
                       })}
@@ -792,163 +972,228 @@ export default function TakeExam() {
                   </>
                 )}
 
-                {q.question_type === 'numerical' && (
+                {/* Numerical Input */}
+                {q?.question_type === 'numerical' && (
                   <div className="cbt-answer-field">
                     <label>Your numeric answer</label>
                     <input
                       type="text"
                       inputMode="decimal"
-                      step="any"
                       className="input"
                       style={{ maxWidth: 260 }}
                       value={textDraft[q.id] ?? answers[q.id] ?? ''}
                       onChange={(e) => setTextDraft((prev) => ({ ...prev, [q.id]: e.target.value }))}
-                      onBlur={(e) => selectAnswer(q.id, e.target.value)}
+                      onBlur={(e) => {
+                        setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }));
+                        selectAnswer(q.id, e.target.value);
+                      }}
                       placeholder="Enter a number"
                     />
                   </div>
                 )}
 
-                {(q.question_type === 'short_answer' || q.question_type === 'descriptive') && (
+                {/* Descriptive Input */}
+                {(q?.question_type === 'short_answer' || q?.question_type === 'descriptive') && (
                   <div className="cbt-answer-field">
                     <label>{q.question_type === 'short_answer' ? 'Your answer (short)' : 'Your answer (descriptive)'}</label>
                     <textarea
-                      rows={q.question_type === 'descriptive' ? 8 : 2}
+                      rows={q.question_type === 'descriptive' ? 7 : 3}
                       className="input"
                       value={textDraft[q.id] ?? answers[q.id] ?? ''}
                       onChange={(e) => setTextDraft((prev) => ({ ...prev, [q.id]: e.target.value }))}
-                      onBlur={(e) => selectAnswer(q.id, e.target.value)}
+                      onBlur={(e) => {
+                        setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }));
+                        selectAnswer(q.id, e.target.value);
+                      }}
                       placeholder="Type your answer…"
                     />
-                    <p className="muted" style={{ marginTop: 6, fontSize: '.76rem' }}>This question is graded manually by an examiner.</p>
                   </div>
                 )}
 
-                {/* Practice-mode immediate feedback — only ever present when the
-                    quiz has explanations enabled; Mock/exam quizzes never receive
-                    this from the backend, so nothing renders for them. */}
-                {feedback[q.id] && (
-                  <div className={`cbt-feedback-banner ${feedback[q.id].is_correct ? 'is-correct' : feedback[q.id].is_correct === false ? 'is-incorrect' : 'is-neutral'}`}>
-                    <strong>
-                      {feedback[q.id].is_correct === true && 'Correct!'}
-                      {feedback[q.id].is_correct === false && `Not quite — correct answer: ${feedback[q.id].correct_option}`}
-                      {feedback[q.id].is_correct === null && 'Submitted for manual grading.'}
-                    </strong>
-                    {feedback[q.id].explanation && <p>{feedback[q.id].explanation}</p>}
+                {/* Practice Mode Explanation Panel (Shown when revealed) */}
+                {isRevealed && currentFeedback && (
+                  <div className="cbt-explanation-panel">
+                    <div className="cbt-explanation-header">
+                      <CheckCircle2 size={20} className="cbt-expl-check-icon" />
+                      <span className="cbt-expl-correct-text">
+                        Correct answer: {currentFeedback.correct_option ? `${currentFeedback.correct_option}. ${q?.options?.find((o) => o.key === currentFeedback.correct_option)?.text || ''}` : 'See explanation below'}
+                      </span>
+                    </div>
+                    <div className="cbt-explanation-body">
+                      <div className="cbt-expl-title">Explanation:</div>
+                      <p className="cbt-expl-text">
+                        {currentFeedback.explanation || 'No detailed explanation provided for this question.'}
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>
+
+              {/* Sticky Bottom Navigation — strictly inside left panel */}
               <div className="cbt-bottombar">
                 <button
                   type="button"
-                  className="cbt-btn cbt-btn-nav"
+                  className="cbt-btn cbt-btn-prev"
                   disabled={current === 0}
                   onClick={() => goTo(current - 1)}
                 >
                   ← Previous
                 </button>
-                <div className="cbt-bottombar-actions">
-                  <button
-                    type="button"
-                    className="cbt-btn cbt-btn-mark"
-                    onClick={markForReviewAndNext}
-                  >
-                    Mark for Review &amp; Next
-                  </button>
-                  {current < questions.length - 1 ? (
+
+                {isPractice ? (
+                  <div className="cbt-bottombar-actions">
                     <button
                       type="button"
-                      className="cbt-btn cbt-btn-save"
-                      onClick={saveAndNext}
+                      className="cbt-btn cbt-btn-reveal"
+                      onClick={handleRevealAnswer}
                     >
-                      Save &amp; Next
+                      Reveal Answer
                     </button>
-                  ) : (
                     <button
                       type="button"
-                      className="cbt-btn cbt-btn-save"
-                      onClick={() => { flushTiming(); commitDraft(); setShowSummary(true); }}
+                      className={`cbt-btn cbt-btn-autoreveal ${autoReveal ? 'active' : ''}`}
+                      onClick={() => setAutoReveal((prev) => !prev)}
+                      title="Automatically reveal answer upon selecting an option"
                     >
-                      Save &amp; Review
+                      <span className={`cbt-toggle-pill ${autoReveal ? 'active' : ''}`}>
+                        <span className="cbt-toggle-thumb" />
+                      </span>
+                      <span>Auto reveal</span>
                     </button>
-                  )}
+                    <button
+                      type="button"
+                      className={`cbt-btn ${isRevealed ? 'cbt-btn-next-primary' : 'cbt-btn-next-outline'}`}
+                      onClick={advanceOrReview}
+                    >
+                      Next →
+                    </button>
+                  </div>
+                ) : (
+                  <div className="cbt-bottombar-actions">
+                    <button
+                      type="button"
+                      className="cbt-btn cbt-btn-clear"
+                      onClick={handleClearAnswer}
+                    >
+                      Clear Answer
+                    </button>
+                    <button
+                      type="button"
+                      className="cbt-btn cbt-btn-confirm"
+                      onClick={handleConfirmAnswer}
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      type="button"
+                      className="cbt-btn cbt-btn-mark-review"
+                      onClick={handleMarkReviewAndNext}
+                    >
+                      Mark review &amp; Next
+                    </button>
+                  </div>
+                )}
+              </div>
+            </main>
+
+            {/* Desktop Question Palette Sidebar */}
+            <aside className="cbt-sidebar">
+              {/* Candidate Info Card */}
+              <div className="cbt-candidate-card">
+                <div className="cbt-candidate-avatar">{initial}</div>
+                <span className="cbt-candidate-name">{user?.name || 'Aryan'}</span>
+              </div>
+
+              {/* Candidate Stats 2x2 Grid */}
+              <div className="cbt-stats-grid">
+                <div className="cbt-stat-box answered">
+                  <strong className="cbt-stat-val text-green">{counts.answered}</strong>
+                  <span className="cbt-stat-lbl">ANSWERED</span>
+                </div>
+                <div className="cbt-stat-box skipped">
+                  <strong className="cbt-stat-val text-red">{counts.skipped}</strong>
+                  <span className="cbt-stat-lbl">SKIPPED</span>
+                </div>
+                <div className="cbt-stat-box not-seen">
+                  <strong className="cbt-stat-val text-slate">{counts.untouched}</strong>
+                  <span className="cbt-stat-lbl">NOT SEEN</span>
+                </div>
+                <div className="cbt-stat-box flagged">
+                  <strong className="cbt-stat-val text-purple">{counts.flagged}</strong>
+                  <span className="cbt-stat-lbl">FLAGGED</span>
                 </div>
               </div>
-            </div>
 
-            <div className={`cbt-sidebar-backdrop ${paletteOpen ? 'open' : ''}`} onClick={() => setPaletteOpen(false)} />
-            <aside className={`cbt-sidebar ${paletteOpen ? 'open' : ''}`}>
-              <div className="cbt-sidebar-head">
-                <button className="cbt-sidebar-close" type="button" onClick={() => setPaletteOpen(false)} aria-label="Close palette"><X size={16} /></button>
-              </div>
-              <div className="cbt-candidate">
-                <div className="cbt-candidate-photo">{initial}</div>
-                <div>
-                  <strong>{user?.name || 'Candidate'}</strong>
-                </div>
-              </div>
+              {/* Palette Header */}
+              <div className="cbt-palette-header">QUESTION PALETTE</div>
 
-              <div className="cbt-summary-strip">
-                <div><strong style={{ color: 'var(--success)' }}>{counts.answered}</strong><span>Answered</span></div>
-                <div><strong style={{ color: 'var(--danger)' }}>{counts.skipped}</strong><span>Skipped</span></div>
-                <div><strong style={{ color: '#8a94a6' }}>{counts.untouched}</strong><span>Not seen</span></div>
-                <div><strong style={{ color: '#6b5eae' }}>{counts.marked}</strong><span>Flagged</span></div>
+              {/* Palette Grid (Supports 50+ questions, 7 columns) */}
+              <div className="cbt-palette-grid">
+                {questions.map((qq, idx) => {
+                  const status = paletteStatus(qq.id, visited, answers, marked, confirmedMap, isPractice);
+                  const isCurrent = idx === current;
+                  return (
+                    <button
+                      key={qq.id}
+                      type="button"
+                      className={`cbt-palette-item ${status} ${isCurrent ? 'is-current' : ''}`}
+                      onClick={() => goTo(idx)}
+                    >
+                      {idx + 1}
+                    </button>
+                  );
+                })}
               </div>
-
-              <div className="cbt-palette-head">Question Palette</div>
-              <div className="cbt-palette">
-                {questions.map((qq, idx) => (
-                  <button
-                    key={qq.id}
-                    className={`cbt-palette-btn ${paletteStatus(qq.id, visited, answers, marked)} ${idx === current ? 'current' : ''}`}
-                    onClick={() => goTo(idx)}
-                  >
-                    {idx + 1}
-                  </button>
-                ))}
-              </div>
-
-              <div className="cbt-legend">
-                <div className="cbt-legend-item"><span className="cbt-legend-swatch answered" /> Answered</div>
-                <div className="cbt-legend-item"><span className="cbt-legend-swatch visited-unanswered" /> Skipped (seen, no answer)</div>
-                <div className="cbt-legend-item"><span className="cbt-legend-swatch unanswered" /> Not visited yet</div>
-                <div className="cbt-legend-item"><span className="cbt-legend-swatch flagged" /> Flagged for review</div>
-              </div>
+              {/* Legend has been removed entirely per specification */}
             </aside>
           </div>
 
+          {/* Report Modal */}
           {reportOpen && (
             <div className="cbt-modal-overlay" role="dialog" aria-modal="true" onClick={() => setReportOpen(false)}>
               <div className="cbt-modal cbt-report-modal" onClick={(e) => e.stopPropagation()}>
-                <span style={{ fontSize: '.8rem', color: 'var(--muted)', fontWeight: 600, display: 'block', marginBottom: 4 }}>Question {current + 1}</span>
+                <span style={{ fontSize: '.8rem', color: '#94a3b8', fontWeight: 600, display: 'block', marginBottom: 4 }}>
+                  Question {current + 1}
+                </span>
                 <h2>Report an issue</h2>
                 {reportSent ? (
                   <>
-                    <p className="muted">Thanks — this has been sent to the admin review queue.</p>
+                    <p className="muted" style={{ margin: '16px 0' }}>Thanks — this has been sent to the admin review queue.</p>
                     <div className="cbt-modal-actions">
-                      <button className="btn btn-primary" onClick={() => setReportOpen(false)}>Close</button>
+                      <button className="cbt-btn cbt-btn-confirm" onClick={() => setReportOpen(false)}>Close</button>
                     </div>
                   </>
                 ) : (
                   <>
-                    <div className="field">
+                    <div className="field" style={{ marginTop: 16 }}>
                       <label>What's wrong with this question?</label>
                       <div className="cbt-report-reasons">
                         {REPORT_REASONS.map((r) => (
-                          <label key={r.key}>
-                            <input type="radio" name="report-reason" checked={reportReason === r.key} onChange={() => setReportReason(r.key)} />
-                            {r.label}
+                          <label key={r.key} style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 0', cursor: 'pointer' }}>
+                            <input
+                              type="radio"
+                              name="report-reason"
+                              checked={reportReason === r.key}
+                              onChange={() => setReportReason(r.key)}
+                            />
+                            <span>{r.label}</span>
                           </label>
                         ))}
                       </div>
                     </div>
-                    <div className="field">
+                    <div className="field" style={{ marginTop: 12 }}>
                       <label>Additional details (optional)</label>
-                      <textarea className="input" rows={3} value={reportNote} onChange={(e) => setReportNote(e.target.value)} placeholder="Tell us more…" />
+                      <textarea
+                        className="input"
+                        rows={3}
+                        value={reportNote}
+                        onChange={(e) => setReportNote(e.target.value)}
+                        placeholder="Tell us more…"
+                      />
                     </div>
-                    <div className="cbt-modal-actions">
-                      <button className="btn btn-outline" onClick={() => setReportOpen(false)}>Cancel</button>
-                      <button className="btn btn-primary" onClick={submitReport}>Send report</button>
+                    <div className="cbt-modal-actions" style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
+                      <button className="cbt-btn cbt-btn-prev" onClick={() => setReportOpen(false)}>Cancel</button>
+                      <button className="cbt-btn cbt-btn-confirm" onClick={submitReport}>Send report</button>
                     </div>
                   </>
                 )}
@@ -956,38 +1201,39 @@ export default function TakeExam() {
             </div>
           )}
 
+          {/* Final Submit Summary Modal */}
           {showSummary && (
             <div className="cbt-modal-overlay" role="dialog" aria-modal="true">
-              <div className="cbt-modal">
-                <span style={{ fontSize: '.8rem', color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 6 }}>Exam summary</span>
+              <div className="cbt-modal" style={{ background: '#12182b', border: '1px solid #1f2945', color: '#ffffff' }}>
+                <span style={{ fontSize: '.8rem', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 6 }}>
+                  {isPractice ? 'Practice summary' : 'Exam summary'}
+                </span>
                 <h2>Ready to submit?</h2>
-                <p className="muted">Review your progress before the final submission. This action cannot be undone.</p>
+                <p className="muted" style={{ color: '#94a3b8' }}>
+                  Review your progress before the final submission. This action cannot be undone.
+                </p>
                 <div className="cbt-modal-stats">
                   <div><strong>{counts.total}</strong><span>Total questions</span></div>
-                  <div><strong style={{ color: 'var(--good)' }}>{counts.answered}</strong><span>Answered</span></div>
-                  <div><strong style={{ color: '#e63757' }}>{counts.notAnswered}</strong><span>Not answered</span></div>
-                  <div><strong style={{ color: '#6b5eae' }}>{counts.marked}</strong><span>Marked for review</span></div>
+                  <div><strong style={{ color: '#10b981' }}>{counts.answered}</strong><span>Answered</span></div>
+                  <div><strong style={{ color: '#ef4444' }}>{counts.notAnswered}</strong><span>Not answered</span></div>
+                  <div><strong style={{ color: '#a855f7' }}>{counts.flagged}</strong><span>Marked for review</span></div>
                 </div>
-                {/* Unanswered questions stay locked in the review — the answer
-                    key is only revealed for questions actually attempted — so
-                    the student is told that BEFORE they submit, while going
-                    back and answering is still possible. */}
-                {counts.notAnswered > 0 && (
-                  <p className="cbt-modal-warning">
+                {counts.notAnswered > 0 && !isPractice && (
+                  <p className="cbt-modal-warning" style={{ color: '#f87171', fontSize: '0.86rem', marginTop: 12 }}>
                     {counts.notAnswered} question{counts.notAnswered === 1 ? '' : 's'} left unanswered.
-                    Skipped questions score zero, and their answers and explanations stay hidden in your review.
                   </p>
                 )}
-                <div className="cbt-modal-actions">
-                  <button className="btn btn-outline" onClick={() => setShowSummary(false)}>Go back to exam</button>
-                  <button className="btn btn-primary" onClick={handleSubmit} disabled={submitting}>
-                    {submitting ? 'Submitting…' : 'Submit final exam'}
+                <div className="cbt-modal-actions" style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 24 }}>
+                  <button className="cbt-btn cbt-btn-prev" onClick={() => setShowSummary(false)}>Go back</button>
+                  <button className="cbt-btn cbt-btn-confirm" onClick={handleSubmit} disabled={submitting}>
+                    {submitting ? 'Submitting…' : (isPractice ? 'Submit practice' : 'Submit final exam')}
                   </button>
                 </div>
               </div>
             </div>
           )}
 
+          {/* Lightbox for Diagram Zoom */}
           {zoomImage && (
             <div
               className="cbt-image-lightbox"
@@ -996,7 +1242,7 @@ export default function TakeExam() {
                 position: 'fixed',
                 inset: 0,
                 zIndex: 99999,
-                background: 'rgba(15, 23, 42, 0.88)',
+                background: 'rgba(11, 15, 29, 0.92)',
                 backdropFilter: 'blur(4px)',
                 display: 'flex',
                 flexDirection: 'column',
@@ -1005,11 +1251,11 @@ export default function TakeExam() {
                 padding: 16,
               }}
             >
-              <div style={{ position: 'absolute', top: 16, right: 16, display: 'flex', gap: 10 }}>
+              <div style={{ position: 'absolute', top: 16, right: 16 }}>
                 <button
                   type="button"
-                  className="btn btn-outline btn-sm"
-                  style={{ background: '#ffffff', color: '#0f172a', fontWeight: 600, border: 'none', display: 'flex', alignItems: 'center', gap: 6 }}
+                  className="cbt-btn cbt-btn-prev"
+                  style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                   onClick={() => setZoomImage(null)}
                 >
                   <X size={16} /> Close Preview (Esc)
@@ -1020,13 +1266,11 @@ export default function TakeExam() {
                   maxHeight: '90vh',
                   maxWidth: '94vw',
                   overflow: 'auto',
-                  background: '#ffffff',
-                  borderRadius: 8,
-                  padding: 12,
-                  boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.4)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
+                  background: '#161d31',
+                  borderRadius: 12,
+                  padding: 14,
+                  boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+                  border: '1px solid #253356',
                 }}
                 onClick={(e) => e.stopPropagation()}
               >

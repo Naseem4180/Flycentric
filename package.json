@@ -11,6 +11,7 @@
     "start:server": "npm --prefix server start",
     "start:client": "npm --prefix client run dev",
     "build": "npm --prefix client run build",
+    "test": "node --test tests/exam-behavior.test.js",
     "install:all": "npm --prefix server install && npm --prefix client install"
   }
 }

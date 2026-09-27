@@ -693,7 +693,7 @@ router.post('/attempts/:id/answer', authenticate, async (req, res) => {
   let feedback = null;
   const quizResult = await pool.query('SELECT type, show_explanations FROM quizzes WHERE id = $1', [attempt.quiz_id]);
   const quiz = quizResult.rows[0];
-  if (quiz && quiz.show_explanations) {
+  if (quiz && (quiz.show_explanations || quiz.type === 'practice')) {
     const frozen = attempt.question_snapshot && attempt.question_snapshot[question_id];
     let q = frozen;
     if (!q) {
@@ -703,7 +703,9 @@ router.post('/attempts/:id/answer', authenticate, async (req, res) => {
     if (q) {
       const type = q.question_type || 'mcq';
       let isCorrect = null;
-      if (type === 'multi_select') {
+      if (selected_option == null || String(selected_option).trim() === '') {
+        isCorrect = false;
+      } else if (type === 'multi_select') {
         const givenSet = String(selected_option).split(',').map((s) => s.trim()).filter(Boolean).sort().join(',');
         const correctSet = String(q.correct_option || '').split(',').map((s) => s.trim()).filter(Boolean).sort().join(',');
         isCorrect = !!givenSet && givenSet === correctSet;
@@ -714,7 +716,7 @@ router.post('/attempts/:id/answer', authenticate, async (req, res) => {
       } else if (type === 'short_answer' || type === 'descriptive') {
         isCorrect = null; // needs manual grading — no auto answer key to reveal
       } else {
-        isCorrect = selected_option === q.correct_option;
+        isCorrect = String(selected_option).trim().toLowerCase() === String(q.correct_option || '').trim().toLowerCase();
       }
       feedback = { is_correct: isCorrect, correct_option: q.correct_option, explanation: q.explanation || null };
     }

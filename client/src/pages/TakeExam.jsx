@@ -52,7 +52,6 @@ export default function TakeExam() {
   const [answers, setAnswers] = useState({});
   const [confirmedMap, setConfirmedMap] = useState({});
   const [revealedMap, setRevealedMap] = useState({});
-  const [autoReveal, setAutoReveal] = useState(() => localStorage.getItem('fc_auto_reveal') === 'true');
 
   const [visited, setVisited] = useState(() => new Set());
   const [marked, setMarked] = useState(() => new Set());
@@ -61,6 +60,10 @@ export default function TakeExam() {
   const [remaining, setRemaining] = useState(null);
   const [elapsed, setElapsed] = useState(0);
   const [totalDurationSeconds, setTotalDurationSeconds] = useState(null);
+
+  // Assessment mode flags
+  const isPractice = !!attempt ? !attempt.deadline_at : (quiz?.type === 'practice');
+  const isExam = !isPractice;
 
   // UI / Display settings
   const [theme, setTheme] = useState(() => localStorage.getItem('fc_cbt_theme') || 'dark');
@@ -72,7 +75,6 @@ export default function TakeExam() {
   const [lockedNotice, setLockedNotice] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [confirmed, setConfirmed] = useState(false);
   const [fullscreenLost, setFullscreenLost] = useState(false);
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
   const [showSummary, setShowSummary] = useState(false);
@@ -103,11 +105,6 @@ export default function TakeExam() {
   useEffect(() => {
     sessionStorage.setItem('fc_cbt_font_delta', String(fontDelta));
   }, [fontDelta]);
-
-  // Sync auto reveal preference
-  useEffect(() => {
-    localStorage.setItem('fc_auto_reveal', String(autoReveal));
-  }, [autoReveal]);
 
   // Handle escape on zoom image
   useEffect(() => {
@@ -140,51 +137,17 @@ export default function TakeExam() {
     }
   }, [navigate, quiz]);
 
-  // Load quiz details or resume active attempt
+  // Start or resume assessment immediately on mount
   useEffect(() => {
-    api.get(`/exams/quizzes/${quizId}`)
-      .then((d) => {
-        if (d.quiz) setQuiz(d.quiz);
-        if (d.active_attempt) {
-          setAttempt(d.active_attempt);
-          const savedAnswers = d.active_attempt.answers || {};
-          setAnswers(savedAnswers);
-
-          // In exam mode, any existing non-empty answer is considered confirmed
-          if (d.quiz?.type !== 'practice') {
-            const conf = {};
-            Object.entries(savedAnswers).forEach(([qid, val]) => {
-              if (val != null && String(val).trim() !== '') conf[qid] = true;
-            });
-            setConfirmedMap(conf);
-          }
-
-          if (d.questions?.length) {
-            setQuestions(d.questions);
-            const answeredIds = Object.keys(savedAnswers).map(Number);
-            setVisited(new Set([d.questions[0].id, ...answeredIds]));
-          }
-          setTotalDurationSeconds((d.quiz?.duration_minutes || 0) * 60);
-          setConfirmed(true);
-          entryTimeRef.current = Date.now();
-        }
-      })
-      .catch((e) => {
-        setError(e.message || 'Failed to load assessment details');
-      });
-  }, [quizId]);
-
-  function beginExam() {
+    let cancelled = false;
     setError('');
-    if (quiz?.type !== 'practice') {
-      containerRef.current?.requestFullscreen?.().catch(() => {});
-    }
-    setConfirmed(true);
+
     api.post(`/exams/quizzes/${quizId}/start`)
       .then((d) => {
+        if (cancelled) return;
         setAttempt(d.attempt);
         setQuiz(d.quiz);
-        const savedAnswers = d.attempt.answers || {};
+        const savedAnswers = d.attempt?.answers || {};
         setAnswers(savedAnswers);
         if (d.quiz?.type !== 'practice') {
           const conf = {};
@@ -193,21 +156,31 @@ export default function TakeExam() {
           });
           setConfirmedMap(conf);
         }
-        setQuestions(d.questions || []);
+        const qs = d.questions || [];
+        setQuestions(qs);
+        if (qs.length) {
+          const answeredIds = Object.keys(savedAnswers).map(Number);
+          setVisited(new Set([qs[0].id, ...answeredIds]));
+        }
         setTotalDurationSeconds((d.quiz?.duration_minutes || 0) * 60);
-        if (d.questions?.length) setVisited(new Set([d.questions[0].id]));
         entryTimeRef.current = Date.now();
       })
       .catch((e) => {
-        setConfirmed(false);
-        const errMsg = e.response?.data?.message || e.response?.data?.error || e.message || 'Exam Still in Progress';
+        if (cancelled) return;
+        const errMsg = e.response?.data?.message || e.response?.data?.error || e.message || 'Cannot start assessment';
         setError(errMsg);
       });
 
     api.get('/memory-bank')
-      .then((d) => setSavedIds(new Set((d.items || []).map((i) => i.id))))
+      .then((d) => {
+        if (!cancelled) setSavedIds(new Set((d.items || []).map((i) => i.id)));
+      })
       .catch(() => {});
-  }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [quizId]);
 
   function exitFullscreenIfActive() {
     if (document.fullscreenElement) {
@@ -216,8 +189,9 @@ export default function TakeExam() {
   }
 
   useEffect(() => {
+    if (!isExam || !attempt || submittedRef.current) return undefined;
     function onFullscreenChange() {
-      if (!document.fullscreenElement && confirmed && !submittedRef.current) {
+      if (!document.fullscreenElement && !submittedRef.current) {
         setFullscreenLost(true);
       } else {
         setFullscreenLost(false);
@@ -225,20 +199,21 @@ export default function TakeExam() {
     }
     document.addEventListener('fullscreenchange', onFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
-  }, [confirmed]);
+  }, [isExam, attempt]);
 
   useEffect(() => {
+    if (!attempt || submittedRef.current) return undefined;
     function onVisibilityChange() {
-      if (document.hidden && confirmed && !submittedRef.current) {
+      if (document.hidden && !submittedRef.current) {
         setTabSwitchCount((c) => c + 1);
       }
     }
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => document.removeEventListener('visibilitychange', onVisibilityChange);
-  }, [confirmed]);
+  }, [attempt]);
 
   useEffect(() => {
-    if (!confirmed) return undefined;
+    if (!isExam || !attempt) return undefined;
     function block(e) {
       const tag = e.target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
@@ -252,19 +227,21 @@ export default function TakeExam() {
       document.removeEventListener('cut', block);
       document.removeEventListener('contextmenu', block);
     };
-  }, [confirmed]);
+  }, [isExam, attempt]);
 
   useEffect(() => {
-    if (!confirmed) return undefined;
+    if (!attempt) return undefined;
     function onPopState() {
       if (submittedRef.current) return;
       window.history.pushState(null, '', window.location.href);
-      window.alert('This exam is in progress. Use the End exam button if you need to leave.');
+      window.alert(isPractice
+        ? 'Practice in progress. Use the End practice button if you need to leave.'
+        : 'This exam is in progress. Use the End exam button if you need to leave.');
     }
     window.history.pushState(null, '', window.location.href);
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
-  }, [confirmed]);
+  }, [attempt, isPractice]);
 
   useEffect(() => {
     if (!attempt?.id || submittedRef.current) return undefined;
@@ -285,10 +262,6 @@ export default function TakeExam() {
   }, [attempt?.id]);
 
   useEffect(() => () => exitFullscreenIfActive(), []);
-
-  // Timer logic
-  const isPractice = !!attempt && !attempt.deadline_at;
-  const isExam = !isPractice;
 
   useEffect(() => {
     if (!attempt) return undefined;
@@ -377,9 +350,6 @@ export default function TakeExam() {
 
     if (isPractice) {
       selectAnswer(qId, key);
-      if (autoReveal) {
-        setRevealedMap((prev) => ({ ...prev, [qId]: true }));
-      }
     }
   }
 
@@ -396,7 +366,6 @@ export default function TakeExam() {
     setAnswers((prev) => ({ ...prev, [qId]: joined }));
     if (isPractice) {
       selectAnswer(qId, joined);
-      if (autoReveal) setRevealedMap((prev) => ({ ...prev, [qId]: true }));
     }
   }
 
@@ -601,30 +570,8 @@ export default function TakeExam() {
 
   return (
     <div className="cbt-shell" ref={containerRef} data-theme={theme}>
-      {!confirmed ? (
-        <div className="page" style={{ background: 'var(--paper, #0b0f1d)' }}>
-          <div className="container" style={{ maxWidth: 480, paddingTop: 40 }}>
-            <div className="card exam-confirm-card" style={{ background: '#12182b', border: '1px solid #1f2945', color: '#f8fafc', padding: 28, borderRadius: 14 }}>
-              <span style={{ fontSize: '.8rem', color: '#6366f1', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 6 }}>
-                {quiz?.type === 'practice' ? 'Practice Assignment' : 'Formal Examination'}
-              </span>
-              <h2 style={{ color: '#ffffff' }}>{quiz?.title || 'Proceed with assessment?'}</h2>
-              <p className="muted" style={{ color: '#94a3b8' }}>
-                {quiz?.type === 'practice'
-                  ? 'This is an untimed practice assignment. You can explore questions at your own pace, get immediate explanations, and submit when you are ready.'
-                  : `This is a timed attempt (${quiz?.duration_minutes ? quiz.duration_minutes + ' minutes' : 'timed'}). Once you proceed, the exam opens in full-screen mode and the timer starts immediately.`}
-              </p>
-              <div className="row" style={{ marginTop: 24, gap: 12 }}>
-                <button className="cbt-btn cbt-btn-confirm" onClick={beginExam}>
-                  {quiz?.type === 'practice' ? 'Start Assignment' : 'Proceed with exam'}
-                </button>
-                <button className="cbt-btn cbt-btn-prev" onClick={safeExit}>Cancel</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : !attempt ? (
-        <div className="cbt-loading">Loading exam…</div>
+      {!attempt ? (
+        <div className="cbt-loading">Loading assessment…</div>
       ) : !questions.length ? (
         <div className="cbt-loading">
           <div style={{ textAlign: 'center' }}>
@@ -1048,17 +995,6 @@ export default function TakeExam() {
                       onClick={handleRevealAnswer}
                     >
                       Reveal Answer
-                    </button>
-                    <button
-                      type="button"
-                      className={`cbt-btn cbt-btn-autoreveal ${autoReveal ? 'active' : ''}`}
-                      onClick={() => setAutoReveal((prev) => !prev)}
-                      title="Automatically reveal answer upon selecting an option"
-                    >
-                      <span className={`cbt-toggle-pill ${autoReveal ? 'active' : ''}`}>
-                        <span className="cbt-toggle-thumb" />
-                      </span>
-                      <span>Auto reveal</span>
                     </button>
                     <button
                       type="button"

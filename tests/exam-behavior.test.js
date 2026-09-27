@@ -11,18 +11,17 @@ import {
   getAvailableActions,
 } from '../client/src/utils/examBehavior.js';
 
-test('1. Practice mode: selecting an option stores selection without revealing until Reveal Answer or Auto Reveal', () => {
+test('1. Practice mode: selecting an option stores selection without revealing until Reveal Answer is clicked', () => {
   let state = createInitialExamState({
     questions: [{ id: 101 }, { id: 102 }],
     quizType: 'practice',
   });
 
-  // Select option 'B' with autoReveal = false
+  // Select option 'B'
   state = handleOptionSelect(state, {
     questionId: 101,
     key: 'B',
     isExam: false,
-    autoReveal: false,
   });
 
   assert.equal(state.answers[101], 'B');
@@ -31,22 +30,13 @@ test('1. Practice mode: selecting an option stores selection without revealing u
   // Click Reveal Answer
   state = handleRevealAnswer(state, { questionId: 101 });
   assert.equal(state.revealedMap[101], true, 'Should now be revealed');
-
-  // With autoReveal = true on question 102
-  state = handleOptionSelect(state, {
-    questionId: 102,
-    key: 'C',
-    isExam: false,
-    autoReveal: true,
-  });
-  assert.equal(state.answers[102], 'C');
-  assert.equal(state.revealedMap[102], true, 'Should be automatically revealed');
 });
 
-test('2. No Clear Answer action in practice mode bottom actions', () => {
+test('2. No Clear Answer or Auto reveal actions in practice mode bottom actions', () => {
   const practiceActions = getAvailableActions(false);
-  assert.deepEqual(practiceActions, ['previous', 'reveal_answer', 'auto_reveal', 'next']);
+  assert.deepEqual(practiceActions, ['previous', 'reveal_answer', 'next']);
   assert.ok(!practiceActions.includes('clear_answer'), 'Practice mode must not have clear_answer action');
+  assert.ok(!practiceActions.includes('auto_reveal'), 'Practice mode must not have auto_reveal action');
 
   // Calling handleClearAnswer in practice mode has no effect
   let state = createInitialExamState({
@@ -71,7 +61,6 @@ test('3. Exam mode: Confirm saves/locks answer and automatically navigates to ne
     questionId: 301,
     key: 'A',
     isExam: true,
-    autoReveal: false,
   });
   assert.equal(state.answers[301], 'A');
   assert.equal(state.confirmedMap[301], undefined, 'Not confirmed yet');

@@ -27,12 +27,11 @@ export function createInitialExamState({ questions = [], quizType = 'exam', exis
     revealedMap: {},
     marked: new Set(),
     visited: visitedSet,
-    autoReveal: false,
     lockedNotice: false,
   };
 }
 
-export function handleOptionSelect(state, { questionId, key, isExam, autoReveal }) {
+export function handleOptionSelect(state, { questionId, key, isExam }) {
   if (isExam && state.confirmedMap[questionId]) {
     // Locked confirmed answer in exam mode
     if (state.answers[questionId] !== key) {
@@ -47,16 +46,10 @@ export function handleOptionSelect(state, { questionId, key, isExam, autoReveal 
   const nextAnswers = { ...state.answers, [questionId]: key };
   const nextVisited = new Set(state.visited).add(questionId);
 
-  let nextRevealed = state.revealedMap;
-  if (!isExam && autoReveal) {
-    nextRevealed = { ...state.revealedMap, [questionId]: true };
-  }
-
   return {
     ...state,
     answers: nextAnswers,
     visited: nextVisited,
-    revealedMap: nextRevealed,
     lockedNotice: false,
   };
 }
@@ -136,5 +129,5 @@ export function getAvailableActions(isExam) {
   if (isExam) {
     return ['previous', 'clear_answer', 'confirm', 'mark_review_and_next'];
   }
-  return ['previous', 'reveal_answer', 'auto_reveal', 'next'];
+  return ['previous', 'reveal_answer', 'next'];
 }

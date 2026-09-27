@@ -625,7 +625,8 @@ router.post('/forgot-password', passwordResetLimiter, async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'email required' });
 
-  const userResult = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+  const cleanEmail = email.trim().toLowerCase();
+  const userResult = await pool.query('SELECT id, name FROM users WHERE LOWER(email) = $1', [cleanEmail]);
   const user = userResult.rows[0];
 
   // Always respond the same way whether or not the account exists, so this
@@ -639,21 +640,35 @@ router.post('/forgot-password', passwordResetLimiter, async (req, res) => {
     [user.id, hashToken(rawToken)]
   );
 
-  const response = { ...genericResponse };
-  if (process.env.NODE_ENV !== 'production') {
-    // Dev/staging convenience only — never present in a production response.
-    response.devResetToken = rawToken;
-    response.devResetLink = `${process.env.CLIENT_URL || 'http://localhost:5173'}/reset-password?token=${rawToken}`;
+  const origin = req.get('origin') || req.headers.origin || process.env.CLIENT_URL || 'http://localhost:5173';
+  const resetLink = `${origin}/reset-password?token=${rawToken}`;
+
+  const isEmailConfigured = await emailProviderAvailable();
+
+  if (isEmailConfigured) {
+    enqueueMail({
+      to: cleanEmail,
+      subject: 'Reset your FlyCentric password',
+      template: 'password-reset',
+      data: { resetLink, name: user.name || 'Cadet' },
+    }).catch((mailErr) => {
+      console.warn('[auth] Failed to enqueue password reset email:', mailErr.message);
+    });
   }
-  // Asynchronous Messaging: the actual delivery is offloaded to the mail
-  // queue (see utils/mailQueue.js) — retried automatically, routed to a
-  // dead-letter queue on persistent failure — rather than sent inline here.
-  enqueueMail({
-    to: email,
-    subject: 'Reset your FlyCentric password',
-    template: 'password-reset',
-    data: { resetLink: `${process.env.CLIENT_URL || 'http://localhost:5173'}/reset-password?token=${rawToken}` },
-  }).catch(() => {});
+
+  const response = {
+    ...genericResponse,
+    smtpConfigured: isEmailConfigured,
+    resetToken: !isEmailConfigured ? rawToken : undefined,
+    resetLink: !isEmailConfigured ? resetLink : undefined,
+    devResetToken: rawToken,
+    devResetLink: resetLink,
+  };
+
+  if (!isEmailConfigured) {
+    response.message = 'Email service is not configured yet on this server. Click below to reset your password directly:';
+  }
+
   res.json(response);
 });
 

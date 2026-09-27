@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
-import { Search, Bell, Mail, Phone, ChevronDown, LogOut, Globe, Check, Settings, ShoppingCart, Grid3x3, Sun, Moon, Menu, X } from 'lucide-react';
+import { Search, Bell, Mail, Phone, ChevronDown, LogOut, Globe, Check, Settings, ShoppingCart, Grid3x3, LayoutGrid, Sun, Moon, Menu, X } from 'lucide-react';
 import useAuth from '../context/useAuth';
 import { api } from '../api';
 import BrandLogo from './BrandLogo';
@@ -260,13 +260,7 @@ export default function Navbar() {
           >
             {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
-          {/* Admin, student and instructor all have their own sidebar with
-              the FlyCentric brand already — showing it again here would
-              duplicate the logo on every dashboard page, so the public top
-              bar only carries it for logged-out visitors. */}
-          {!user && (
-            <BrandLogo size={32} theme="light" className="brand" />
-          )}
+          <BrandLogo size={32} theme="light" className="brand" to={user ? (user.role === 'admin' ? '/admin' : user.role === 'instructor' ? '/instructor' : '/dashboard') : '/'} />
 
           {user && (
             <div className="navbar-search-wrap navbar-search-flex">
@@ -312,16 +306,18 @@ export default function Navbar() {
               </button>
             </div>
 
-            {!user && (
-              <>
-                <Link to="/" className={is('/')}>Home</Link>
-                <Link to="/courses" className={is('/courses')}>Courses</Link>
-                <Link to="/jobs" className={is('/jobs')}>Jobs</Link>
-              </>
-            )}
+            <Link to="/home" className={location.pathname === '/' || location.pathname === '/home' ? 'active' : ''}>Home</Link>
+            <Link to="/courses" className={is('/courses')}>Courses</Link>
+            <Link to="/jobs" className={is('/jobs')}>Jobs</Link>
 
-            {user && user.role === 'instructor' && (
-              <Link to="/instructor" className={is('/instructor')}>Instructor</Link>
+            {user && (
+              <Link
+                to={user.role === 'admin' ? '/admin' : user.role === 'instructor' ? '/instructor' : '/dashboard'}
+                className="btn btn-primary btn-sm nav-dashboard-btn"
+                style={{ fontWeight: 700, padding: '5px 12px', fontSize: '.84rem', marginLeft: 6, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+              >
+                <LayoutGrid size={14} /> Dashboard
+              </Link>
             )}
 
             <button type="button" className="icon-btn" title={theme === 'dark' ? 'Switch to Day Mode' : 'Switch to Night Mode'} aria-label="Toggle theme" onClick={toggleTheme}>
@@ -403,6 +399,14 @@ export default function Navbar() {
                       <strong>{user.name}</strong>
                       <span>{user.role}</span>
                     </div>
+                    <Link
+                      to={user.role === 'admin' ? '/admin' : user.role === 'instructor' ? '/instructor' : '/dashboard'}
+                      className="avatar-menu-item"
+                      onClick={() => setAvatarOpen(false)}
+                      style={{ textDecoration: 'none', color: 'inherit' }}
+                    >
+                      <span><LayoutGrid size={14} /> Portal Dashboard</span>
+                    </Link>
                     <button className="avatar-menu-item" onClick={() => setLangOpen((o) => !o)}>
                       <span><Globe size={14} /> Language</span> <span>{langOpen ? '▾' : '▸'}</span>
                     </button>

@@ -101,27 +101,36 @@ function StudentAware({ children }) {
   return children;
 }
 
-function HomeRoute() {
+function RootRoute() {
   const { user, loading } = useAuth();
   if (loading) return <AppLoadingScreen />;
   if (!user) return <Landing />;
-  if (user.role === 'student') return <StudentShell><Landing /></StudentShell>;
-  if (user.role === 'admin') return <AdminLayout><Landing /></AdminLayout>;
-  if (user.role === 'instructor') return <InstructorShell><Landing /></InstructorShell>;
-  return <Landing />;
+  if (user.role === 'admin') return <Navigate to="/admin" replace />;
+  if (user.role === 'instructor') return <Navigate to="/instructor" replace />;
+  return <Navigate to="/dashboard" replace />;
 }
 
 function AppRoutes() {
   const location = useLocation();
   const { user } = useAuth();
   const isExamRoute = location.pathname.startsWith('/take-exam');
-  // Students, admins and instructors all have their own sidebar shell (with
-  // Home/View Site + Day Mode) — showing the public Navbar above it too
-  // would stack two header rows. Only logged-out visitors see it.
-  const showPublicNavbar = !isExamRoute && !user;
+
+  // Dashboard / sidebar routes have their own shell (sidebar + AppTopbar).
+  // Complete standalone pages like /home, /courses, /jobs, /login show the main Navbar.
+  const isSidebarPage = location.pathname.startsWith('/admin') ||
+    location.pathname.startsWith('/instructor') ||
+    (user?.role === 'student' && [
+      '/dashboard', '/quizzes', '/exam-history', '/explore',
+      '/my-purchases', '/my-doubts', '/report-exam-question',
+      '/my-results', '/memory-bank', '/analytics', '/support',
+      '/checkout', '/bundles', '/review', '/my-subjects', '/subjects', '/account'
+    ].some((p) => location.pathname === p || location.pathname.startsWith(p + '/')));
+
+  const showNavbar = !isExamRoute && (!user || !isSidebarPage);
+
   return (
     <div className="app-shell">
-      {showPublicNavbar && <Navbar />}
+      {showNavbar && <Navbar />}
       {/* Global: a recoverable 401 is retried silently by the api layer; only
           a genuinely dead session reaches this modal. */}
       <SessionExpiredModal />
@@ -133,8 +142,8 @@ function AppRoutes() {
         <Route path="/courses" element={<Landing coursesOnly />} />
         <Route path="/checkout" element={<Protected roles={['student', 'admin', 'instructor']}><StudentAware><Checkout /></StudentAware></Protected>} />
         <Route path="/checkout/:bundleId" element={<Protected roles={['student', 'admin', 'instructor']}><StudentAware><Checkout /></StudentAware></Protected>} />
-        <Route path="/" element={<HomeRoute />} />
-        <Route path="/home" element={<HomeRoute />} />
+        <Route path="/" element={<RootRoute />} />
+        <Route path="/home" element={<Landing />} />
         <Route path="/dashboard" element={<Protected roles={['student']}><StudentShell><StudentDashboard /></StudentShell></Protected>} />
         <Route path="/quizzes" element={<Protected roles={['student']}><StudentShell><StudentQuizzes /></StudentShell></Protected>} />
         <Route path="/exam-history" element={<Protected roles={['student']}><StudentShell><ExamHistory /></StudentShell></Protected>} />
@@ -157,7 +166,7 @@ function AppRoutes() {
         <Route path="/account" element={<Protected><StudentAware><Account /></StudentAware></Protected>} />
         <Route path="/admin" element={<Protected roles={['admin']}><AdminLayout /></Protected>}>
           <Route index element={<AdminDashboard />} />
-          <Route path="home" element={<Navigate to="/" replace />} />
+          <Route path="home" element={<Navigate to="/home" replace />} />
           <Route path="users" element={<AdminUsers />} />
           <Route path="batches" element={<AdminBatches />} />
           <Route path="courses" element={<AdminCourses />} />

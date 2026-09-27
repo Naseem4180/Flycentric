@@ -50,14 +50,15 @@ export default function ForgotPassword() {
           ) : (
             <div className="stack">
               <div className="success-banner">{result.message}</div>
-              {/* devResetLink only appears outside production (see server auth.js) — no
-                  production email provider is wired up yet, so this is the dev/staging
-                  stand-in for "check your inbox" rather than a security shortcut. */}
-              {result.devResetLink && (
-                <div className="card" style={{ background: 'var(--surface-2, #f6f6f8)' }}>
-                  <p className="muted" style={{ marginTop: 0 }}>Dev/staging mode — no email provider configured yet. Use this link:</p>
-                  <Link to={`/reset-password?token=${result.devResetToken}`} className="btn btn-outline" style={{ width: '100%', textAlign: 'center' }}>
-                    Continue to reset password
+              {(result.resetToken || result.devResetToken) && (
+                <div className="card" style={{ background: 'var(--surface-2, #f6f6f8)', marginTop: 14, padding: 18, borderRadius: 10 }}>
+                  <p className="muted" style={{ margin: '0 0 12px', fontSize: '0.88rem', lineHeight: 1.5 }}>
+                    {result.smtpConfigured
+                      ? 'A reset link has been dispatched to your email. You can also use this direct button to reset immediately:'
+                      : 'Email delivery is not configured on this server yet. Use this direct button to reset your password:'}
+                  </p>
+                  <Link to={`/reset-password?token=${result.resetToken || result.devResetToken}`} className="btn btn-primary" style={{ width: '100%', textAlign: 'center', display: 'block' }}>
+                    Reset Password Now →
                   </Link>
                 </div>
               )}

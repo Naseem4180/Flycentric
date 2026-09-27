@@ -12,7 +12,7 @@ import {
 const NAV_STRUCTURE = [
   {
     type: 'link',
-    to: '/',
+    to: '/home',
     end: true,
     icon: Home,
     label: 'Home Page',

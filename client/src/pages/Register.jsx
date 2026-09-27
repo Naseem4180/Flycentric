@@ -121,7 +121,7 @@ export default function Register() {
     setBusy(true);
     try {
       await loginWithGoogle(payload);
-      navigate('/');
+      navigate('/dashboard');
     } catch (err) {
       setError(err.message || 'Google registration failed');
     } finally {
@@ -182,7 +182,7 @@ export default function Register() {
         avatar_data: avatarData || null,
         role: 'student',
       });
-      navigate('/');
+      navigate('/dashboard');
     } catch (err) {
       setError(err.message || 'Registration failed. Please try again.');
     } finally {

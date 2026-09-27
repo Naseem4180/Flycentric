@@ -23,7 +23,7 @@ export default function Login() {
       const user = await login(email, password);
       if (user.role === 'admin') navigate('/admin');
       else if (user.role === 'instructor') navigate('/instructor');
-      else navigate('/');
+      else navigate('/dashboard');
     } catch (err) {
       if (err.requires_confirmation) {
         setDualLoginPrompt({
@@ -45,7 +45,7 @@ export default function Login() {
       const user = await loginWithGoogle(payload, options);
       if (user.role === 'admin') navigate('/admin');
       else if (user.role === 'instructor') navigate('/instructor');
-      else navigate('/');
+      else navigate('/dashboard');
     } catch (err) {
       if (err.requires_confirmation) {
         setDualLoginPrompt({

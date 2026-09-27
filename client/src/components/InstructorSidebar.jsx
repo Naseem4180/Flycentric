@@ -1,8 +1,9 @@
 import { NavLink } from 'react-router-dom';
 import SidebarBrand from './SidebarBrand';
-import { LayoutDashboard } from 'lucide-react';
+import { Home, LayoutDashboard } from 'lucide-react';
 
 const INSTRUCTOR_NAV = [
+  { to: '/home', end: true, icon: Home, label: 'Home Page' },
   { to: '/instructor', end: true, icon: LayoutDashboard, label: 'Dashboard' },
 ];
 

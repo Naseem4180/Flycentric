@@ -1,0 +1,16 @@
+{
+  "name": "flycentric",
+  "version": "1.0.0",
+  "description": "FlyCentric Aviation LMS Platform",
+  "private": true,
+  "scripts": {
+    "dev": "node -e \"const { spawn } = require('child_process'); const s = spawn('npm', ['--prefix', 'server', 'run', 'dev'], { stdio: 'inherit' }); const c = spawn('npm', ['--prefix', 'client', 'run', 'dev'], { stdio: 'inherit' }); process.on('SIGINT', () => { s.kill(); c.kill(); process.exit(); }); process.on('SIGTERM', () => { s.kill(); c.kill(); process.exit(); });\"",
+    "start": "node -e \"const { spawn } = require('child_process'); const s = spawn('npm', ['--prefix', 'server', 'start'], { stdio: 'inherit' }); const c = spawn('npm', ['--prefix', 'client', 'run', 'dev'], { stdio: 'inherit' }); process.on('SIGINT', () => { s.kill(); c.kill(); process.exit(); }); process.on('SIGTERM', () => { s.kill(); c.kill(); process.exit(); });\"",
+    "dev:server": "npm --prefix server run dev",
+    "dev:client": "npm --prefix client run dev",
+    "start:server": "npm --prefix server start",
+    "start:client": "npm --prefix client run dev",
+    "build": "npm --prefix client run build",
+    "install:all": "npm --prefix server install && npm --prefix client install"
+  }
+}

@@ -65,6 +65,7 @@ function timerGradientColor(fractionRemaining) {
 export default function TakeExam() {
   const { quizId } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [attempt, setAttempt] = useState(null);
   const [quiz, setQuiz] = useState(null);
   const [questions, setQuestions] = useState([]);
@@ -96,6 +97,7 @@ export default function TakeExam() {
   const [zoomImage, setZoomImage] = useState(null);
   const submittedRef = useRef(false);
   const containerRef = useRef(null);
+  const entryTimeRef = useRef(Date.now());
 
   useEffect(() => {
     if (!zoomImage) return undefined;
@@ -109,12 +111,49 @@ export default function TakeExam() {
   // Time-Per-Question tracking: reset every time the visible question
   // changes (see goTo/flushTiming below) or an answer is recorded — the
   // elapsed window since the last reset is what gets sent to the server.
-  const entryTimeRef = useRef(Date.now());
-  const { user } = useAuth();
+  const [loadingQuiz, setLoadingQuiz] = useState(true);
+
+  const safeExit = useCallback(() => {
+    if (window.history.length > 1) {
+      navigate(-1);
+    } else if (quiz?.subject_id) {
+      navigate(`/subjects/${quiz.subject_id}`);
+    } else {
+      navigate('/');
+    }
+  }, [navigate, quiz]);
+
+  useEffect(() => {
+    setLoadingQuiz(true);
+    api.get(`/exams/quizzes/${quizId}`)
+      .then((d) => {
+        if (d.quiz) setQuiz(d.quiz);
+        // Seamless Reload / Resume: If the student refreshed or reopened an active attempt, resume it immediately
+        if (d.active_attempt) {
+          setAttempt(d.active_attempt);
+          setAnswers(d.active_attempt.answers || {});
+          if (d.questions?.length) {
+            setQuestions(d.questions);
+            const answeredIds = Object.keys(d.active_attempt.answers || {}).map(Number);
+            setVisited(new Set([d.questions[0].id, ...answeredIds]));
+          }
+          setTotalDurationSeconds((d.quiz?.duration_minutes || 0) * 60);
+          setConfirmed(true);
+          entryTimeRef.current = Date.now();
+        }
+      })
+      .catch((e) => {
+        setError(e.message || 'Failed to load assessment details');
+      })
+      .finally(() => setLoadingQuiz(false));
+  }, [quizId]);
 
   // Request fullscreen and initialize exam attempt
   function beginExam() {
-    containerRef.current?.requestFullscreen?.().catch(() => {});
+    setError('');
+    if (quiz?.type !== 'practice') {
+      containerRef.current?.requestFullscreen?.().catch(() => {});
+    }
     setConfirmed(true);
     api.post(`/exams/quizzes/${quizId}/start`)
       .then((d) => {
@@ -128,7 +167,8 @@ export default function TakeExam() {
       })
       .catch((e) => {
         setConfirmed(false);
-        setError(e.message || 'Exam Still in Progress');
+        const errMsg = e.response?.data?.message || e.response?.data?.error || e.message || 'Exam Still in Progress';
+        setError(errMsg);
       });
     // Hydrate the Memory Box state so questions already saved by this student
     // show as "Saved" instead of appearing unsaved and being toggled off.
@@ -424,7 +464,7 @@ export default function TakeExam() {
 
   async function handleExit() {
     if (!attempt || submittedRef.current) {
-      navigate(-1);
+      safeExit();
       return;
     }
     submittedRef.current = true;
@@ -477,7 +517,7 @@ export default function TakeExam() {
                 : error}
             </p>
             <div className="row" style={{ justifyContent: 'center', gap: 12 }}>
-              <Link to="/" className="btn btn-outline">Go to Dashboard</Link>
+              <button className="btn btn-outline" onClick={() => { setError(''); safeExit(); }}>Go Back</button>
               <Link to="/exam-history" className="btn btn-primary">View Exam History</Link>
             </div>
           </div>
@@ -507,15 +547,20 @@ export default function TakeExam() {
         <div className="page" style={{ background: 'var(--paper)' }}>
           <div className="container" style={{ maxWidth: 480, paddingTop: 40 }}>
             <div className="card exam-confirm-card">
-              <span style={{ fontSize: '.8rem', color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 6 }}>Before you begin</span>
-              <h2>Proceed with the exam?</h2>
+              <span style={{ fontSize: '.8rem', color: 'var(--primary, #4f46e5)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 6 }}>
+                {quiz?.type === 'practice' ? 'Practice Assignment' : 'Formal Examination'}
+              </span>
+              <h2>{quiz?.title || 'Proceed with assessment?'}</h2>
               <p className="muted">
-                This is a timed attempt. Once you proceed, the exam opens in full-screen mode and the
-                timer starts immediately. It will return to normal view automatically when you submit.
+                {quiz?.type === 'practice'
+                  ? 'This is an untimed practice assignment. You can explore questions at your own pace, get immediate explanations, and submit when you are ready.'
+                  : `This is a timed attempt (${quiz?.duration_minutes ? quiz.duration_minutes + ' minutes' : 'timed'}). Once you proceed, the exam opens in full-screen mode and the timer starts immediately. It will return to normal view automatically when you submit.`}
               </p>
               <div className="row" style={{ marginTop: 20 }}>
-                <button className="btn btn-primary" onClick={beginExam}>Proceed with exam</button>
-                <button className="btn btn-outline" onClick={() => navigate(-1)}>Cancel</button>
+                <button className="btn btn-primary" onClick={beginExam}>
+                  {quiz?.type === 'practice' ? 'Start Assignment' : 'Proceed with exam'}
+                </button>
+                <button className="btn btn-outline" onClick={safeExit}>Cancel</button>
               </div>
             </div>
           </div>
@@ -526,7 +571,7 @@ export default function TakeExam() {
         <div className="cbt-loading">
           <div style={{ textAlign: 'center' }}>
             <p>This exam has no questions yet.</p>
-            <button className="btn btn-outline" onClick={() => navigate(-1)}>Go back</button>
+            <button className="btn btn-outline" onClick={safeExit}>Go back</button>
           </div>
         </div>
       ) : (

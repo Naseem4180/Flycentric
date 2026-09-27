@@ -309,12 +309,66 @@ router.delete('/quizzes/:id', authenticate, authorize('admin'), async (req, res)
   res.json({ ok: true });
 });
 
+router.get('/quizzes/:id', authenticate, async (req, res) => {
+  const quizResult = await pool.query(
+    `SELECT q.*,
+            s.title AS subject_title,
+            c.title AS chapter_title,
+            COALESCE(cardinality(q.question_ids), 0) AS question_count
+     FROM quizzes q
+     LEFT JOIN subjects s ON s.id = q.subject_id AND s.deleted_at IS NULL
+     LEFT JOIN chapters c ON c.id = q.chapter_id AND c.deleted_at IS NULL
+     WHERE q.id = $1 AND q.deleted_at IS NULL`,
+    [req.params.id]
+  );
+  if (!quizResult.rows.length) return res.status(404).json({ error: 'Quiz not found' });
+  const quiz = quizResult.rows[0];
+  if (req.user.role === 'student' && quiz.status !== 'published') {
+    return res.status(403).json({ error: 'This quiz is not published yet' });
+  }
+
+  // Active attempt check for seamless resume on refresh
+  let activeAttempt = null;
+  let activeQuestions = null;
+  if (req.user) {
+    const activeAttemptRes = await pool.query(
+      `SELECT * FROM attempts
+       WHERE user_id = $1 AND quiz_id = $2 AND status = 'in_progress'
+         AND (deadline_at IS NULL OR deadline_at > now())
+       ORDER BY started_at DESC LIMIT 1`,
+      [req.user.id, quiz.id]
+    );
+    if (activeAttemptRes.rows.length) {
+      activeAttempt = activeAttemptRes.rows[0];
+      const snapshot = activeAttempt.question_snapshot || {};
+      let orderedQIds = Array.isArray(quiz.question_ids) ? quiz.question_ids : [];
+      let resumeQIds = orderedQIds.filter((id) => snapshot[id]);
+      if (!resumeQIds.length) resumeQIds = Object.keys(snapshot).map(Number);
+      activeQuestions = resumeQIds.map((id) => {
+        const q = snapshot[id] || {};
+        return {
+          id: q.id || Number(id),
+          question_text: q.question_text,
+          question_type: q.question_type,
+          options: q.options,
+          difficulty: q.difficulty,
+          image_url: q.image_url,
+        };
+      });
+    }
+  }
+
+  res.json({ quiz, active_attempt: activeAttempt, questions: activeQuestions });
+});
+
 // ---- Attempts ----------------------------------------------------------------
-router.post('/quizzes/:id/start', authenticate, authorize('student'), async (req, res) => {
+router.post('/quizzes/:id/start', authenticate, authorize('student', 'admin', 'instructor'), async (req, res) => {
   const quizResult = await pool.query('SELECT * FROM quizzes WHERE id = $1 AND deleted_at IS NULL', [req.params.id]);
   const quiz = quizResult.rows[0];
   if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
-  if (quiz.status !== 'published') return res.status(403).json({ error: 'This quiz is not published yet' });
+
+  const isStaff = req.user.role === 'admin' || req.user.role === 'instructor';
+  if (!isStaff && quiz.status !== 'published') return res.status(403).json({ error: 'This quiz is not published yet' });
 
   // A Memory Bank practice quiz is generated from questions this student has
   // already saved, and is owned by them — there is no bundle to be entitled
@@ -324,24 +378,41 @@ router.post('/quizzes/:id/start', authenticate, authorize('student'), async (req
   if (quiz.source === 'memory_bank' && !isOwnMemoryBankQuiz) {
     return res.status(403).json({ error: 'Forbidden' });
   }
-  if (!isOwnMemoryBankQuiz) {
-    const entitlement = await pool.query(
-      `SELECT 1 FROM bundle_access ba
-       WHERE ba.user_id = $1
-         AND (ba.bundle_id = $2 OR $3 IN (SELECT subject_id FROM bundle_subjects WHERE bundle_id = ba.bundle_id))
-         AND NOT EXISTS (
-           SELECT 1 FROM course_enrollments ce
-           WHERE ce.user_id = ba.user_id AND ce.bundle_id = ba.bundle_id
-             AND ce.expiry_date IS NOT NULL AND ce.expiry_date < now()
-         )
+  if (!isOwnMemoryBankQuiz && !isStaff) {
+    // If chapter or bundle is marked free, allow access
+    const freeCheck = await pool.query(
+      `SELECT 1 FROM chapters c WHERE c.id = $1 AND c.is_free = true
+       UNION
+       SELECT 1 FROM bundles b WHERE (b.id = $2 OR b.id IN (SELECT bundle_id FROM bundle_subjects WHERE subject_id = $3)) AND b.is_free = true
        LIMIT 1`,
-      [req.user.id, quiz.bundle_id, quiz.subject_id]
+      [quiz.chapter_id, quiz.bundle_id, quiz.subject_id]
     );
-    if (!entitlement.rows.length) return res.status(403).json({ error: 'Enroll in this course bundle before starting the test' });
+
+    if (!freeCheck.rows.length) {
+      const entitlement = await pool.query(
+        `SELECT 1 FROM bundle_access ba
+         WHERE ba.user_id = $1
+           AND (ba.bundle_id = $2 OR $3 IN (SELECT subject_id FROM bundle_subjects WHERE bundle_id = ba.bundle_id))
+           AND (ba.expires_at IS NULL OR ba.expires_at > now())
+           AND NOT EXISTS (
+             SELECT 1 FROM course_enrollments ce
+             WHERE ce.user_id = ba.user_id AND ce.bundle_id = ba.bundle_id
+               AND ce.expiry_date IS NOT NULL AND ce.expiry_date < now()
+           )
+         UNION
+         SELECT 1 FROM course_enrollments ce
+         WHERE ce.user_id = $1
+           AND (ce.bundle_id = $2 OR $3 IN (SELECT subject_id FROM bundle_subjects WHERE bundle_id = ce.bundle_id))
+           AND (ce.expiry_date IS NULL OR ce.expiry_date > now())
+         LIMIT 1`,
+        [req.user.id, quiz.bundle_id, quiz.subject_id]
+      );
+      if (!entitlement.rows.length) return res.status(403).json({ error: 'Enroll in this course bundle before starting the test' });
+    }
   }
 
   // Check attempt limit
-  if (quiz.attempt_limit > 0) {
+  if (!isStaff && quiz.attempt_limit > 0) {
     const countResult = await pool.query(
       "SELECT COUNT(*)::int AS c FROM attempts WHERE user_id = $1 AND quiz_id = $2 AND status = 'submitted'",
       [req.user.id, quiz.id]
@@ -353,29 +424,31 @@ router.post('/quizzes/:id/start', authenticate, authorize('student'), async (req
 
   // Restriction: If a candidate currently has an Exam Mode session in progress,
   // they must not be allowed to open or start another Practice or Exam assessment.
-  const inProgressExam = await pool.query(
-    `SELECT a.id, a.quiz_id, q.title AS quiz_title, a.started_at, a.deadline_at
-     FROM attempts a
-     JOIN quizzes q ON q.id = a.quiz_id
-     WHERE a.user_id = $1
-       AND a.status = 'in_progress'
-       AND q.type = 'exam'
-       AND (a.deadline_at IS NULL OR a.deadline_at > now())
-     ORDER BY a.started_at DESC LIMIT 1`,
-    [req.user.id]
-  );
-  if (inProgressExam.rows.length) {
-    const activeEx = inProgressExam.rows[0];
-    if (Number(activeEx.quiz_id) !== Number(quiz.id)) {
-      return res.status(409).json({
-        error: 'Exam Still in Progress',
-        message: 'You already have an exam in progress. Please complete or submit the current exam before starting another practice or assessment.',
-        in_progress_exam: {
-          quiz_id: activeEx.quiz_id,
-          title: activeEx.quiz_title,
-          attempt_id: activeEx.id
-        }
-      });
+  if (!isStaff) {
+    const inProgressExam = await pool.query(
+      `SELECT a.id, a.quiz_id, q.title AS quiz_title, a.started_at, a.deadline_at
+       FROM attempts a
+       JOIN quizzes q ON q.id = a.quiz_id
+       WHERE a.user_id = $1
+         AND a.status = 'in_progress'
+         AND q.type = 'exam'
+         AND (a.deadline_at IS NULL OR a.deadline_at > now())
+       ORDER BY a.started_at DESC LIMIT 1`,
+      [req.user.id]
+    );
+    if (inProgressExam.rows.length) {
+      const activeEx = inProgressExam.rows[0];
+      if (Number(activeEx.quiz_id) !== Number(quiz.id)) {
+        return res.status(409).json({
+          error: 'Exam Still in Progress',
+          message: 'You already have an exam in progress. Please complete or submit the current exam before starting another practice or assessment.',
+          in_progress_exam: {
+            quiz_id: activeEx.quiz_id,
+            title: activeEx.quiz_title,
+            attempt_id: activeEx.id
+          }
+        });
+      }
     }
   }
 
@@ -455,8 +528,40 @@ router.post('/quizzes/:id/start', authenticate, authorize('student'), async (req
 
 
 
-  // A deliberate start is always a new attempt. Any abandoned attempt is
-  // closed first so it cannot keep appearing as an active online session.
+  // Seamless Resume on reload: If an attempt is ALREADY in progress and not past deadline, resume it!
+  const existingActive = await pool.query(
+    `SELECT * FROM attempts
+     WHERE user_id = $1 AND quiz_id = $2 AND status = 'in_progress'
+       AND (deadline_at IS NULL OR deadline_at > now())
+     ORDER BY started_at DESC LIMIT 1`,
+    [req.user.id, quiz.id]
+  );
+  if (existingActive.rows.length) {
+    const existingAttempt = existingActive.rows[0];
+    const snapshot = existingAttempt.question_snapshot || {};
+    let orderedQIds = Array.isArray(quiz.question_ids) ? quiz.question_ids : [];
+    let resumeQIds = orderedQIds.filter((id) => snapshot[id]);
+    if (!resumeQIds.length) resumeQIds = Object.keys(snapshot).map(Number);
+    const resumedQuestions = resumeQIds.map((id) => {
+      const q = snapshot[id] || {};
+      return {
+        id: q.id || Number(id),
+        question_text: q.question_text,
+        question_type: q.question_type,
+        options: q.options,
+        difficulty: q.difficulty,
+        image_url: q.image_url,
+      };
+    });
+    return res.json({
+      attempt: existingAttempt,
+      quiz,
+      questions: resumedQuestions,
+      resumed: true,
+    });
+  }
+
+  // Any abandoned or past-deadline attempt is closed first
   await pool.query(
     "UPDATE attempts SET status = 'expired' WHERE user_id = $1 AND quiz_id = $2 AND status = 'in_progress'",
     [req.user.id, quiz.id]
@@ -475,8 +580,13 @@ router.post('/quizzes/:id/start', authenticate, authorize('student'), async (req
   const isExamMode = quiz.type === 'exam' || quiz.type === 'mock' || Boolean(quiz.shuffle_questions);
   const shouldShuffleOptions = isExamMode || Boolean(quiz.shuffle_options);
 
+  const rawQIds = Array.isArray(quiz.question_ids) ? quiz.question_ids.filter(Boolean) : [];
+  if (!rawQIds.length) {
+    return res.status(400).json({ error: 'This quiz has no questions assigned yet' });
+  }
+
   // Return questions without the correct answer / explanation while exam is live
-  let qIds = [...quiz.question_ids];
+  let qIds = [...rawQIds];
   if (isExamMode) {
     for (let i = qIds.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -486,7 +596,7 @@ router.post('/quizzes/:id/start', authenticate, authorize('student'), async (req
 
   const allQResult = await pool.query(
     `SELECT id, question_text, question_type, options, correct_option, explanation, difficulty, image_url FROM questions WHERE id = ANY($1)`,
-    [quiz.question_ids]
+    [rawQIds]
   );
   const questionsById = Object.fromEntries(allQResult.rows.map((q) => [q.id, q]));
 
@@ -627,7 +737,10 @@ async function gradeAndSubmitAttempt(attemptId, userId, options = {}) {
   const quizResult = await pool.query('SELECT * FROM quizzes WHERE id = $1', [attempt.quiz_id]);
   const quiz = quizResult.rows[0];
 
-  const liveResult = await pool.query('SELECT id, question_type, correct_option FROM questions WHERE id = ANY($1)', [quiz.question_ids]);
+  const rawQuizQIds = Array.isArray(quiz?.question_ids) ? quiz.question_ids : [];
+  const liveResult = rawQuizQIds.length
+    ? await pool.query('SELECT id, question_type, correct_option FROM questions WHERE id = ANY($1)', [rawQuizQIds])
+    : { rows: [] };
   const liveById = Object.fromEntries(liveResult.rows.map((q) => [q.id, q]));
 
   let correct = 0;
@@ -635,7 +748,7 @@ async function gradeAndSubmitAttempt(attemptId, userId, options = {}) {
   let pendingReview = 0;
   const statsUpdates = [];
   const timings = attempt.question_timings || {};
-  for (const questionId of quiz.question_ids) {
+  for (const questionId of rawQuizQIds) {
     const frozen = attempt.question_snapshot && attempt.question_snapshot[questionId];
     const live = liveById[questionId];
     const q = frozen || live;
@@ -663,7 +776,7 @@ async function gradeAndSubmitAttempt(attemptId, userId, options = {}) {
     if (isCorrect) correct += 1;
     statsUpdates.push({ questionId, isCorrect, seconds: Math.max(0, Math.round(Number(timings[questionId] ?? timings[String(questionId)] ?? 0))) });
   }
-  const total = quiz.question_ids.length;
+  const total = rawQuizQIds.length;
   const score = gradable ? Math.round((correct / gradable) * 10000) / 100 : 0;
 
   const isAuto = Boolean(options.is_auto_submitted);

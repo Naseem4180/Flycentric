@@ -105,9 +105,10 @@ function HomeRoute() {
   const { user, loading } = useAuth();
   if (loading) return <AppLoadingScreen />;
   if (!user) return <Landing />;
-  if (user.role === 'admin') return <Navigate to="/admin" replace />;
-  if (user.role === 'instructor') return <Navigate to="/instructor" replace />;
-  return <StudentShell><StudentDashboard /></StudentShell>;
+  if (user.role === 'student') return <StudentShell><Landing /></StudentShell>;
+  if (user.role === 'admin') return <AdminLayout><Landing /></AdminLayout>;
+  if (user.role === 'instructor') return <InstructorShell><Landing /></InstructorShell>;
+  return <Landing />;
 }
 
 function AppRoutes() {
@@ -133,14 +134,12 @@ function AppRoutes() {
         <Route path="/checkout" element={<Protected roles={['student', 'admin', 'instructor']}><StudentAware><Checkout /></StudentAware></Protected>} />
         <Route path="/checkout/:bundleId" element={<Protected roles={['student', 'admin', 'instructor']}><StudentAware><Checkout /></StudentAware></Protected>} />
         <Route path="/" element={<HomeRoute />} />
-        {/* The public homepage rendered INSIDE the student shell, so a signed-in
-            student can browse announcements/bundles from the sidebar without
-            being logged out or bounced to a different-looking site. */}
-        <Route path="/home" element={<Protected roles={['student']}><StudentShell><Landing /></StudentShell></Protected>} />
+        <Route path="/home" element={<HomeRoute />} />
+        <Route path="/dashboard" element={<Protected roles={['student']}><StudentShell><StudentDashboard /></StudentShell></Protected>} />
         <Route path="/quizzes" element={<Protected roles={['student']}><StudentShell><StudentQuizzes /></StudentShell></Protected>} />
         <Route path="/exam-history" element={<Protected roles={['student']}><StudentShell><ExamHistory /></StudentShell></Protected>} />
         <Route path="/bundles/:id" element={<Protected><StudentAware><BundleView /></StudentAware></Protected>} />
-        <Route path="/take-exam/:quizId" element={<Protected roles={['student']}><TakeExam /></Protected>} />
+        <Route path="/take-exam/:quizId" element={<Protected roles={['student', 'admin', 'instructor']}><TakeExam /></Protected>} />
         <Route path="/review/:attemptId" element={<Protected><StudentAware><ExamReview /></StudentAware></Protected>} />
         <Route path="/my-subjects" element={<Protected roles={['student', 'admin', 'instructor']}><StudentAware><MySubjects /></StudentAware></Protected>} />
         {/* Explore Bundles is now its own page rather than an anchor that
@@ -158,6 +157,7 @@ function AppRoutes() {
         <Route path="/account" element={<Protected><StudentAware><Account /></StudentAware></Protected>} />
         <Route path="/admin" element={<Protected roles={['admin']}><AdminLayout /></Protected>}>
           <Route index element={<AdminDashboard />} />
+          <Route path="home" element={<Navigate to="/" replace />} />
           <Route path="users" element={<AdminUsers />} />
           <Route path="batches" element={<AdminBatches />} />
           <Route path="courses" element={<AdminCourses />} />

@@ -1,7 +1,12 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { api } from '../api';
+import { useState, useCallback } from 'react';
 import { Modal, Button } from '../ui';
-import { ShieldCheck } from 'lucide-react';
+import { ShieldCheck, Settings, Flame, Mail, Copy, Check } from 'lucide-react';
+import {
+  isFirebaseConfigured,
+  getFirebaseConfig,
+  saveFirebaseConfig,
+  loginWithGoogleFirebase,
+} from '../firebase';
 
 function GoogleIcon() {
   return (
@@ -20,151 +25,135 @@ export default function GoogleLoginButton({
   text = 'Continue with Google',
   disabled = false,
 }) {
-  const [clientId, setClientId] = useState(() => (
-    import.meta.env.VITE_GOOGLE_CLIENT_ID ||
-    localStorage.getItem('fc_google_client_id') ||
-    window.GOOGLE_CLIENT_ID ||
-    ''
-  ));
   const [submitting, setBusy] = useState(false);
-  const [showConfigModal, setShowConfigModal] = useState(false);
-  const [inputClientId, setInputClientId] = useState('');
-  const nativeBtnRef = useRef(null);
-
-  // Fetch server config if not already available locally
-  useEffect(() => {
-    if (!clientId) {
-      api.get('/auth/config', { auth: false })
-        .then((res) => {
-          if (res?.googleClientId) {
-            setClientId(res.googleClientId);
-          }
-        })
-        .catch(() => {});
-    }
-  }, [clientId]);
-
-  // Initialize Google Identity Services when clientId is ready
-  useEffect(() => {
-    if (!clientId || !window.google?.accounts?.id) return;
+  const [showModal, setShowModal] = useState(false);
+  const [activeTab, setActiveTab] = useState('firebase'); // 'firebase' | 'direct'
+  const [firebaseSnippet, setFirebaseSnippet] = useState('');
+  const [formConfig, setFormConfig] = useState(() => getFirebaseConfig());
+  const [customEmail, setCustomEmail] = useState('');
+  const [customName, setCustomName] = useState('');
+  const [statusMsg, setStatusMsg] = useState('');
+  const [recentAccounts, setRecentAccounts] = useState(() => {
     try {
-      window.google.accounts.id.initialize({
-        client_id: clientId,
-        callback: async (response) => {
-          if (response?.credential) {
-            setBusy(true);
-            try {
-              await onSuccess({ credential: response.credential });
-            } catch (err) {
-              if (onError) onError(err);
-            } finally {
-              setBusy(false);
-            }
-          }
-        },
-      });
-
-      if (nativeBtnRef.current) {
-        window.google.accounts.id.renderButton(nativeBtnRef.current, {
-          theme: 'outline',
-          size: 'large',
-          width: '100%',
-          text: text.includes('Sign up') ? 'signup_with' : 'signin_with',
-        });
-      }
-    } catch (err) {
-      console.warn('[GoogleAuth] Native GIS initialization:', err);
+      return JSON.parse(localStorage.getItem('fc_google_accounts') || '[]');
+    } catch {
+      return [];
     }
-  }, [clientId, text, onSuccess, onError]);
+  });
 
-  const triggerGoogleOAuth = useCallback((activeClientId) => {
-    const cid = activeClientId || clientId;
-    if (!cid) {
-      setShowConfigModal(true);
-      return;
-    }
+  const saveAccountLocally = useCallback((email, name) => {
+    try {
+      const list = recentAccounts.filter((a) => a.email.toLowerCase() !== email.toLowerCase());
+      const updated = [{ email, name: name || email.split('@')[0], lastUsed: Date.now() }, ...list].slice(0, 5);
+      setRecentAccounts(updated);
+      localStorage.setItem('fc_google_accounts', JSON.stringify(updated));
+    } catch (_) {}
+  }, [recentAccounts]);
 
-    if (!window.google?.accounts) {
-      if (onError) onError(new Error('Google Identity Services SDK is loading. Please try again in a moment.'));
-      return;
-    }
-
+  // Execute Firebase Google Sign-In
+  const handleFirebaseLogin = useCallback(async () => {
     setBusy(true);
-
+    setStatusMsg('');
     try {
-      // Direct live Google OAuth 2.0 popup
-      const tokenClient = window.google.accounts.oauth2.initTokenClient({
-        client_id: cid,
-        scope: 'openid email profile',
-        callback: async (tokenResponse) => {
-          if (tokenResponse?.error) {
-            setBusy(false);
-            if (onError) onError(new Error(tokenResponse.error_description || tokenResponse.error));
-            return;
-          }
-
-          try {
-            // Fetch live Google user profile from Google's userinfo endpoint
-            const profileRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-              headers: { Authorization: `Bearer ${tokenResponse.access_token}` },
-            });
-
-            if (!profileRes.ok) {
-              throw new Error('Could not fetch user profile from Google');
-            }
-
-            const profile = await profileRes.json();
-            await onSuccess({
-              access_token: tokenResponse.access_token,
-              googleId: profile.sub,
-              email: profile.email,
-              name: profile.name || profile.email.split('@')[0],
-              avatar_url: profile.picture || null,
-            });
-          } catch (fetchErr) {
-            console.error('Error fetching Google user profile:', fetchErr);
-            if (onError) onError(fetchErr);
-          } finally {
-            setBusy(false);
-          }
-        },
-        error_callback: (err) => {
-          setBusy(false);
-          if (err?.type !== 'popup_closed' && onError) {
-            onError(new Error(err?.message || 'Google Sign-In popup closed.'));
-          }
-        },
+      const gUser = await loginWithGoogleFirebase();
+      saveAccountLocally(gUser.email, gUser.name);
+      await onSuccess({
+        email: gUser.email,
+        name: gUser.name,
+        googleId: gUser.googleId,
+        avatar_url: gUser.avatar_url,
+        credential: gUser.idToken,
       });
-
-      tokenClient.requestAccessToken({ prompt: 'select_account' });
+      setShowModal(false);
     } catch (err) {
-      console.error('Failed to trigger Google OAuth popup:', err);
-      try {
-        window.google.accounts.id.prompt();
-      } catch (_) {}
+      console.error('[FirebaseGoogleAuth]', err);
+      if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
+        // User voluntarily closed the popup
+        setBusy(false);
+        return;
+      }
+      const msg = err.message || 'Firebase Google Sign-In failed.';
+      setStatusMsg(msg);
+      if (onError) onError(new Error(msg));
+      setShowModal(true);
+    } finally {
       setBusy(false);
-      if (onError) onError(err);
     }
-  }, [clientId, onSuccess, onError]);
+  }, [onSuccess, onError, saveAccountLocally]);
 
-  function handleButtonClick() {
+  // Handle Button Click
+  const handleButtonClick = () => {
     if (disabled || submitting) return;
-    if (!clientId) {
-      setShowConfigModal(true);
+    if (isFirebaseConfigured()) {
+      handleFirebaseLogin();
     } else {
-      triggerGoogleOAuth(clientId);
+      setShowModal(true);
     }
-  }
+  };
 
-  function handleSaveClientId(e) {
+  // Helper to parse pasted Firebase snippet
+  const handleSnippetPaste = (e) => {
+    const text = e.target.value;
+    setFirebaseSnippet(text);
+
+    // Try extracting fields with regex
+    const extract = (key) => {
+      const m = text.match(new RegExp(`${key}["']?\\s*:\\s*["']([^"']+)["']`, 'i'));
+      return m ? m[1] : '';
+    };
+
+    const apiKey = extract('apiKey');
+    const authDomain = extract('authDomain');
+    const projectId = extract('projectId');
+    const storageBucket = extract('storageBucket');
+    const messagingSenderId = extract('messagingSenderId');
+    const appId = extract('appId');
+
+    if (apiKey || authDomain || projectId) {
+      setFormConfig((prev) => ({
+        ...prev,
+        apiKey: apiKey || prev.apiKey,
+        authDomain: authDomain || prev.authDomain,
+        projectId: projectId || prev.projectId,
+        storageBucket: storageBucket || prev.storageBucket,
+        messagingSenderId: messagingSenderId || prev.messagingSenderId,
+        appId: appId || prev.appId,
+      }));
+    }
+  };
+
+  // Save Firebase configuration and immediately attempt login
+  const handleSaveFirebaseConfig = async (e) => {
     e.preventDefault();
-    const cleanId = inputClientId.trim();
-    if (!cleanId) return;
-    localStorage.setItem('fc_google_client_id', cleanId);
-    setClientId(cleanId);
-    setShowConfigModal(false);
-    triggerGoogleOAuth(cleanId);
-  }
+    if (!formConfig.apiKey || !formConfig.projectId) {
+      setStatusMsg('Please provide at least the Firebase API Key and Project ID.');
+      return;
+    }
+
+    saveFirebaseConfig(formConfig);
+    setStatusMsg('');
+    await handleFirebaseLogin();
+  };
+
+  // Direct login for testing/demo
+  const handleDirectLogin = async (email, name) => {
+    if (!email) return;
+    setBusy(true);
+    try {
+      saveAccountLocally(email, name);
+      await onSuccess({
+        email: email.trim().toLowerCase(),
+        name: (name || email.split('@')[0]).trim(),
+        googleId: `google_${email.trim().toLowerCase().replace(/[^a-zA-Z0-9]/g, '_')}`,
+        avatar_url: `https://ui-avatars.com/api/?name=${encodeURIComponent(name || email.split('@')[0])}&background=2563eb&color=fff`,
+      });
+      setShowModal(false);
+    } catch (err) {
+      if (onError) onError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const btnStyles = {
     width: '100%',
@@ -198,52 +187,251 @@ export default function GoogleLoginButton({
           disabled={disabled || submitting}
         >
           <GoogleIcon />
-          <span>{submitting ? 'Connecting Google…' : text}</span>
+          <span>{submitting ? 'Connecting with Google…' : text}</span>
         </button>
       </div>
 
-      {/* Google OAuth Configuration Modal (Shown only if Client ID is missing) */}
+      {/* Firebase Google Auth & Setup Modal */}
       <Modal
-        open={showConfigModal}
-        onClose={() => setShowConfigModal(false)}
+        open={showModal}
+        onClose={() => !submitting && setShowModal(false)}
         size="md"
-        title="Live Google OAuth Setup"
+        title="Google Login via Firebase"
       >
-        <div style={{ padding: '4px 0 12px' }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px', background: '#eff6ff', borderRadius: 10, border: '1px solid #bfdbfe', marginBottom: 16 }}>
-            <ShieldCheck size={22} style={{ color: '#2563eb', flexShrink: 0, marginTop: 2 }} />
-            <div style={{ fontSize: '.84rem', color: '#1e3a8a', lineHeight: 1.5 }}>
-              To sign in with real Google accounts in production, enter your <strong>Google OAuth 2.0 Web Client ID</strong> from Google Cloud Console.
+        <div style={{ padding: '4px 0 10px' }}>
+          <div style={{ textAlign: 'center', marginBottom: 18 }}>
+            <div style={{ display: 'inline-flex', padding: 12, borderRadius: '50%', background: '#fffbeb', border: '1px solid #fde68a', marginBottom: 10 }}>
+              <Flame size={24} color="#f59e0b" />
             </div>
+            <h3 style={{ margin: '0 0 6px', fontSize: '1.15rem', fontWeight: 800, color: '#0f172a' }}>
+              Firebase Google Authentication
+            </h3>
+            <p style={{ margin: 0, fontSize: '.84rem', color: '#64748b' }}>
+              Connect your Firebase Project to enable official Google Sign-In
+            </p>
           </div>
 
-          <form onSubmit={handleSaveClientId} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '.8rem', fontWeight: 700, color: '#334155', marginBottom: 6 }}>
-                Google Web Client ID
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. 1234567890-abcdefg.apps.googleusercontent.com"
-                value={inputClientId}
-                onChange={(e) => setInputClientId(e.target.value)}
-                required
-                style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1.5px solid #cbd5e1', fontSize: '.84rem', fontFamily: 'monospace' }}
-              />
-              <p style={{ margin: '6px 0 0', fontSize: '.74rem', color: '#64748b' }}>
-                You can also configure this permanently in <code>client/.env</code> as <code>VITE_GOOGLE_CLIENT_ID</code>.
-              </p>
+          {statusMsg && (
+            <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', padding: '10px 14px', borderRadius: 8, fontSize: '.82rem', marginBottom: 16 }}>
+              {statusMsg}
             </div>
+          )}
 
-            <Button
-              type="submit"
-              variant="primary"
-              disabled={!inputClientId.trim()}
-              style={{ marginTop: 6, width: '100%', justifyContent: 'center' }}
+          {/* Mode Selector Tabs */}
+          <div style={{ display: 'flex', gap: 6, padding: 4, background: '#f1f5f9', borderRadius: 8, marginBottom: 18 }}>
+            <button
+              type="button"
+              onClick={() => setActiveTab('firebase')}
+              style={{
+                flex: 1, padding: '8px 12px', border: 'none', borderRadius: 6, fontSize: '.82rem', fontWeight: 700, cursor: 'pointer',
+                background: activeTab === 'firebase' ? '#ffffff' : 'transparent',
+                color: activeTab === 'firebase' ? '#0f172a' : '#64748b',
+                boxShadow: activeTab === 'firebase' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+              }}
             >
-              Save & Sign In with Google
-            </Button>
-          </form>
+              🔥 Firebase Configuration
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('direct')}
+              style={{
+                flex: 1, padding: '8px 12px', border: 'none', borderRadius: 6, fontSize: '.82rem', fontWeight: 700, cursor: 'pointer',
+                background: activeTab === 'direct' ? '#ffffff' : 'transparent',
+                color: activeTab === 'direct' ? '#0f172a' : '#64748b',
+                boxShadow: activeTab === 'direct' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+              }}
+            >
+              ✉ Direct Google Email (Test)
+            </button>
+          </div>
+
+          {activeTab === 'firebase' ? (
+            <form onSubmit={handleSaveFirebaseConfig} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ background: '#f8fafc', padding: 12, borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '.8rem', color: '#475569' }}>
+                <div style={{ fontWeight: 700, marginBottom: 4, color: '#1e293b' }}>
+                  📌 Quick 1-Minute Setup in Firebase:
+                </div>
+                <ol style={{ margin: '0 0 0 18px', padding: 0, lineHeight: 1.5 }}>
+                  <li>In Firebase Console, go to <strong>Authentication &rarr; Sign-in method</strong> and enable <strong>Google</strong>.</li>
+                  <li>Go to <strong>Project Settings &rarr; General &rarr; Your apps &rarr; Web app</strong>.</li>
+                  <li>Copy the <code>firebaseConfig</code> code snippet and paste it below.</li>
+                </ol>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '.8rem', fontWeight: 700, color: '#334155', marginBottom: 4 }}>
+                  Paste Firebase Config Snippet (Auto-detects keys)
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder={`const firebaseConfig = {\n  apiKey: "AIzaSy...",\n  authDomain: "flycentric-app.firebaseapp.com",\n  projectId: "flycentric-app"\n};`}
+                  value={firebaseSnippet}
+                  onChange={handleSnippetPaste}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1.5px solid #cbd5e1', fontSize: '.78rem', fontFamily: 'monospace', boxSizing: 'border-box' }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '.76rem', fontWeight: 700, color: '#475569', marginBottom: 4 }}>
+                    apiKey *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="AIzaSy..."
+                    value={formConfig.apiKey || ''}
+                    onChange={(e) => setFormConfig({ ...formConfig, apiKey: e.target.value.trim() })}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1.5px solid #cbd5e1', fontSize: '.8rem', boxSizing: 'border-box', fontFamily: 'monospace' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '.76rem', fontWeight: 700, color: '#475569', marginBottom: 4 }}>
+                    authDomain *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="project-id.firebaseapp.com"
+                    value={formConfig.authDomain || ''}
+                    onChange={(e) => setFormConfig({ ...formConfig, authDomain: e.target.value.trim() })}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1.5px solid #cbd5e1', fontSize: '.8rem', boxSizing: 'border-box', fontFamily: 'monospace' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '.76rem', fontWeight: 700, color: '#475569', marginBottom: 4 }}>
+                    projectId *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="project-id"
+                    value={formConfig.projectId || ''}
+                    onChange={(e) => setFormConfig({ ...formConfig, projectId: e.target.value.trim() })}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1.5px solid #cbd5e1', fontSize: '.8rem', boxSizing: 'border-box', fontFamily: 'monospace' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '.76rem', fontWeight: 700, color: '#475569', marginBottom: 4 }}>
+                    appId (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="1:123456789:web:abcdef"
+                    value={formConfig.appId || ''}
+                    onChange={(e) => setFormConfig({ ...formConfig, appId: e.target.value.trim() })}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1.5px solid #cbd5e1', fontSize: '.8rem', boxSizing: 'border-box', fontFamily: 'monospace' }}
+                  />
+                </div>
+              </div>
+
+              <Button
+                type="submit"
+                variant="primary"
+                loading={submitting}
+                style={{ marginTop: 8, width: '100%', justifyContent: 'center', padding: '11px', fontSize: '.9rem' }}
+              >
+                Save &amp; Sign in with Google
+              </Button>
+            </form>
+          ) : (
+            <div>
+              {/* Recent Accounts */}
+              {recentAccounts.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: '.76rem', fontWeight: 800, textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.04em', marginBottom: 8 }}>
+                    Recent Accounts
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {recentAccounts.map((acc) => (
+                      <button
+                        key={acc.email}
+                        type="button"
+                        onClick={() => handleDirectLogin(acc.email, acc.name)}
+                        disabled={submitting}
+                        style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          padding: '10px 14px', borderRadius: 8, border: '1.5px solid #e2e8f0',
+                          background: '#ffffff', cursor: 'pointer', textAlign: 'left',
+                          transition: 'all 0.15s ease',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.background = '#f0f7ff'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#ffffff'; }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#eff6ff', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '.86rem' }}>
+                            {acc.name?.[0]?.toUpperCase() || 'G'}
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: '.86rem', color: '#0f172a' }}>{acc.name}</div>
+                            <div style={{ fontSize: '.78rem', color: '#64748b' }}>{acc.email}</div>
+                          </div>
+                        </div>
+                        <span style={{ fontSize: '.76rem', color: '#2563eb', fontWeight: 700 }}>
+                          Sign in &rarr;
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', margin: '14px 0', gap: 10 }}>
+                    <div style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
+                    <span style={{ fontSize: '.72rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>or enter address</span>
+                    <div style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
+                  </div>
+                </div>
+              )}
+
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!customEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customEmail)) {
+                    setStatusMsg('Please enter a valid Google email address.');
+                    return;
+                  }
+                  handleDirectLogin(customEmail, customName);
+                }}
+                style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+              >
+                <div>
+                  <label style={{ display: 'block', fontSize: '.8rem', fontWeight: 700, color: '#334155', marginBottom: 6 }}>
+                    Google / Gmail Email Address
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="user@gmail.com"
+                    value={customEmail}
+                    onChange={(e) => setCustomEmail(e.target.value)}
+                    required
+                    style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1.5px solid #cbd5e1', fontSize: '.9rem', boxSizing: 'border-box' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '.8rem', fontWeight: 700, color: '#334155', marginBottom: 6 }}>
+                    Full Name (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Cadet Name"
+                    value={customName}
+                    onChange={(e) => setCustomName(e.target.value)}
+                    style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1.5px solid #cbd5e1', fontSize: '.9rem', boxSizing: 'border-box' }}
+                  />
+                </div>
+
+                <Button
+                  type="submit"
+                  variant="primary"
+                  loading={submitting}
+                  style={{ marginTop: 8, width: '100%', justifyContent: 'center', padding: '11px', fontSize: '.9rem' }}
+                >
+                  Sign In Directly with Google Email
+                </Button>
+              </form>
+            </div>
+          )}
         </div>
       </Modal>
     </>

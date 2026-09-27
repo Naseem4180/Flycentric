@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import SidebarBrand from './SidebarBrand';
 import {
-  LayoutGrid, Users, Layers, BookOpen, PackageSearch, Database, ListChecks,
+  Home, LayoutGrid, Users, Layers, BookOpen, PackageSearch, Database, ListChecks,
   Flag, MessageCircle, Bookmark, BarChart3, Trash2, Settings as SettingsIcon,
   ScrollText, Radio, Bell, Mail, FolderKanban, GraduationCap, CheckSquare,
   FileText, Award, ShoppingBag, Receipt, RotateCcw, Tag, UserCheck,
@@ -10,6 +10,15 @@ import {
 } from 'lucide-react';
 
 const NAV_STRUCTURE = [
+  {
+    type: 'link',
+    to: '/',
+    end: true,
+    icon: Home,
+    label: 'Home Page',
+    accent: '#3b82f6',
+    accentRgb: '59, 130, 246',
+  },
   {
     type: 'link',
     to: '/admin',

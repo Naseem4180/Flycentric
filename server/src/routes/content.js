@@ -335,9 +335,16 @@ router.get('/subjects', async (req, res) => {
   const params = [];
   if (q) { params.push(`%${q}%`); clauses.push(`s.title ILIKE $${params.length}`); }
   const result = await pool.query(
-    `SELECT s.*, COUNT(DISTINCT qz.id)::int AS quiz_count
+    `SELECT s.*,
+            COUNT(DISTINCT ch.id)::int AS chapter_count,
+            COUNT(DISTINCT qz.id)::int AS quiz_count
      FROM subjects s
-     LEFT JOIN quizzes qz ON qz.subject_id = s.id AND qz.deleted_at IS NULL
+     LEFT JOIN chapters ch ON ch.subject_id = s.id AND ch.deleted_at IS NULL
+     LEFT JOIN quizzes qz ON (
+       qz.subject_id = s.id
+       OR qz.chapter_id = ch.id
+       OR ch.id = ANY(COALESCE(qz.chapter_ids, ARRAY[]::int[]))
+     ) AND qz.deleted_at IS NULL AND qz.status = 'published'
      WHERE ${clauses.join(' AND ')}
      GROUP BY s.id ORDER BY COALESCE(s.order_index, 999999) ASC, s.id ASC`,
     params
@@ -417,9 +424,20 @@ router.post('/subjects', authenticate, authorize('admin'), async (req, res) => {
 // links it to the given bundle in one call.
 router.get('/bundles/:bundleId/subjects', async (req, res) => {
   const result = await pool.query(
-    `SELECT s.* FROM subjects s
+    `SELECT s.*,
+            COUNT(DISTINCT ch.id)::int AS chapter_count,
+            COUNT(DISTINCT qz.id)::int AS quiz_count
+     FROM subjects s
      JOIN bundle_subjects bs ON bs.subject_id = s.id
-     WHERE bs.bundle_id = $1 AND s.deleted_at IS NULL ORDER BY s.order_index`,
+     LEFT JOIN chapters ch ON ch.subject_id = s.id AND ch.deleted_at IS NULL
+     LEFT JOIN quizzes qz ON (
+       qz.subject_id = s.id
+       OR qz.chapter_id = ch.id
+       OR ch.id = ANY(COALESCE(qz.chapter_ids, ARRAY[]::int[]))
+     ) AND qz.deleted_at IS NULL AND qz.status = 'published'
+     WHERE bs.bundle_id = $1 AND s.deleted_at IS NULL
+     GROUP BY s.id
+     ORDER BY s.order_index ASC, s.id ASC`,
     [req.params.bundleId]
   );
   res.json({ subjects: result.rows });
@@ -1185,6 +1203,25 @@ const DEFAULT_HOMEPAGE = {
     kicker: 'DGCA course bundles',
     title: 'Choose your learning path',
     subtitle: 'Explore published bundles, compare access, and start with the course that fits your flight plan.'
+  },
+  announcements_section: {
+    enabled: true,
+    title: 'Latest Announcements & Flight Updates',
+    subtitle: 'Important DGCA regulatory updates, new batch schedules, and exam alerts.',
+    items: [
+      { id: '1', title: 'New DGCA 2026 Batch Enrolments Open', tag: 'Admissions', date: 'Sept 2026', text: 'Admissions are now open for upcoming DGCA Ground Classes and Comprehensive CBT Mock Series.', link: '/courses', link_text: 'View Courses' },
+      { id: '2', title: 'Updated Air Regulations Question Bank Added', tag: 'Curriculum', date: 'Recent', text: 'Over 1,000+ new questions and explanations updated strictly to latest DGCA pattern.', link: '/courses', link_text: 'Explore Bank' }
+    ]
+  },
+  coupons_section: {
+    enabled: true,
+    title: 'Exclusive Student Discount Coupons',
+    subtitle: 'Use these limited-time promotional discount codes at checkout to unlock savings on your pilot training bundles.',
+    banner_text: '🎉 Special Festive & Cadet Pilot Discount Offer! Use code FLY50 for instant savings.',
+    items: [
+      { id: '1', code: 'FLY50', discount: '50% OFF', description: 'Applicable across DGCA full ground school bundles.', expires: 'Limited Time' },
+      { id: '2', code: 'CADET10', discount: '10% OFF', description: 'Instant discount on all chapter mock test packs.', expires: 'Active' }
+    ]
   },
   cta_banner: {
     heading: 'Ready for take-off?',

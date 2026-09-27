@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   Lock, Unlock, BookOpen, ChevronLeft, FileCheck2, FileText, Check, Clock, Tag,
   Search, Filter, Sparkles, Layers, ShieldCheck, CheckCircle2, Play, ArrowRight,
-  RotateCcw, Compass, ChevronDown, ChevronUp, AlertCircle, ExternalLink, ShoppingCart,
+  RotateCcw, Compass, ChevronDown, ChevronUp, AlertCircle, ExternalLink, ShoppingCart, Video,
 } from 'lucide-react';
 import { api } from '../api';
 import useAuth from '../context/useAuth';
@@ -438,6 +438,20 @@ function SubjectCurriculumPanel({
                     >
                       <FileText size={12} /> NOTES
                     </button>
+                  )}
+
+                  {/* Video Button: shown only if chapter has a video_url */}
+                  {c.video_url && (
+                    <a
+                      href={c.video_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="fc-btn-video"
+                      title="Watch Chapter Video Lesson"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Video size={12} /> VIDEO
+                    </a>
                   )}
 
                   {/* Assignment Button: shown only if assignment quiz exists */}

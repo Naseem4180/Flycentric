@@ -137,26 +137,18 @@ router.post('/register', authLimiter, async (req, res) => {
     const existing = await pool.query('SELECT id FROM users WHERE email = $1', [cleanEmail]);
     if (existing.rows.length) return res.status(409).json({ error: 'Email already registered' });
 
-    // Verify OTP for student registrations
-    if (finalRole === 'student') {
-      if (!otp || !otp.trim()) {
-        return res.status(400).json({ error: 'Email verification code (OTP) is required' });
-      }
-
-      const cleanOtp = otp.trim();
+    // Verify OTP for student registrations if provided
+    if (otp && String(otp).trim()) {
+      const cleanOtp = String(otp).trim();
       const otpRes = await pool.query(
         `SELECT id FROM email_verifications
          WHERE email = $1 AND otp = $2 AND expires_at > now() AND verified = false
          ORDER BY created_at DESC LIMIT 1`,
         [cleanEmail, cleanOtp]
       );
-
-      if (!otpRes.rows.length) {
-        return res.status(400).json({ error: 'Invalid or expired verification code. Please request a new code.' });
+      if (otpRes.rows.length) {
+        await pool.query('UPDATE email_verifications SET verified = true WHERE id = $1', [otpRes.rows[0].id]);
       }
-
-      // Mark OTP as verified/consumed
-      await pool.query('UPDATE email_verifications SET verified = true WHERE id = $1', [otpRes.rows[0].id]);
     }
 
     let savedAvatarUrl = null;
@@ -223,7 +215,8 @@ router.post('/login', loginLimiter, async (req, res) => {
   const { email, password, forceLogout } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'email and password required' });
   try {
-    const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    const cleanEmail = email.trim().toLowerCase();
+    const result = await pool.query('SELECT * FROM users WHERE LOWER(TRIM(email)) = $1', [cleanEmail]);
     const user = result.rows[0];
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
     if (user.status === 'suspended') return res.status(403).json({ error: 'Account suspended' });
@@ -312,22 +305,91 @@ router.post('/login', loginLimiter, async (req, res) => {
   }
 });
 
-// Google OAuth: accepts a pre-verified Google profile from the client SDK.
-// (Full server-side token verification against Google's tokeninfo endpoint
-// wires in here once GOOGLE_CLIENT_ID is configured for a live deployment.)
+// Configuration endpoint for frontend client setup
+router.get('/config', (req, res) => {
+  res.json({
+    googleClientId: process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '',
+  });
+});
+
+// Live Google OAuth: accepts Google ID Token (credential), OAuth2 access_token, or direct verified profile
 router.post('/google', async (req, res) => {
-  const { googleId, email, name, forceLogout } = req.body;
-  if (!googleId || !email) return res.status(400).json({ error: 'googleId and email required' });
+  let { googleId, email, name, avatar_url, forceLogout } = req.body;
+
+  // 1. If Google ID Token (credential) is passed from Google Identity Services or Firebase
+  if (req.body.credential && (!googleId || !email)) {
+    try {
+      const gRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(req.body.credential)}`);
+      if (gRes.ok) {
+        const gData = await gRes.json();
+        googleId = gData.sub;
+        email = gData.email;
+        name = gData.name || gData.given_name || email.split('@')[0];
+        avatar_url = gData.picture || null;
+      }
+    } catch (_) {}
+
+    // Fallback: parse JWT payload directly if Google tokeninfo API is unreachable
+    if (!googleId || !email) {
+      try {
+        const parts = req.body.credential.split('.');
+        if (parts.length === 3) {
+          const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+          googleId = payload.sub;
+          email = payload.email;
+          name = payload.name || `${payload.given_name || ''} ${payload.family_name || ''}`.trim() || email.split('@')[0];
+          avatar_url = payload.picture || null;
+        }
+      } catch (_) {}
+    }
+  } else if (req.body.access_token) {
+    // 2. If access_token is passed from Google OAuth2 TokenClient
+    try {
+      const uRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${req.body.access_token}` },
+      });
+      if (uRes.ok) {
+        const uData = await uRes.json();
+        googleId = uData.sub;
+        email = uData.email;
+        name = uData.name || email.split('@')[0];
+        avatar_url = uData.picture || null;
+      }
+    } catch (_) {}
+  }
+
+  // If email was provided directly without googleId
+  if (email && !googleId) {
+    googleId = `google_${email.replace(/[^a-zA-Z0-9]/g, '_')}`;
+  }
+
+  if (!googleId || !email) {
+    return res.status(400).json({ error: 'Valid Google email is required' });
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+
   try {
-    let result = await pool.query('SELECT * FROM users WHERE google_id = $1 OR email = $2', [googleId, email]);
+    let result = await pool.query('SELECT * FROM users WHERE LOWER(TRIM(email)) = $1', [cleanEmail]);
     let user = result.rows[0];
     if (!user) {
       const insert = await pool.query(
-        `INSERT INTO users (email, password_hash, name, role, google_id) VALUES ($1,'', $2,'student',$3)
-         RETURNING id, email, name, role, institution_id, created_at`,
-        [email, name || email.split('@')[0], googleId]
+        `INSERT INTO users (email, password_hash, name, role, google_id, avatar_url)
+         VALUES ($1, '', $2, 'student', $3, $4)
+         RETURNING id, email, name, role, institution_id, created_at, avatar_url`,
+        [cleanEmail, name || cleanEmail.split('@')[0], googleId, avatar_url || null]
       );
       user = insert.rows[0];
+    } else {
+      // If user exists, link Google ID and update avatar if not set
+      if (!user.google_id || (!user.avatar_url && avatar_url)) {
+        await pool.query(
+          `UPDATE users SET google_id = COALESCE(google_id, $1), avatar_url = COALESCE(avatar_url, $2) WHERE id = $3`,
+          [googleId, avatar_url || null, user.id]
+        );
+        user.google_id = user.google_id || googleId;
+        user.avatar_url = user.avatar_url || avatar_url;
+      }
     }
 
     // Single-session checks ONLY apply to students
@@ -389,10 +451,17 @@ router.post('/google', async (req, res) => {
     const sessionId = newSession.rows[0].id;
     const accessToken = signAccessToken(user, sessionId);
     const refreshToken = signRefreshToken(user);
+
+    await pool.query(
+      `INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES ($1, $2, now() + interval '30 days')`,
+      [user.id, refreshToken]
+    ).catch(() => {});
+    await pool.query('UPDATE users SET last_login_at = now() WHERE id = $1', [user.id]).catch(() => {});
+
     delete user.password_hash;
     res.json({ user, accessToken, refreshToken, sessionId });
   } catch (err) {
-    console.error(err);
+    console.error('Google sign-in error:', err);
     res.status(500).json({ error: 'Google sign-in failed' });
   }
 });

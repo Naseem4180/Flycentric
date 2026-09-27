@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import SidebarBrand from './SidebarBrand';
 import SidebarProCard from './SidebarProCard';
 import {
-  LayoutGrid, BookOpen, Compass, ListChecks, Brain,
+  Home, LayoutGrid, BookOpen, Compass, ListChecks, Brain,
   Award, History, CalendarClock, BarChart3,
   MessageCircle, Flag, Briefcase, HelpCircle, ChevronDown, ChevronRight, Receipt
 } from 'lucide-react';
@@ -13,6 +13,14 @@ const STUDENT_NAV = [
     type: 'link',
     to: '/',
     end: true,
+    icon: Home,
+    label: 'Home Page',
+    accent: '#3b82f6',
+    accentRgb: '59, 130, 246',
+  },
+  {
+    type: 'link',
+    to: '/dashboard',
     icon: LayoutGrid,
     label: 'Dashboard',
     accent: '#0ea5e9',

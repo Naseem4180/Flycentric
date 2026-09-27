@@ -1,10 +1,11 @@
 import { useEffect, useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import {
   FolderKanban, PackageSearch, BookOpen, Layers, Search, Filter,
   CheckCircle2, Eye, EyeOff, Plus, Edit3, Trash2, Globe, Lock, Unlock,
   FileText, ExternalLink, Sparkles, LayoutGrid, List,
   AlertTriangle, Check, RefreshCw, Save, ArrowRight, Phone, Mail, MapPin,
-  Send, RotateCcw, HelpCircle
+  Send, RotateCcw, HelpCircle, Megaphone, Tag
 } from 'lucide-react';
 import { api } from '../../api';
 import { Card, Badge, Button, Modal, PageHeader, KpiCard } from '../../ui';
@@ -28,6 +29,25 @@ const DEFAULT_CMS = {
     primary_btn_url: '#courses',
     secondary_btn_text: 'How it works',
     secondary_btn_url: '#how-it-works'
+  },
+  announcements_section: {
+    enabled: true,
+    title: 'Latest Announcements & Flight Updates',
+    subtitle: 'Important DGCA regulatory updates, new batch schedules, and exam alerts.',
+    items: [
+      { id: '1', title: 'New DGCA 2026 Batch Enrolments Open', tag: 'Admissions', date: 'Sept 2026', text: 'Admissions are now open for upcoming DGCA Ground Classes and Comprehensive CBT Mock Series.', link: '/courses', link_text: 'View Courses' },
+      { id: '2', title: 'Updated Air Regulations Question Bank Added', tag: 'Curriculum', date: 'Recent', text: 'Over 1,000+ new questions and explanations updated strictly to latest DGCA pattern.', link: '/courses', link_text: 'Explore Bank' }
+    ]
+  },
+  coupons_section: {
+    enabled: true,
+    title: 'Exclusive Student Discount Coupons',
+    subtitle: 'Use these limited-time promotional discount codes at checkout to unlock savings on your pilot training bundles.',
+    banner_text: '🎉 Special Festive & Cadet Pilot Discount Offer! Use code FLY50 for instant savings.',
+    items: [
+      { id: '1', code: 'FLY50', discount: '50% OFF', description: 'Applicable across DGCA full ground school bundles.', expires: 'Limited Time' },
+      { id: '2', code: 'CADET10', discount: '10% OFF', description: 'Instant discount on all chapter mock test packs.', expires: 'Active' }
+    ]
   },
   features_section: {
     title: 'The smartest way to prepare',
@@ -66,6 +86,8 @@ const DEFAULT_CMS = {
 
 const CMS_SECTIONS = [
   { id: 'hero', label: 'Hero', icon: Sparkles },
+  { id: 'announcements', label: 'Announcements', icon: Megaphone },
+  { id: 'coupons', label: 'Discount Coupons', icon: Tag },
   { id: 'features', label: 'Features', icon: CheckCircle2 },
   { id: 'courses', label: 'Courses', icon: PackageSearch },
   { id: 'cta', label: 'CTA Banner', icon: Send },
@@ -759,6 +781,328 @@ export default function AdminContent() {
                           {cms.hero.secondary_btn_text}
                         </span>
                       </div>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            )}
+
+            {/* 1B. ANNOUNCEMENTS SECTION */}
+            {activeSection === 'announcements' && (
+              <Card>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18, borderBottom: '1px solid var(--border)', paddingBottom: 14 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 34, height: 34, borderRadius: 8, background: 'rgba(234, 88, 12, 0.1)', color: '#ea580c', display: 'grid', placeItems: 'center' }}>
+                      <Megaphone size={18} />
+                    </div>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '1.08rem', color: 'var(--text)' }}>Announcements &amp; Flight Updates</h3>
+                      <span style={{ fontSize: '.8rem', color: 'var(--muted)' }}>Publish official updates, admission notices, or regulatory announcements on the home page.</span>
+                    </div>
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '.85rem', fontWeight: 600 }}>
+                    <input
+                      type="checkbox"
+                      checked={cms.announcements_section?.enabled !== false}
+                      onChange={(e) => updateCms('announcements_section', 'enabled', e.target.checked)}
+                    />
+                    <span>Display on Home Page</span>
+                  </label>
+                </div>
+
+                <div style={{ display: 'grid', gap: 18 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+                    <div className="field">
+                      <label style={{ fontSize: '.82rem', fontWeight: 700, display: 'block', marginBottom: 6 }}>Section Title</label>
+                      <input
+                        type="text"
+                        className="input"
+                        value={cms.announcements_section?.title || ''}
+                        onChange={(e) => updateCms('announcements_section', 'title', e.target.value)}
+                        placeholder="Latest Announcements & Flight Updates"
+                      />
+                    </div>
+                    <div className="field">
+                      <label style={{ fontSize: '.82rem', fontWeight: 700, display: 'block', marginBottom: 6 }}>Subtitle</label>
+                      <input
+                        type="text"
+                        className="input"
+                        value={cms.announcements_section?.subtitle || ''}
+                        onChange={(e) => updateCms('announcements_section', 'subtitle', e.target.value)}
+                        placeholder="Important regulatory updates, new batch schedules, and exam alerts."
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                      <h4 style={{ margin: 0, fontSize: '.95rem', fontWeight: 700 }}>Announcement Items ({(cms.announcements_section?.items || []).length})</h4>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          const items = [...(cms.announcements_section?.items || [])];
+                          items.push({
+                            id: Date.now().toString(),
+                            title: 'New Announcement',
+                            tag: 'Notice',
+                            date: 'Sept 2026',
+                            text: 'Announcement description and details for students.',
+                            link: '/courses',
+                            link_text: 'Learn More'
+                          });
+                          updateCms('announcements_section', 'items', items);
+                        }}
+                      >
+                        <Plus size={14} style={{ marginRight: 4 }} /> Add Announcement
+                      </Button>
+                    </div>
+
+                    <div style={{ display: 'grid', gap: 12 }}>
+                      {(cms.announcements_section?.items || []).map((item, idx) => (
+                        <div key={item.id || idx} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 14, background: 'var(--surface-alt)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                            <span style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--muted)' }}>#{idx + 1} Announcement</span>
+                            <button
+                              type="button"
+                              style={{ background: 'none', border: 'none', color: 'var(--danger, #ef4444)', cursor: 'pointer', fontSize: '.8rem', display: 'flex', alignItems: 'center', gap: 4 }}
+                              onClick={() => {
+                                const items = (cms.announcements_section?.items || []).filter((_, i) => i !== idx);
+                                updateCms('announcements_section', 'items', items);
+                              }}
+                            >
+                              <Trash2 size={13} /> Remove
+                            </button>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
+                            <input
+                              type="text"
+                              className="input"
+                              placeholder="Headline / Title"
+                              value={item.title || ''}
+                              onChange={(e) => {
+                                const items = [...(cms.announcements_section?.items || [])];
+                                items[idx] = { ...items[idx], title: e.target.value };
+                                updateCms('announcements_section', 'items', items);
+                              }}
+                            />
+                            <input
+                              type="text"
+                              className="input"
+                              placeholder="Tag (e.g. Admissions, Alert)"
+                              value={item.tag || ''}
+                              onChange={(e) => {
+                                const items = [...(cms.announcements_section?.items || [])];
+                                items[idx] = { ...items[idx], tag: e.target.value };
+                                updateCms('announcements_section', 'items', items);
+                              }}
+                            />
+                            <input
+                              type="text"
+                              className="input"
+                              placeholder="Date / Time (e.g. Sept 2026)"
+                              value={item.date || ''}
+                              onChange={(e) => {
+                                const items = [...(cms.announcements_section?.items || [])];
+                                items[idx] = { ...items[idx], date: e.target.value };
+                                updateCms('announcements_section', 'items', items);
+                              }}
+                            />
+                          </div>
+                          <textarea
+                            className="input"
+                            rows={2}
+                            placeholder="Announcement description / content"
+                            value={item.text || ''}
+                            onChange={(e) => {
+                              const items = [...(cms.announcements_section?.items || [])];
+                              items[idx] = { ...items[idx], text: e.target.value };
+                              updateCms('announcements_section', 'items', items);
+                            }}
+                            style={{ width: '100%', marginBottom: 10 }}
+                          />
+                          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
+                            <input
+                              type="text"
+                              className="input"
+                              placeholder="Link URL (e.g. /courses or #courses)"
+                              value={item.link || ''}
+                              onChange={(e) => {
+                                const items = [...(cms.announcements_section?.items || [])];
+                                items[idx] = { ...items[idx], link: e.target.value };
+                                updateCms('announcements_section', 'items', items);
+                              }}
+                            />
+                            <input
+                              type="text"
+                              className="input"
+                              placeholder="Link Button Text"
+                              value={item.link_text || ''}
+                              onChange={(e) => {
+                                const items = [...(cms.announcements_section?.items || [])];
+                                items[idx] = { ...items[idx], link_text: e.target.value };
+                                updateCms('announcements_section', 'items', items);
+                              }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            )}
+
+            {/* 1C. DISCOUNT COUPONS SECTION */}
+            {activeSection === 'coupons' && (
+              <Card>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18, borderBottom: '1px solid var(--border)', paddingBottom: 14 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 34, height: 34, borderRadius: 8, background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', display: 'grid', placeItems: 'center' }}>
+                      <Tag size={18} />
+                    </div>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '1.08rem', color: 'var(--text)' }}>Discount Coupons &amp; Offers Showcase</h3>
+                      <span style={{ fontSize: '.8rem', color: 'var(--muted)' }}>Showcase promotional coupon codes directly on the homepage so students can copy &amp; apply them.</span>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '.85rem', fontWeight: 600 }}>
+                      <input
+                        type="checkbox"
+                        checked={cms.coupons_section?.enabled !== false}
+                        onChange={(e) => updateCms('coupons_section', 'enabled', e.target.checked)}
+                      />
+                      <span>Display on Home Page</span>
+                    </label>
+                    <Link to="/admin/coupons" style={{ fontSize: '.82rem', color: 'var(--primary)', fontWeight: 600, textDecoration: 'none' }}>
+                      Manage System Coupons →
+                    </Link>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gap: 18 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+                    <div className="field">
+                      <label style={{ fontSize: '.82rem', fontWeight: 700, display: 'block', marginBottom: 6 }}>Section Title</label>
+                      <input
+                        type="text"
+                        className="input"
+                        value={cms.coupons_section?.title || ''}
+                        onChange={(e) => updateCms('coupons_section', 'title', e.target.value)}
+                        placeholder="Exclusive Student Discount Coupons"
+                      />
+                    </div>
+                    <div className="field">
+                      <label style={{ fontSize: '.82rem', fontWeight: 700, display: 'block', marginBottom: 6 }}>Subtitle</label>
+                      <input
+                        type="text"
+                        className="input"
+                        value={cms.coupons_section?.subtitle || ''}
+                        onChange={(e) => updateCms('coupons_section', 'subtitle', e.target.value)}
+                        placeholder="Use these limited-time promotional discount codes at checkout to unlock savings."
+                      />
+                    </div>
+                  </div>
+
+                  <div className="field">
+                    <label style={{ fontSize: '.82rem', fontWeight: 700, display: 'block', marginBottom: 6 }}>Highlight Promo Banner Strip</label>
+                    <input
+                      type="text"
+                      className="input"
+                      value={cms.coupons_section?.banner_text || ''}
+                      onChange={(e) => updateCms('coupons_section', 'banner_text', e.target.value)}
+                      placeholder="🎉 Special Festive & Cadet Pilot Discount Offer! Use code FLY50 for instant savings."
+                    />
+                  </div>
+
+                  <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                      <h4 style={{ margin: 0, fontSize: '.95rem', fontWeight: 700 }}>Showcase Coupon Cards ({(cms.coupons_section?.items || []).length})</h4>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          const items = [...(cms.coupons_section?.items || [])];
+                          items.push({
+                            id: Date.now().toString(),
+                            code: 'NEWCODE',
+                            discount: '20% OFF',
+                            description: 'Special discount on select course bundles.',
+                            expires: 'Active'
+                          });
+                          updateCms('coupons_section', 'items', items);
+                        }}
+                      >
+                        <Plus size={14} style={{ marginRight: 4 }} /> Add Coupon Card
+                      </Button>
+                    </div>
+
+                    <div style={{ display: 'grid', gap: 12 }}>
+                      {(cms.coupons_section?.items || []).map((item, idx) => (
+                        <div key={item.id || idx} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 14, background: 'var(--surface-alt)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                            <span style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--muted)' }}>#{idx + 1} Coupon Card</span>
+                            <button
+                              type="button"
+                              style={{ background: 'none', border: 'none', color: 'var(--danger, #ef4444)', cursor: 'pointer', fontSize: '.8rem', display: 'flex', alignItems: 'center', gap: 4 }}
+                              onClick={() => {
+                                const items = (cms.coupons_section?.items || []).filter((_, i) => i !== idx);
+                                updateCms('coupons_section', 'items', items);
+                              }}
+                            >
+                              <Trash2 size={13} /> Remove
+                            </button>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
+                            <input
+                              type="text"
+                              className="input"
+                              placeholder="Coupon Code (e.g. FLY50)"
+                              value={item.code || ''}
+                              onChange={(e) => {
+                                const items = [...(cms.coupons_section?.items || [])];
+                                items[idx] = { ...items[idx], code: e.target.value.toUpperCase() };
+                                updateCms('coupons_section', 'items', items);
+                              }}
+                              style={{ fontWeight: 700, letterSpacing: '.05em' }}
+                            />
+                            <input
+                              type="text"
+                              className="input"
+                              placeholder="Discount (e.g. 50% OFF)"
+                              value={item.discount || ''}
+                              onChange={(e) => {
+                                const items = [...(cms.coupons_section?.items || [])];
+                                items[idx] = { ...items[idx], discount: e.target.value };
+                                updateCms('coupons_section', 'items', items);
+                              }}
+                            />
+                            <input
+                              type="text"
+                              className="input"
+                              placeholder="Validity (e.g. Limited Time)"
+                              value={item.expires || ''}
+                              onChange={(e) => {
+                                const items = [...(cms.coupons_section?.items || [])];
+                                items[idx] = { ...items[idx], expires: e.target.value };
+                                updateCms('coupons_section', 'items', items);
+                              }}
+                            />
+                          </div>
+                          <input
+                            type="text"
+                            className="input"
+                            placeholder="Description / Terms (e.g. Applicable across DGCA full ground school bundles)"
+                            value={item.description || ''}
+                            onChange={(e) => {
+                              const items = [...(cms.coupons_section?.items || [])];
+                              items[idx] = { ...items[idx], description: e.target.value };
+                              updateCms('coupons_section', 'items', items);
+                            }}
+                          />
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </div>

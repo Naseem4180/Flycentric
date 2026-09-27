@@ -68,7 +68,7 @@ export default function Checkout() {
     api.post('/payments/quote', {
       bundle_id: primaryBundle.id,
       validity_months: validityMonths,
-      coupon_code: appliedCoupon ? appliedCoupon.code : (couponCode.trim() || undefined),
+      coupon_code: appliedCoupon ? appliedCoupon.code : undefined,
     })
       .then((q) => {
         setQuote(q);

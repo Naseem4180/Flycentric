@@ -7,6 +7,7 @@ import useAuth from '../context/useAuth';
 import BrandLogo from '../components/BrandLogo';
 import { api } from '../api';
 import { Modal, Button } from '../ui';
+import GoogleLoginButton from '../components/GoogleLoginButton';
 
 // Clean standard list of aviation regions and countries
 const COUNTRIES = [
@@ -46,7 +47,7 @@ const COUNTRIES = [
 ];
 
 export default function Register() {
-  const { register } = useAuth();
+  const { register, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
 
@@ -67,14 +68,6 @@ export default function Register() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-
-  // OTP Verification state
-  const [showOtpModal, setShowOtpModal] = useState(false);
-  const [otp, setOtp] = useState('');
-  const [otpError, setOtpError] = useState('');
-  const [otpBusy, setOtpBusy] = useState(false);
-  const [resendCountdown, setResendCountdown] = useState(0);
-  const [devOtp, setDevOtp] = useState('');
 
   // Resize and compress avatar client-side to ensure fast, lightweight payloads
   function handlePhotoSelect(e) {
@@ -123,16 +116,20 @@ export default function Register() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
-  // 60-second resend countdown timer
-  useEffect(() => {
-    if (resendCountdown <= 0) return;
-    const timer = setInterval(() => {
-      setResendCountdown((c) => (c <= 1 ? 0 : c - 1));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [resendCountdown]);
+  async function handleGoogleRegister(payload) {
+    setError('');
+    setBusy(true);
+    try {
+      await loginWithGoogle(payload);
+      navigate('/');
+    } catch (err) {
+      setError(err.message || 'Google registration failed');
+    } finally {
+      setBusy(false);
+    }
+  }
 
-  // Step 1: Validate form & send OTP to student's email
+  // Validate form & directly register account (no OTP required)
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
@@ -174,55 +171,6 @@ export default function Register() {
 
     setBusy(true);
     try {
-      const res = await api.post('/auth/send-registration-otp', {
-        email: form.email.trim(),
-        name: form.name.trim(),
-      }, { auth: false });
-
-      if (res?.devOtp) setDevOtp(res.devOtp);
-      setOtp('');
-      setOtpError('');
-      setShowOtpModal(true);
-      setResendCountdown(60);
-    } catch (err) {
-      setError(err.message || 'Failed to send verification code. Please check your email.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  // Resend OTP code
-  async function handleResendOtp() {
-    if (resendCountdown > 0 || otpBusy) return;
-    setOtpError('');
-    setOtpBusy(true);
-    try {
-      const res = await api.post('/auth/send-registration-otp', {
-        email: form.email.trim(),
-        name: form.name.trim(),
-      }, { auth: false });
-
-      if (res?.devOtp) setDevOtp(res.devOtp);
-      setResendCountdown(60);
-    } catch (err) {
-      setOtpError(err.message || 'Failed to resend verification code');
-    } finally {
-      setOtpBusy(false);
-    }
-  }
-
-  // Step 2: Verify OTP & complete registration
-  async function handleVerifyAndRegister(e) {
-    if (e) e.preventDefault();
-    const cleanOtp = otp.trim();
-    if (!cleanOtp || cleanOtp.length !== 6) {
-      setOtpError('Please enter the 6-digit verification code');
-      return;
-    }
-
-    setOtpBusy(true);
-    setOtpError('');
-    try {
       await register({
         name: form.name.trim(),
         email: form.email.trim(),
@@ -233,14 +181,12 @@ export default function Register() {
         city: form.city.trim() || null,
         avatar_data: avatarData || null,
         role: 'student',
-        otp: cleanOtp,
       });
-      setShowOtpModal(false);
       navigate('/');
     } catch (err) {
-      setOtpError(err.message || 'Verification failed. Please check the code and try again.');
+      setError(err.message || 'Registration failed. Please try again.');
     } finally {
-      setOtpBusy(false);
+      setBusy(false);
     }
   }
 
@@ -266,6 +212,21 @@ export default function Register() {
               <span>{error}</span>
             </div>
           )}
+
+          <div style={{ marginBottom: 20 }}>
+            <GoogleLoginButton
+              text="Sign up with Google"
+              onSuccess={handleGoogleRegister}
+              onError={(err) => setError(err.message)}
+            />
+            <div style={{ display: 'flex', alignItems: 'center', margin: '16px 0 12px', gap: 10 }}>
+              <div style={{ flex: 1, height: 1, background: 'var(--border, #e2e8f0)' }} />
+              <span style={{ fontSize: '.74rem', color: 'var(--muted, #64748b)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em' }}>
+                or sign up with email
+              </span>
+              <div style={{ flex: 1, height: 1, background: 'var(--border, #e2e8f0)' }} />
+            </div>
+          </div>
 
           <form onSubmit={handleSubmit} className="auth-form" noValidate>
             {/* Profile Photo (Optional) */}
@@ -538,130 +499,6 @@ export default function Register() {
           </p>
         </div>
       </div>
-
-      {/* Email Verification OTP Modal */}
-      <Modal
-        open={showOtpModal}
-        onClose={() => !otpBusy && setShowOtpModal(false)}
-        size="md"
-        title="Verify Your Email Address"
-      >
-        <div style={{ padding: '4px 0 12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: '#eff6ff', borderRadius: 10, border: '1px solid #bfdbfe', marginBottom: 16 }}>
-            <ShieldCheck size={24} style={{ color: '#2563eb', flexShrink: 0 }} />
-            <div>
-              <div style={{ fontSize: '.88rem', fontWeight: 700, color: '#1e3a8a' }}>One-Time Password Sent</div>
-              <div style={{ fontSize: '.8rem', color: '#3b82f6', marginTop: 2 }}>
-                Enter the 6-digit security code sent to <strong>{form.email}</strong>
-              </div>
-            </div>
-          </div>
-
-          {devOtp && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#f8fafc', border: '1px dashed #94a3b8', borderRadius: 8, marginBottom: 16 }}>
-              <span style={{ fontSize: '.8rem', color: '#475569' }}>
-                Test OTP (SMTP off): <strong style={{ color: '#2563eb', letterSpacing: 2, fontFamily: 'monospace' }}>{devOtp}</strong>
-              </span>
-              <button
-                type="button"
-                onClick={() => { setOtp(devOtp); setOtpError(''); }}
-                style={{ fontSize: '.76rem', color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700 }}
-              >
-                Auto-fill
-              </button>
-            </div>
-          )}
-
-          {otpError && (
-            <div className="error-banner" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <AlertCircle size={16} />
-              <span>{otpError}</span>
-            </div>
-          )}
-
-          <form onSubmit={handleVerifyAndRegister}>
-            <div style={{ marginBottom: 20 }}>
-              <label style={{ display: 'block', fontSize: '.82rem', fontWeight: 700, color: '#334155', marginBottom: 8, textAlign: 'center' }}>
-                6-Digit Security Code
-              </label>
-              <input
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength={6}
-                autoFocus
-                placeholder="000000"
-                value={otp}
-                onChange={(e) => {
-                  const val = e.target.value.replace(/\D/g, '').slice(0, 6);
-                  setOtp(val);
-                  if (otpError) setOtpError('');
-                }}
-                style={{
-                  width: '100%',
-                  textAlign: 'center',
-                  fontSize: '1.9rem',
-                  fontWeight: 800,
-                  letterSpacing: '0.35em',
-                  padding: '12px 16px',
-                  borderRadius: 10,
-                  border: '2px solid #cbd5e1',
-                  fontFamily: 'monospace',
-                  boxSizing: 'border-box',
-                }}
-              />
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, fontSize: '.78rem' }}>
-                <span style={{ color: '#64748b' }}>Expires in 10 minutes</span>
-                {resendCountdown > 0 ? (
-                  <span style={{ color: '#94a3b8', fontWeight: 600 }}>
-                    Resend in {resendCountdown}s
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={handleResendOtp}
-                    disabled={otpBusy}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: '#2563eb',
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      padding: 0,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 4,
-                    }}
-                  >
-                    <RefreshCw size={12} /> Resend OTP
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowOtpModal(false)}
-                disabled={otpBusy}
-                style={{ flex: 1, justifyContent: 'center' }}
-              >
-                Edit Email
-              </Button>
-              <Button
-                type="submit"
-                variant="primary"
-                loading={otpBusy}
-                disabled={otp.length !== 6 || otpBusy}
-                style={{ flex: 2, justifyContent: 'center' }}
-              >
-                Verify & Register
-              </Button>
-            </div>
-          </form>
-        </div>
-      </Modal>
     </div>
   );
 }

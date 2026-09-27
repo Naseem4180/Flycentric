@@ -3,6 +3,7 @@ import {
   api, setTokens, loadTokens, setUnauthorizedHandler,
   setSessionExpiredHandler, setTokensRefreshedHandler,
 } from '../api';
+import { logoutFirebase } from '../firebase';
 import AuthContext from './auth-context';
 
 export function AuthProvider({ children }) {
@@ -29,6 +30,13 @@ export function AuthProvider({ children }) {
     setTokens(null, null);
     setUser(null);
     setSessionExpired(false);
+    logoutFirebase().catch(() => {});
+    try {
+      localStorage.removeItem('fc_cart_bundles');
+      localStorage.removeItem('fc_cart_bundle');
+      localStorage.removeItem('fc_google_accounts');
+      sessionStorage.clear();
+    } catch (_) {}
   }, []);
 
   // Clears local state without calling the server. Used when the session has
@@ -37,6 +45,13 @@ export function AuthProvider({ children }) {
   const clearSession = useCallback(() => {
     setTokens(null, null);
     setUser(null);
+    logoutFirebase().catch(() => {});
+    try {
+      localStorage.removeItem('fc_cart_bundles');
+      localStorage.removeItem('fc_cart_bundle');
+      localStorage.removeItem('fc_google_accounts');
+      sessionStorage.clear();
+    } catch (_) {}
   }, []);
 
   useEffect(() => {
@@ -93,6 +108,18 @@ export function AuthProvider({ children }) {
     return data.user;
   }
 
+  async function loginWithGoogle(payload, options = {}) {
+    const data = await api.post('/auth/google', {
+      ...payload,
+      forceLogout: options.forceLogout || false,
+    }, { auth: false });
+    setTokens(data.accessToken, data.refreshToken);
+    setUser(data.user);
+    setSessionExpired(false);
+    setAuthVersion((v) => v + 1);
+    return data.user;
+  }
+
   async function register(payload) {
     const data = await api.post('/auth/register', payload, { auth: false });
     setTokens(data.accessToken, data.refreshToken);
@@ -114,7 +141,7 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, login, register, logout, sessionExpired, dismissExpired, authVersion, updateUser }}
+      value={{ user, loading, login, loginWithGoogle, register, logout, sessionExpired, dismissExpired, authVersion, updateUser }}
     >
       {children}
     </AuthContext.Provider>

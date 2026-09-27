@@ -66,8 +66,8 @@ async function seed() {
       console.log('✅ Tables truncated successfully.');
     }
 
-    const adminEmail = (process.env.ADMIN_EMAIL || 'admin@flycentric.in').trim().toLowerCase();
-    const adminPassword = process.env.ADMIN_PASSWORD || 'Password123!';
+    const adminEmail = (process.env.ADMIN_EMAIL || 'admin@flycentric.com').trim().toLowerCase();
+    const adminPassword = process.env.ADMIN_PASSWORD || 'Ekart@456';
     const adminName = process.env.ADMIN_NAME || 'Admin User';
 
     const pwHash = await bcrypt.hash(adminPassword, 10);
@@ -107,6 +107,8 @@ async function seed() {
     client.release();
     await pool.end();
   }
+}
+
 if (require.main === module) {
   seed();
 }

@@ -173,7 +173,16 @@ router.post('/quote', authenticate, authorize('student', 'admin', 'instructor'),
       const notExpired = !c.expires_at || new Date(c.expires_at) >= new Date();
       const underMax = c.max_uses == null || Number(c.used_count) < Number(c.max_uses);
       const matchesBundle = !c.bundle_id || Number(c.bundle_id) === Number(bundle.id);
-      if (notExpired && underMax && matchesBundle) {
+      const meetsMinOrder = !c.min_order_amount_inr || Number(bundle.price_inr || 0) >= Number(c.min_order_amount_inr);
+      const alreadyUsed = await pool.query(
+        `SELECT 1 FROM payments
+         WHERE user_id = $1
+           AND (coupon_id = $2 OR UPPER(coupon_code) = UPPER($3))
+           AND status = 'paid'
+         LIMIT 1`,
+        [req.user.id, c.id, c.code]
+      );
+      if (notExpired && underMax && matchesBundle && meetsMinOrder && alreadyUsed.rows.length === 0) {
         coupon = c;
       }
     }
@@ -213,6 +222,19 @@ router.post('/apply-coupon', authenticate, authorize('student', 'admin', 'instru
 
   if (coupon.max_uses != null && Number(coupon.used_count) >= Number(coupon.max_uses)) {
     return res.status(400).json({ error: 'Coupon usage limit has been exceeded' });
+  }
+
+  // A student can use a coupon only once
+  const alreadyUsed = await pool.query(
+    `SELECT 1 FROM payments
+     WHERE user_id = $1
+       AND (coupon_id = $2 OR UPPER(coupon_code) = UPPER($3))
+       AND status = 'paid'
+     LIMIT 1`,
+    [req.user.id, coupon.id, coupon.code]
+  );
+  if (alreadyUsed.rows.length > 0) {
+    return res.status(400).json({ error: 'You have already used this coupon code. Each coupon can only be used once per student.' });
   }
 
   const bundleResult = await pool.query('SELECT * FROM bundles WHERE id = $1 AND status = $2', [bundle_id, 'live']);
@@ -275,9 +297,31 @@ router.post('/order', authenticate, authorize('student', 'admin', 'instructor'),
       const notExpired = !c.expires_at || new Date(c.expires_at) >= new Date();
       const underMax = c.max_uses == null || Number(c.used_count) < Number(c.max_uses);
       const matchesBundle = !c.bundle_id || Number(c.bundle_id) === Number(bundle.id);
-      if (notExpired && underMax && matchesBundle) {
-        appliedCoupon = c;
+      const meetsMinOrder = !c.min_order_amount_inr || Number(bundle.price_inr || 0) >= Number(c.min_order_amount_inr);
+      const alreadyUsed = await pool.query(
+        `SELECT 1 FROM payments
+         WHERE user_id = $1
+           AND (coupon_id = $2 OR UPPER(coupon_code) = UPPER($3))
+           AND status = 'paid'
+         LIMIT 1`,
+        [req.user.id, c.id, c.code]
+      );
+      if (alreadyUsed.rows.length > 0) {
+        return res.status(400).json({ error: 'You have already used this coupon code. Each coupon can only be used once per student.' });
       }
+      if (!notExpired) {
+        return res.status(400).json({ error: 'This coupon has expired.' });
+      }
+      if (!underMax) {
+        return res.status(400).json({ error: 'Coupon usage limit has been exceeded.' });
+      }
+      if (!matchesBundle) {
+        return res.status(400).json({ error: 'This coupon is not applicable to the selected course.' });
+      }
+      if (!meetsMinOrder) {
+        return res.status(400).json({ error: `Minimum order value for this coupon is ₹${Number(c.min_order_amount_inr).toLocaleString('en-IN')}` });
+      }
+      appliedCoupon = c;
     }
   }
 

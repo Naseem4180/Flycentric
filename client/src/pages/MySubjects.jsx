@@ -31,6 +31,7 @@ export default function MySubjects() {
   const [subjects, setSubjects] = useState([]);
   const [chapters, setChapters] = useState([]);
   const [attempts, setAttempts] = useState([]);
+  const [quizzes, setQuizzes] = useState([]);
   const [courses, setCourses] = useState([]);
   const [selectedCourse, setSelectedCourse] = useState('all');
   const [loading, setLoading] = useState(true);
@@ -75,18 +76,21 @@ export default function MySubjects() {
       fetchSubjects,
       api.get('/content/chapters').catch(() => ({ chapters: [] })),
       api.get('/exams/attempts/mine').catch(() => ({ attempts: [] })),
+      api.get('/exams/quizzes').catch(() => ({ quizzes: [] })),
     ])
-      .then(([subData, chapData, attData]) => {
+      .then(([subData, chapData, attData, quizData]) => {
         if (!active) return;
         setSubjects(subData?.subjects || []);
         setChapters(chapData?.chapters || []);
         setAttempts(attData?.attempts || []);
+        setQuizzes(quizData?.quizzes || []);
       })
       .catch(() => {
         if (!active) return;
         setSubjects([]);
         setChapters([]);
         setAttempts([]);
+        setQuizzes([]);
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -101,6 +105,14 @@ export default function MySubjects() {
     chapters.forEach((c) => {
       const key = String(c.subject_id);
       chaptersBySub[key] = (chaptersBySub[key] || 0) + 1;
+    });
+
+    const quizzesBySub = {};
+    quizzes.forEach((q) => {
+      if (q.subject_id) {
+        const key = String(q.subject_id);
+        quizzesBySub[key] = (quizzesBySub[key] || 0) + 1;
+      }
     });
 
     const attemptsBySub = {};
@@ -118,8 +130,8 @@ export default function MySubjects() {
         if (!s.enrolled_at || !a.submitted_at) return true;
         return new Date(a.submitted_at) >= new Date(s.enrolled_at);
       });
-      const totalChapters = chaptersBySub[String(s.id)] || 0;
-      const totalQuizzes = Number(s.quiz_count || 0);
+      const totalChapters = chaptersBySub[String(s.id)] || Number(s.chapter_count || 0);
+      const totalQuizzes = Number(s.quiz_count) > 0 ? Number(s.quiz_count) : (quizzesBySub[String(s.id)] || 0);
 
       const completedAttempts = subAttempts.filter((a) => a.status === 'submitted');
       const uniqueQuizzesTaken = new Set(completedAttempts.map((a) => a.quiz_id)).size;

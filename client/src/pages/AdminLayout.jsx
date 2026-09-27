@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import {
-  LayoutGrid, Users, Database, Layers, PackageSearch, Flag, BarChart3, Settings as SettingsIcon,
+  Home, LayoutGrid, Users, Database, Layers, PackageSearch, Flag, BarChart3, Settings as SettingsIcon,
 } from 'lucide-react';
 import AdminSidebar from '../components/AdminSidebar';
 import AppTopbar from '../components/AppTopbar';
 
 const QUICK_LINKS = [
+  { to: '/', label: 'Home Page', icon: Home },
   { to: '/admin', label: 'Dashboard', icon: LayoutGrid },
   { to: '/admin/users', label: 'Users', icon: Users },
   { to: '/admin/questions', label: 'Question Bank', icon: Database },
@@ -19,7 +20,7 @@ const QUICK_LINKS = [
 
 const MOBILE = 1024;
 
-export default function AdminLayout() {
+export default function AdminLayout({ children }) {
   // Below the tablet breakpoint the sidebar is an off-canvas drawer, so it
   // starts closed there and never covers the page on first paint.
   const [collapsed, setCollapsed] = useState(() => typeof window !== 'undefined' && window.innerWidth <= MOBILE);
@@ -49,9 +50,13 @@ export default function AdminLayout() {
           quickLinks={QUICK_LINKS}
           onNotificationCounts={handleCounts}
         />
-        <div className="admin-main-inner">
-          <Outlet />
-        </div>
+        {children ? (
+          children
+        ) : (
+          <div className="admin-main-inner">
+            <Outlet />
+          </div>
+        )}
       </div>
     </div>
   );

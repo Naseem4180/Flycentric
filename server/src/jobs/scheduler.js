@@ -226,6 +226,47 @@ async function sendCourseExpiryWarnings() {
   }
 }
 
+// ----------------------------------------------------------------------------
+// 15. Scheduled Exam & Milestone Reminders
+// ----------------------------------------------------------------------------
+async function sendExamReminders() {
+  try {
+    const { rows: dueReminders } = await pool.query(
+      `SELECT DISTINCT u.id, u.email, u.name, q.id AS quiz_id, q.title AS quiz_title, s.title AS subject_title
+       FROM course_enrollments ce
+       JOIN users u ON u.id = ce.user_id
+       JOIN bundle_subjects bs ON bs.bundle_id = ce.bundle_id
+       JOIN subjects s ON s.id = bs.subject_id
+       JOIN quizzes q ON q.subject_id = s.id AND q.type = 'exam' AND q.status = 'published' AND q.deleted_at IS NULL
+       WHERE ce.status = 'active'
+         AND u.status = 'active'
+         AND NOT EXISTS (
+           SELECT 1 FROM attempts a WHERE a.quiz_id = q.id AND a.user_id = u.id AND a.status = 'submitted'
+         )
+         AND (u.last_exam_reminder_at IS NULL OR u.last_exam_reminder_at < now() - interval '5 days')
+       LIMIT 25`
+    ).catch(() => ({ rows: [] }));
+
+    for (const item of dueReminders) {
+      await enqueueMail({
+        to: item.email,
+        subject: `⏰ Exam Reminder: Test your knowledge in ${item.quiz_title} — FlyCentric`,
+        template: 'exam-reminder',
+        data: {
+          name: item.name,
+          quizTitle: item.quiz_title,
+          subjectTitle: item.subject_title,
+        },
+      });
+
+      await pool.query('UPDATE users SET last_exam_reminder_at = now() WHERE id = $1', [item.id]).catch(() => {});
+    }
+    if (dueReminders.length) console.log(`[scheduler] sent ${dueReminders.length} exam reminder email(s)`);
+  } catch (err) {
+    console.error('[scheduler] sendExamReminders failed:', err.message);
+  }
+}
+
 async function runAllDailyJobs() {
   await sweepIdleAttempts().catch((e) => console.error('[scheduler] sweepIdleAttempts failed', e));
   await sendProgressReports().catch((e) => console.error('[scheduler] sendProgressReports failed', e));
@@ -233,6 +274,7 @@ async function runAllDailyJobs() {
   await dispatchDueCampaigns().catch((e) => console.error('[scheduler] dispatchDueCampaigns failed', e));
   await sendBirthdayGreetings().catch((e) => console.error('[scheduler] sendBirthdayGreetings failed', e));
   await sendCourseExpiryWarnings().catch((e) => console.error('[scheduler] sendCourseExpiryWarnings failed', e));
+  await sendExamReminders().catch((e) => console.error('[scheduler] sendExamReminders failed', e));
 }
 
 let started = false;
@@ -242,7 +284,7 @@ function start() {
   const CHECK_INTERVAL = 5 * MINUTE;
   runAllDailyJobs();
   setInterval(runAllDailyJobs, CHECK_INTERVAL);
-  console.log('[scheduler] started (idle-submit sweep, progress reports, re-engagement, campaigns, birthdays, expiry-warnings)');
+  console.log('[scheduler] started (idle-submit sweep, progress reports, re-engagement, campaigns, birthdays, expiry-warnings, exam-reminders)');
 }
 
 module.exports = {
@@ -253,4 +295,5 @@ module.exports = {
   dispatchDueCampaigns,
   sendBirthdayGreetings,
   sendCourseExpiryWarnings,
+  sendExamReminders,
 };

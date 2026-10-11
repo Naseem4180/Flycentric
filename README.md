@@ -45,6 +45,10 @@ npm run seed
 npm start
 ```
 
+Before running `npm run seed`, set `ADMIN_EMAIL` and a unique `ADMIN_PASSWORD` of at least 12 characters in `server/.env`. The seeder does not include built-in credentials and will stop before connecting to the database if they are missing.
+
+For Google sign-in, set `GOOGLE_CLIENT_ID` in `server/.env`. The client reads that public ID from `/api/auth/config`; `VITE_GOOGLE_CLIENT_ID` can optionally provide the same ID at build time.
+
 The API service runs on `http://localhost:4000`.
 
 ### 3. Frontend Setup
@@ -56,15 +60,6 @@ npm run dev
 ```
 
 The web application runs on `http://localhost:5173`.
-
-### Default Credentials
-
-| Role | Email | Password |
-|---|---|---|
-| Administrator | `admin@flycentric.in` | `Password123!` |
-| Instructor | `instructor@flycentric.in` | `Password123!` |
-| Student | `student@flycentric.in` | `Password123!` |
-| Institution | `institution@flycentric.in` | `Password123!` |
 
 ## Project Structure
 

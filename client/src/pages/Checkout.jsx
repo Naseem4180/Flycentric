@@ -113,10 +113,18 @@ export default function Checkout() {
 
   async function pay() {
     if (!bundles.length) return;
+    if (gatewayConfig?.paymentMode === 'unavailable' && finalPayable > 0) {
+      setMessage('Online payments are temporarily unavailable. Please try again later.');
+      return;
+    }
     setBusy(true);
     setMessage('');
     try {
       for (const bundle of bundles) {
+        if (bundle.is_free || Number(bundle.price_inr) === 0) {
+          await api.post('/payments/enroll-free', { bundle_id: bundle.id });
+          continue;
+        }
         const orderData = await api.post('/payments/order', {
           bundle_id: bundle.id,
           coupon_code: appliedCoupon ? appliedCoupon.code : null,
@@ -166,13 +174,15 @@ export default function Checkout() {
             });
             rzp.open();
           });
-        } else {
+        } else if (gatewayConfig?.paymentMode === 'demo') {
           // Dev / Demo mode (when no Razorpay keys are configured)
           await api.post('/payments/webhook', {
             razorpay_order_id: orderData.razorpayOrderId,
             razorpay_payment_id: `demo_${Date.now()}`,
             event: 'payment.captured',
           }, { auth: false });
+        } else {
+          throw new Error('Online payments are temporarily unavailable. Please try again later.');
         }
       }
 
@@ -240,9 +250,13 @@ export default function Checkout() {
         <span className="section-kicker">Secure Checkout</span>
         <h1>Complete your enrollment</h1>
 
-        {gatewayConfig && !gatewayConfig.hasRazorpayKeys ? (
+        {gatewayConfig?.paymentMode === 'demo' ? (
           <div style={{ padding: '10px 14px', background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.25)', borderRadius: 10, fontSize: '0.8rem', color: '#b45309', margin: '14px 0 8px 0', lineHeight: 1.5 }}>
             <strong>Demo Mode Active:</strong> Razorpay API keys are not set in <code>server/.env</code>. Clicking Pay will confirm enrollment instantly. To trigger the real Razorpay payment modal, add <code>RAZORPAY_KEY_ID</code> and <code>RAZORPAY_KEY_SECRET</code> in <code>server/.env</code> and restart the server.
+          </div>
+        ) : gatewayConfig?.paymentMode === 'unavailable' ? (
+          <div role="status" style={{ padding: '10px 14px', background: 'rgba(220, 38, 38, 0.06)', border: '1px solid rgba(220, 38, 38, 0.2)', borderRadius: 10, fontSize: '0.8rem', color: '#b91c1c', margin: '14px 0 8px 0', lineHeight: 1.5 }}>
+            Online payments are temporarily unavailable. Please try again later.
           </div>
         ) : gatewayConfig?.hasRazorpayKeys ? (
           <div style={{ padding: '8px 12px', background: 'rgba(99, 102, 241, 0.08)', border: '1px solid rgba(99, 102, 241, 0.2)', borderRadius: 10, fontSize: '0.8rem', color: '#4338ca', margin: '14px 0 8px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -416,7 +430,7 @@ export default function Checkout() {
           <button
             className="btn btn-hero full"
             style={{ marginTop: 14 }}
-            disabled={busy}
+            disabled={busy || (gatewayConfig?.paymentMode === 'unavailable' && finalPayable > 0)}
             onClick={pay}
           >
             {busy ? 'Processing…' : `Pay ₹${finalPayable.toLocaleString('en-IN')}`}

@@ -117,12 +117,6 @@ export default function Login() {
             </button>
           </form>
 
-          <div className="auth-separator">
-            <div className="auth-separator-line" />
-            <span className="auth-separator-text">or continue with</span>
-            <div className="auth-separator-line" />
-          </div>
-
           <GoogleLoginButton
             onSuccess={handleGoogleLogin}
             onError={(err) => setError(err.message)}

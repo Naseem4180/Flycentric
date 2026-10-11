@@ -1,12 +1,7 @@
-// Asynchronous Messaging: offloads transactional emails (verifications,
-// password resets, payment receipts) to a background worker via Redis/BullMQ
-// instead of sending them inline on the request path, with automated retry
-// and a dead-letter queue for persistent failures.
-//
-// Graceful degradation, matching the rest of this codebase's pattern:
-// if REDIS_URL isn't configured, or the bullmq/ioredis packages aren't
-// installed yet, every call falls back to a direct send (if SMTP is configured)
-// or a logged no-op (if SMTP is not yet set up).
+// Asynchronous Messaging & Transactional Email Engine
+// Primary Provider: Resend (https://resend.com/onboarding) via REST API
+// Fallback: SMTP (via Nodemailer)
+// Queue: BullMQ / Redis background worker when available, or synchronous non-blocking execution.
 
 let Queue, Worker, QueueEvents, IORedis;
 try {
@@ -19,123 +14,271 @@ try {
 }
 
 const nodemailer = require('nodemailer');
-const { renderEmail } = require('./emailTemplates');
+const { renderEmail, renderEmailAsync } = require('./emailTemplates');
 const pool = require('../db/pool');
 
-let cachedSmtp = null;
-let lastSmtpFetch = 0;
+let cachedMailConfig = null;
+let lastConfigFetch = 0;
 let transporter = null;
 
-// Dynamic SMTP configuration loader — checks database settings table first,
+// Dynamic email configuration loader — checks database settings table first,
 // falls back to environment variables.
-async function getSmtpConfig() {
+async function getMailConfig() {
   const now = Date.now();
-  if (cachedSmtp && (now - lastSmtpFetch < 15000)) {
-    return cachedSmtp;
+  if (cachedMailConfig && now - lastConfigFetch < 15000) {
+    return cachedMailConfig;
   }
 
   let dbSettings = {};
   try {
     const res = await pool.query(
-      "SELECT key, value FROM settings WHERE key IN ('smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'mail_from', 'smtp_secure')"
+      "SELECT key, value FROM settings WHERE key IN ('resend_api_key', 'resend_from', 'email_provider', 'smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'mail_from', 'smtp_secure', 'admin_notification_email')"
     );
     for (const r of res.rows) {
       let val = r.value;
-      if (typeof val === 'string' && (val.startsWith('"') && val.endsWith('"'))) {
-        try { val = JSON.parse(val); } catch (e) {}
+      if (typeof val === 'string' && val.startsWith('"') && val.endsWith('"')) {
+        try {
+          val = JSON.parse(val);
+        } catch (_) {}
       }
       dbSettings[r.key] = val;
     }
-  } catch (err) {
+  } catch (_) {
     // If DB is temporarily unavailable, fallback to process.env
   }
 
-  const host = dbSettings.smtp_host || process.env.SMTP_HOST;
-  const port = Number(dbSettings.smtp_port || process.env.SMTP_PORT || 587);
-  const user = dbSettings.smtp_user || process.env.SMTP_USER;
-  const pass = dbSettings.smtp_pass || process.env.SMTP_PASS;
-  const from = dbSettings.mail_from || process.env.MAIL_FROM || 'FlyCentric <support@flycentric.in>';
-  const secure = dbSettings.smtp_secure !== undefined ? Boolean(dbSettings.smtp_secure) : (port === 465);
+  const resendApiKey = dbSettings.resend_api_key || process.env.RESEND_API_KEY || '';
+  const resendFrom =
+    dbSettings.resend_from ||
+    process.env.RESEND_FROM ||
+    dbSettings.mail_from ||
+    process.env.MAIL_FROM ||
+    'FlyCentric <onboarding@resend.dev>';
 
-  cachedSmtp = {
-    host,
-    port,
-    user,
-    pass,
-    from,
-    secure,
-    isConfigured: !!(host && user && pass),
+  const smtpHost = dbSettings.smtp_host || process.env.SMTP_HOST || '';
+  const smtpPort = Number(dbSettings.smtp_port || process.env.SMTP_PORT || 587);
+  const smtpUser = dbSettings.smtp_user || process.env.SMTP_USER || '';
+  const smtpPass = dbSettings.smtp_pass || process.env.SMTP_PASS || '';
+  const smtpFrom = dbSettings.mail_from || process.env.MAIL_FROM || 'FlyCentric <support@flycentric.in>';
+  const smtpSecure = dbSettings.smtp_secure !== undefined ? Boolean(dbSettings.smtp_secure) : smtpPort === 465;
+
+  const isResendConfigured = Boolean(resendApiKey);
+  const isSmtpConfigured = Boolean(smtpHost && smtpUser && smtpPass);
+
+  // Preferred provider: defaults to 'resend' if key is present
+  const configuredProvider = dbSettings.email_provider;
+  let activeProvider = 'none';
+  if (configuredProvider === 'smtp' && isSmtpConfigured) {
+    activeProvider = 'smtp';
+  } else if (isResendConfigured) {
+    activeProvider = 'resend';
+  } else if (isSmtpConfigured) {
+    activeProvider = 'smtp';
+  }
+
+  cachedMailConfig = {
+    provider: activeProvider,
+    resendApiKey,
+    resendFrom,
+    isResendConfigured,
+    smtp: {
+      host: smtpHost,
+      port: smtpPort,
+      user: smtpUser,
+      pass: smtpPass,
+      from: smtpFrom,
+      secure: smtpSecure,
+      isConfigured: isSmtpConfigured,
+    },
+    adminNotificationEmail: dbSettings.admin_notification_email || process.env.ADMIN_NOTIFICATION_EMAIL || '',
+    isConfigured: isResendConfigured || isSmtpConfigured,
   };
-  lastSmtpFetch = now;
-  return cachedSmtp;
+
+  lastConfigFetch = now;
+  return cachedMailConfig;
 }
 
 function clearSmtpCache() {
-  cachedSmtp = null;
-  lastSmtpFetch = 0;
+  cachedMailConfig = null;
+  lastConfigFetch = 0;
   transporter = null;
 }
 
 async function emailProviderAvailable() {
-  const cfg = await getSmtpConfig();
+  const cfg = await getMailConfig();
   return cfg.isConfigured;
 }
 
+// Nodemailer transporter initialization
 async function getTransporter() {
-  const cfg = await getSmtpConfig();
-  if (!cfg.isConfigured) return null;
+  const cfg = await getMailConfig();
+  if (!cfg.smtp.isConfigured) return null;
   if (!transporter) {
     transporter = nodemailer.createTransport({
-      host: cfg.host,
-      port: cfg.port,
-      secure: cfg.secure,
-      auth: { user: cfg.user, pass: cfg.pass },
+      host: cfg.smtp.host,
+      port: cfg.smtp.port,
+      secure: cfg.smtp.secure,
+      auth: { user: cfg.smtp.user, pass: cfg.smtp.pass },
       tls: {
         rejectUnauthorized: false,
       },
     });
   }
-  return { mailer: transporter, from: cfg.from };
+  return { mailer: transporter, from: cfg.smtp.from };
 }
 
-// Deliver actual email with template and optional attachments
-async function deliver({ to, subject, template, data, attachments }) {
-  const { html, text } = renderEmail(template, data);
-  const tInfo = await getTransporter();
-  if (!tInfo) {
-    console.log(`[mailQueue] (no SMTP credentials configured — logging instead of sending) "${subject}" to ${to} (template=${template})`, data);
-    return { sent: true, to, subject, delivered: false, reason: 'smtp_not_configured' };
+// Resend REST API Dispatcher (https://resend.com/onboarding)
+async function sendViaResend({ apiKey, from, to, subject, html, text, attachments }) {
+  const recipients = Array.isArray(to) ? to : [to];
+
+  let resendAttachments;
+  if (attachments && Array.isArray(attachments) && attachments.length > 0) {
+    resendAttachments = attachments.map((att) => {
+      let content = att.content;
+      if (content && Buffer.isBuffer(content)) {
+        content = content.toString('base64');
+      } else if (typeof content === 'string') {
+        content = Buffer.from(content).toString('base64');
+      }
+      return {
+        filename: att.filename,
+        content,
+        path: att.path,
+      };
+    });
   }
 
-  const mailOptions = {
-    from: tInfo.from,
-    to,
+  const payload = {
+    from,
+    to: recipients,
     subject,
     html,
     text,
   };
-
-  if (attachments && Array.isArray(attachments) && attachments.length > 0) {
-    mailOptions.attachments = attachments;
+  if (resendAttachments && resendAttachments.length > 0) {
+    payload.attachments = resendAttachments;
   }
 
-  const info = await tInfo.mailer.sendMail(mailOptions);
-  console.log(`[mailQueue] sent "${subject}" to ${to} (template=${template}) — ${info.messageId}`);
-  return { sent: true, to, subject, delivered: true, messageId: info.messageId };
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    const errorMsg = data.message || data.error?.message || `HTTP ${res.status} ${res.statusText}`;
+    throw new Error(`[Resend Error] ${errorMsg}`);
+  }
+
+  return { delivered: true, id: data.id };
 }
 
-// Test SMTP connection and dispatch verification test email
-async function testSmtpConnection({ to, host, port, user, pass, from, secure }) {
-  const activeCfg = await getSmtpConfig();
-  const testHost = host || activeCfg.host;
-  const testPort = Number(port || activeCfg.port || 587);
-  const testUser = user || activeCfg.user;
-  const testPass = pass || activeCfg.pass;
-  const testFrom = from || activeCfg.from || 'FlyCentric <support@flycentric.in>';
-  const testSecure = secure !== undefined ? Boolean(secure) : (testPort === 465);
+// Deliver actual email with template and optional attachments
+async function deliver({ to, subject, template, data, attachments }) {
+  const rendered = await renderEmailAsync(template, data);
+  if (rendered.skipped) {
+    console.log(`[mailQueue] template ${template} is disabled by admin, skipping delivery to ${to}`);
+    return { sent: false, skipped: true, reason: 'template_disabled' };
+  }
+  const html = rendered.html;
+  const text = rendered.text;
+  const finalSubject = subject || rendered.subject;
+  const cfg = await getMailConfig();
+
+  // 1. Send via Resend (Primary)
+  if (cfg.provider === 'resend' || (cfg.isResendConfigured && cfg.provider !== 'smtp')) {
+    try {
+      const resendResult = await sendViaResend({
+        apiKey: cfg.resendApiKey,
+        from: cfg.resendFrom,
+        to,
+        subject: finalSubject,
+        html,
+        text,
+        attachments,
+      });
+      console.log(`[mailQueue] sent via Resend "${finalSubject}" to ${to} (template=${template}) — ID: ${resendResult.id}`);
+      return { sent: true, to, subject: finalSubject, delivered: true, provider: 'resend', id: resendResult.id };
+    } catch (resendErr) {
+      console.error(`[mailQueue] Resend delivery error for ${to}:`, resendErr.message);
+      // Fallback to SMTP if configured
+      if (!cfg.smtp.isConfigured) {
+        throw resendErr;
+      }
+      console.log('[mailQueue] attempting SMTP fallback...');
+    }
+  }
+
+  // 2. Send via SMTP (Fallback or Explicit)
+  if (cfg.smtp.isConfigured) {
+    const tInfo = await getTransporter();
+    if (tInfo) {
+      const mailOptions = {
+        from: tInfo.from,
+        to,
+        subject: finalSubject,
+        html,
+        text,
+      };
+      if (attachments && Array.isArray(attachments) && attachments.length > 0) {
+        mailOptions.attachments = attachments;
+      }
+      const info = await tInfo.mailer.sendMail(mailOptions);
+      console.log(`[mailQueue] sent via SMTP "${finalSubject}" to ${to} (template=${template}) — ${info.messageId}`);
+      return { sent: true, to, subject: finalSubject, delivered: true, provider: 'smtp', messageId: info.messageId };
+    }
+  }
+
+  // 3. Neither configured: log for development/testing
+  console.log(
+    `[mailQueue] (no Resend API key or SMTP configured — logging instead) "${finalSubject}" to ${to} (template=${template})`
+  );
+  return { sent: true, to, subject: finalSubject, delivered: false, reason: 'provider_not_configured' };
+}
+
+// Test email connection (Supports testing Resend or SMTP)
+async function testEmailConnection({ to, provider, resendApiKey, resendFrom, host, port, user, pass, from, secure }) {
+  const activeCfg = await getMailConfig();
+  const targetProvider = provider || (resendApiKey || activeCfg.isResendConfigured ? 'resend' : 'smtp');
+
+  if (targetProvider === 'resend') {
+    const key = resendApiKey || activeCfg.resendApiKey;
+    const sender = resendFrom || activeCfg.resendFrom || 'FlyCentric <onboarding@resend.dev>';
+    if (!key) {
+      throw new Error('Resend API Key is required. Obtain your API key at https://resend.com/onboarding');
+    }
+
+    const { html, text } = renderEmail('test-email', {
+      provider: 'Resend API (Official)',
+      from: sender,
+    });
+
+    const result = await sendViaResend({
+      apiKey: key,
+      from: sender,
+      to,
+      subject: 'FlyCentric Resend Integration Test 🚀',
+      html,
+      text,
+    });
+    return { verified: true, provider: 'resend', id: result.id, message: `Email delivered successfully via Resend API (ID: ${result.id})` };
+  }
+
+  // Fallback: SMTP testing
+  const testHost = host || activeCfg.smtp.host;
+  const testPort = Number(port || activeCfg.smtp.port || 587);
+  const testUser = user || activeCfg.smtp.user;
+  const testPass = pass || activeCfg.smtp.pass;
+  const testFrom = from || activeCfg.smtp.from || 'FlyCentric <support@flycentric.in>';
+  const testSecure = secure !== undefined ? Boolean(secure) : testPort === 465;
 
   if (!testHost || !testUser || !testPass) {
-    throw new Error('Incomplete SMTP configuration. Host, User/Email, and Password/App-Password are required.');
+    throw new Error('Incomplete SMTP configuration. Host, User/Email, and Password are required.');
   }
 
   const testMailer = nodemailer.createTransport({
@@ -146,12 +289,10 @@ async function testSmtpConnection({ to, host, port, user, pass, from, secure }) 
     tls: { rejectUnauthorized: false },
   });
 
-  // Verify connection configuration
   await testMailer.verify();
 
-  // Send actual test email if `to` is provided
   if (to) {
-    const { html, text } = renderEmail('test-email', { host: testHost, port: testPort });
+    const { html, text } = renderEmail('test-email', { provider: 'Nodemailer SMTP', host: testHost, port: testPort, from: testFrom });
     const info = await testMailer.sendMail({
       from: testFrom,
       to,
@@ -159,10 +300,45 @@ async function testSmtpConnection({ to, host, port, user, pass, from, secure }) 
       html,
       text,
     });
-    return { verified: true, messageId: info.messageId };
+    return { verified: true, provider: 'smtp', messageId: info.messageId, message: `Test email dispatched to ${to} via SMTP` };
   }
 
-  return { verified: true };
+  return { verified: true, provider: 'smtp' };
+}
+
+// Platform Admin Notifications
+async function notifyAdmins({ eventType, subject, title, details, actionUrl, actionLabel }) {
+  try {
+    const adminRows = await pool.query(
+      "SELECT email FROM users WHERE role = 'admin' AND status = 'active'"
+    );
+    const emails = adminRows.rows.map((r) => r.email).filter(Boolean);
+
+    const cfg = await getMailConfig();
+    if (cfg.adminNotificationEmail) {
+      emails.push(cfg.adminNotificationEmail);
+    }
+
+    const uniqueEmails = [...new Set(emails)];
+    if (!uniqueEmails.length) return;
+
+    for (const email of uniqueEmails) {
+      await enqueueMail({
+        to: email,
+        subject: `[Admin Alert] ${subject}`,
+        template: 'admin-notification',
+        data: {
+          eventType: eventType || 'Platform Event',
+          title: title || subject,
+          details: details || {},
+          actionUrl: actionUrl || `${process.env.CLIENT_URL || 'http://localhost:5173'}/admin`,
+          actionLabel: actionLabel || 'Open Admin Panel',
+        },
+      });
+    }
+  } catch (err) {
+    console.error('[mailQueue] notifyAdmins error:', err.message);
+  }
 }
 
 const REDIS_URL = process.env.REDIS_URL;
@@ -211,12 +387,16 @@ async function enqueueMail({ to, subject, template, data, attachments }) {
     }
   }
   try {
-    await mailQueue.add('send-mail', { to, subject, template, data, attachments }, {
-      attempts: 5,
-      backoff: { type: 'exponential', delay: 2000 },
-      removeOnComplete: 1000,
-      removeOnFail: false,
-    });
+    await mailQueue.add(
+      'send-mail',
+      { to, subject, template, data, attachments },
+      {
+        attempts: 5,
+        backoff: { type: 'exponential', delay: 2000 },
+        removeOnComplete: 1000,
+        removeOnFail: false,
+      }
+    );
     return { queued: true };
   } catch (err) {
     console.error('[mailQueue] enqueue failed:', err.message);
@@ -232,10 +412,14 @@ async function getDeadLetterJobs(limit = 50) {
 
 module.exports = {
   enqueueMail,
+  deliver,
+  notifyAdmins,
   getDeadLetterJobs,
   available,
   emailProviderAvailable,
-  getSmtpConfig,
+  getMailConfig,
+  getSmtpConfig: getMailConfig, // Backwards compatibility
   clearSmtpCache,
-  testSmtpConnection,
+  testEmailConnection,
+  testSmtpConnection: testEmailConnection, // Backwards compatibility
 };

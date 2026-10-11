@@ -4,7 +4,7 @@ const pool = require('../db/pool');
 const { authenticate, authorize } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { grantBundleAccess, revokeBundleAccess } = require('../services/entitlements');
-const { enqueueMail } = require('../utils/mailQueue');
+const { enqueueMail, notifyAdmins } = require('../utils/mailQueue');
 const { generateReceiptHtml } = require('../utils/receiptGenerator');
 
 const router = express.Router();
@@ -73,6 +73,26 @@ async function sendPaymentReceiptEmail(paymentId) {
       ],
     });
     console.log(`[payments] Tax Invoice email successfully enqueued for payment #${paymentId} to ${r.student_email}`);
+
+    // Notify administrators about verified payment
+    notifyAdmins({
+      eventType: 'Payment Confirmed',
+      subject: `Payment Received: ₹${Number(r.amount_inr).toLocaleString('en-IN')} from ${r.student_name}`,
+      title: 'Course Enrollment Payment Verified',
+      details: {
+        'Cadet': `${r.student_name} (${r.student_email})`,
+        'Course Bundle': r.bundle_title || 'Course Access',
+        'Amount Paid': `₹${Number(r.amount_inr).toLocaleString('en-IN')}`,
+        'Validity': validityStr,
+        'Order ID': r.razorpay_order_id,
+        'Invoice Ref': `#FC-REC-${r.id}`,
+        'Verified At': new Date().toLocaleString('en-IN'),
+      },
+      actionUrl: `${process.env.CLIENT_URL || 'http://localhost:5173'}/admin/purchases`,
+      actionLabel: 'View in Admin Purchases',
+    }).catch((admErr) => {
+      console.warn('[payments] Failed to notify admins of payment:', admErr.message);
+    });
   } catch (err) {
     console.error(`[payments] Failed to send receipt email for payment #${paymentId}:`, err.message);
   }
@@ -138,6 +158,11 @@ function getIsRazorpayConfigured() {
   );
 }
 
+function signatureMatches(expected, provided) {
+  if (typeof provided !== 'string' || !/^[a-f\d]{64}$/i.test(provided)) return false;
+  return crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(provided, 'hex'));
+}
+
 // NOTE: This runs against Razorpay's real API/webhooks once RAZORPAY_KEY_ID /
 // RAZORPAY_KEY_SECRET / RAZORPAY_WEBHOOK_SECRET are set as env vars for a live
 // deployment. Without live keys, /order creates a local "order" record and
@@ -146,6 +171,7 @@ router.get('/config', async (req, res) => {
   const configured = getIsRazorpayConfigured();
   res.json({
     hasRazorpayKeys: configured,
+    paymentMode: configured ? 'razorpay' : process.env.NODE_ENV === 'development' ? 'demo' : 'unavailable',
     keyId: configured ? process.env.RAZORPAY_KEY_ID : null,
     validityOptions: VALIDITY_OPTIONS,
   });
@@ -334,6 +360,10 @@ router.post('/order', authenticate, authorize('student', 'admin', 'instructor'),
   let razorpayOrderId = null;
   const isRazorpayConfigured = getIsRazorpayConfigured();
 
+  if (finalAmount > 0 && !isRazorpayConfigured && process.env.NODE_ENV !== 'development') {
+    return res.status(503).json({ error: 'Online payments are temporarily unavailable. Please try again later.' });
+  }
+
   if (isRazorpayConfigured && finalAmount > 0) {
     try {
       const authHeader = 'Basic ' + Buffer.from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString('base64');
@@ -412,13 +442,16 @@ router.post('/verify', authenticate, authorize('student', 'admin', 'instructor')
     return res.json({ ok: true, status: 'paid', message: 'Payment already verified' });
   }
 
-  // Verify HMAC signature if Razorpay Secret is set
   const secret = process.env.RAZORPAY_KEY_SECRET;
-  if (secret && razorpay_signature) {
-    const expected = crypto.createHmac('sha256', secret).update(`${razorpay_order_id}|${razorpay_payment_id}`).digest('hex');
-    if (expected !== razorpay_signature) {
-      return res.status(400).json({ error: 'Invalid payment signature' });
-    }
+  if (!getIsRazorpayConfigured() || !secret) {
+    return res.status(503).json({ error: 'Payment verification is unavailable.' });
+  }
+  if (!razorpay_signature) {
+    return res.status(400).json({ error: 'razorpay_signature required' });
+  }
+  const expected = crypto.createHmac('sha256', secret).update(`${razorpay_order_id}|${razorpay_payment_id}`).digest('hex');
+  if (!signatureMatches(expected, razorpay_signature)) {
+    return res.status(400).json({ error: 'Invalid payment signature' });
   }
 
   const client = await pool.connect();
@@ -495,20 +528,30 @@ router.post('/enroll-free', authenticate, authorize('student', 'admin', 'instruc
 
 // Server-side payment webhook handler with HMAC-SHA256 signature verification.
 router.post(['/webhook', '/razorpay/webhook'], async (req, res) => {
-  const isDemo = String(req.body?.razorpay_payment_id || '').startsWith('demo_') && !getIsRazorpayConfigured();
+  const event = req.body?.event;
+  const paymentEntity = req.body?.payload?.payment?.entity;
+  const orderEntity = req.body?.payload?.order?.entity;
+  const razorpay_order_id = req.body?.razorpay_order_id || paymentEntity?.order_id || orderEntity?.id;
+  const razorpay_payment_id = req.body?.razorpay_payment_id || paymentEntity?.id || null;
+  const razorpay_signature = req.body?.razorpay_signature || null;
+  const isDevelopment = process.env.NODE_ENV === 'development';
+  const isDemo = isDevelopment && String(razorpay_payment_id || '').startsWith('demo_') && !getIsRazorpayConfigured();
   const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+  if (!isDevelopment && !webhookSecret) {
+    return res.status(503).json({ error: 'Payment webhook verification is not configured.' });
+  }
+  if (!isDevelopment && String(razorpay_payment_id || '').startsWith('demo_')) {
+    return res.status(400).json({ error: 'Demo payments are not accepted in production.' });
+  }
   if (webhookSecret && !isDemo) {
     const signature = req.headers['x-razorpay-signature'];
     const expected = crypto.createHmac('sha256', webhookSecret).update(req.rawBody || Buffer.from(JSON.stringify(req.body))).digest('hex');
-    const provided = Buffer.from(String(signature || ''), 'utf8');
-    const expectedBuf = Buffer.from(expected, 'utf8');
-    const valid = signature && provided.length === expectedBuf.length && crypto.timingSafeEqual(provided, expectedBuf);
-    if (!valid) return res.status(400).json({ error: 'Invalid webhook signature' });
-  } else if (process.env.NODE_ENV === 'production' && !isDemo) {
-    console.warn('WARNING: RAZORPAY_WEBHOOK_SECRET is not set — payment webhook signature is NOT being verified in production.');
+    if (!signatureMatches(expected, signature)) return res.status(400).json({ error: 'Invalid webhook signature' });
   }
 
-  const { razorpay_order_id, razorpay_payment_id, razorpay_signature, event } = req.body;
+  if (!['payment.failed', 'payment.captured', 'order.paid'].includes(event)) {
+    return res.status(400).json({ error: 'Unsupported payment event' });
+  }
   if (!razorpay_order_id) return res.status(400).json({ error: 'razorpay_order_id required' });
 
   const paymentResult = await pool.query('SELECT * FROM payments WHERE razorpay_order_id = $1', [razorpay_order_id]);
@@ -734,6 +777,20 @@ router.post('/:id/refund', authenticate, authorize('admin'), async (req, res) =>
     req, action: 'payment.refund', entityType: 'payment', entityId: payment.id,
     meta: { userId: payment.user_id, bundleId: payment.bundle_id, amountInr: payment.amount_inr },
   });
+  notifyAdmins({
+    eventType: 'Payment Refunded',
+    subject: `Refund Processed: Payment #${payment.id} (₹${payment.amount_inr})`,
+    title: 'Payment Refund Recorded',
+    details: {
+      'Payment ID': `#FC-REC-${payment.id}`,
+      'Amount Refunded': `₹${payment.amount_inr}`,
+      'User ID': payment.user_id,
+      'Bundle ID': payment.bundle_id,
+      'Refunded At': new Date().toLocaleString('en-IN'),
+    },
+    actionUrl: `${process.env.CLIENT_URL || 'http://localhost:5173'}/admin/purchases`,
+    actionLabel: 'View in Purchases',
+  }).catch(() => {});
   res.json({ payment, refundedBy: req.user.id, refundedAt: new Date().toISOString() });
 });
 

@@ -6,7 +6,7 @@ import {
   Flag, MessageCircle, Bookmark, BarChart3, Trash2, Settings as SettingsIcon,
   ScrollText, Radio, Bell, Mail, FolderKanban, GraduationCap, CheckSquare,
   FileText, Award, ShoppingBag, Receipt, RotateCcw, Tag, UserCheck,
-  Activity, Shield, ChevronDown, ChevronRight, CreditCard, Megaphone
+  Activity, Shield, ChevronDown, ChevronRight, CreditCard, Megaphone, MailCheck
 } from 'lucide-react';
 
 const NAV_STRUCTURE = [
@@ -92,6 +92,7 @@ const NAV_STRUCTURE = [
       { to: '/admin/student-analytics', icon: Activity, label: 'Student Analytics' },
       { to: '/admin/notifications', icon: Bell, label: 'Notifications' },
       { to: '/admin/email-campaigns', icon: Mail, label: 'Email Campaigns' },
+      { to: '/admin/email-templates', icon: MailCheck, label: 'Email Templates' },
       { to: '/admin/advertisements', icon: Megaphone, label: 'Advertisements' },
     ],
   },

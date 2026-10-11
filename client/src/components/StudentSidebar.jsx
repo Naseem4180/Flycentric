@@ -21,6 +21,7 @@ const STUDENT_NAV = [
   {
     type: 'link',
     to: '/dashboard',
+    end: true,
     icon: LayoutGrid,
     label: 'Dashboard',
     accent: '#0ea5e9',

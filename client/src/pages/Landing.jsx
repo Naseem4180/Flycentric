@@ -22,20 +22,14 @@ const FALLBACK_CMS = {
     enabled: true,
     title: 'Latest Announcements & Flight Updates',
     subtitle: 'Important DGCA regulatory updates, new batch schedules, and exam alerts.',
-    items: [
-      { id: '1', title: 'New DGCA 2026 Batch Enrolments Open', tag: 'Admissions', date: 'Sept 2026', text: 'Admissions are now open for upcoming DGCA Ground Classes and Comprehensive CBT Mock Series.', link: '#courses', link_text: 'View Courses' },
-      { id: '2', title: 'Updated Air Regulations Question Bank Added', tag: 'Curriculum', date: 'Recent', text: 'Over 1,000+ new questions and explanations updated strictly to latest DGCA pattern.', link: '#courses', link_text: 'Explore Bank' },
-    ],
+    items: [],
   },
   coupons_section: {
     enabled: true,
     title: 'Exclusive Student Discount Coupons',
     subtitle: 'Use these limited-time promotional discount codes at checkout to unlock savings on your pilot training bundles.',
-    banner_text: '🎉 Special Festive & Cadet Pilot Discount Offer! Use code FLY50 for instant savings.',
-    items: [
-      { id: '1', code: 'FLY50', discount: '50% OFF', description: 'Applicable across DGCA full ground school bundles.', expires: 'Limited Time' },
-      { id: '2', code: 'CADET10', discount: '10% OFF', description: 'Instant discount on all chapter mock test packs.', expires: 'Active' },
-    ],
+    banner_text: '',
+    items: [],
   },
   features_section: {
     title: 'The smartest way to prepare',
@@ -71,6 +65,20 @@ const FALLBACK_CMS = {
     ],
   },
 };
+
+function isBundledSampleAnnouncement(item) {
+  return (item.title === 'New DGCA 2026 Batch Enrolments Open'
+      && item.text === 'Admissions are now open for upcoming DGCA Ground Classes and Comprehensive CBT Mock Series.')
+    || (item.title === 'Updated Air Regulations Question Bank Added'
+      && item.text === 'Over 1,000+ new questions and explanations updated strictly to latest DGCA pattern.');
+}
+
+function isBundledSampleCoupon(item) {
+  return (item.code === 'FLY50' && item.discount === '50% OFF'
+      && item.description === 'Applicable across DGCA full ground school bundles.' && item.expires === 'Limited Time')
+    || (item.code === 'CADET10' && item.discount === '10% OFF'
+      && item.description === 'Instant discount on all chapter mock test packs.' && item.expires === 'Active');
+}
 
 export default function Landing({ coursesOnly = false }) {
   const [bundles, setBundles] = useState([]);
@@ -150,8 +158,17 @@ export default function Landing({ coursesOnly = false }) {
   };
 
   const hero = cms.hero || FALLBACK_CMS.hero;
-  const announcementsSec = cms.announcements_section || FALLBACK_CMS.announcements_section;
-  const couponsSec = cms.coupons_section || FALLBACK_CMS.coupons_section;
+  const announcementContent = cms.announcements_section || FALLBACK_CMS.announcements_section;
+  const announcementsSec = {
+    ...announcementContent,
+    items: (announcementContent.items || []).filter((item) => !isBundledSampleAnnouncement(item)),
+  };
+  const couponContent = cms.coupons_section || FALLBACK_CMS.coupons_section;
+  const couponsSec = {
+    ...couponContent,
+    banner_text: couponContent.banner_text?.includes('Use code FLY50') ? '' : couponContent.banner_text,
+    items: (couponContent.items || []).filter((item) => !isBundledSampleCoupon(item)),
+  };
   const features = cms.features_section || FALLBACK_CMS.features_section;
   const coursesSec = cms.courses_section || FALLBACK_CMS.courses_section;
   const cta = cms.cta_banner || FALLBACK_CMS.cta_banner;

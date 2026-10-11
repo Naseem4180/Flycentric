@@ -31,6 +31,20 @@ export function createInitialExamState({ questions = [], quizType = 'exam', exis
   };
 }
 
+export function createSerializedSaveQueue() {
+  let pending = Promise.resolve();
+  return {
+    enqueue(save) {
+      const result = pending.then(save);
+      pending = result.then(() => undefined, () => undefined);
+      return result;
+    },
+    flush() {
+      return pending;
+    },
+  };
+}
+
 export function handleOptionSelect(state, { questionId, key, isExam }) {
   if (isExam && state.confirmedMap[questionId]) {
     // Locked confirmed answer in exam mode

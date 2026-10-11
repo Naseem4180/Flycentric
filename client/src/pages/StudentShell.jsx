@@ -1,8 +1,23 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import {
+  Home, LayoutGrid, BookOpen, ListChecks, Award, BarChart3, Brain, Compass, HelpCircle,
+} from 'lucide-react';
 import StudentSidebar from '../components/StudentSidebar';
 import AppTopbar from '../components/AppTopbar';
 import NotificationBar from '../components/NotificationBar';
+
+const STUDENT_QUICK_LINKS = [
+  { to: '/home', label: 'Home Page', icon: Home },
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutGrid },
+  { to: '/my-subjects', label: 'My Subjects', icon: BookOpen },
+  { to: '/quizzes', label: 'Practice Quizzes', icon: ListChecks },
+  { to: '/my-results', label: 'Exam Results', icon: Award },
+  { to: '/analytics', label: 'Analytics', icon: BarChart3 },
+  { to: '/memory-bank', label: 'Memory Box', icon: Brain },
+  { to: '/explore', label: 'Explore Bundles', icon: Compass },
+  { to: '/support', label: 'Support & Help', icon: HelpCircle },
+];
 
 // Below this width the sidebar is an off-canvas drawer rather than a column.
 // It must match the breakpoint in theme.css (.admin-sidebar @1024px) — when
@@ -42,7 +57,7 @@ export default function StudentShell({ children }) {
       <StudentSidebar collapsed={collapsed} onNavigate={closeOnMobile} onExpand={() => setCollapsed(false)} />
       <div className="admin-sidebar-backdrop" onClick={() => setCollapsed(true)} aria-hidden="true" />
       <div className="admin-main">
-        <AppTopbar onToggleSidebar={() => setCollapsed((c) => !c)} />
+        <AppTopbar onToggleSidebar={() => setCollapsed((c) => !c)} quickLinks={STUDENT_QUICK_LINKS} />
         <NotificationBar />
         {children}
       </div>

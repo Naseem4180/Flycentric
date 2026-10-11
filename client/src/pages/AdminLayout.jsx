@@ -7,7 +7,7 @@ import AdminSidebar from '../components/AdminSidebar';
 import AppTopbar from '../components/AppTopbar';
 
 const QUICK_LINKS = [
-  { to: '/', label: 'Home Page', icon: Home },
+  { to: '/home', label: 'Home Page', icon: Home },
   { to: '/admin', label: 'Dashboard', icon: LayoutGrid },
   { to: '/admin/users', label: 'Users', icon: Users },
   { to: '/admin/questions', label: 'Question Bank', icon: Database },

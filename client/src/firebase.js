@@ -3,6 +3,8 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -90,6 +92,111 @@ export async function loginWithGoogleFirebase() {
     avatar_url: user.photoURL || null,
     idToken,
   };
+}
+
+export async function loginWithGoogleRedirect() {
+  const auth = getFirebaseAuth();
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  await signInWithRedirect(auth, provider);
+}
+
+export async function checkGoogleRedirectResult() {
+  try {
+    const auth = getFirebaseAuth();
+    const result = await getRedirectResult(auth);
+    if (!result || !result.user) return null;
+    const user = result.user;
+    const idToken = await user.getIdToken();
+
+    return {
+      email: user.email,
+      name: user.displayName || user.email?.split('@')[0] || 'Google User',
+      googleId: user.uid,
+      avatar_url: user.photoURL || null,
+      idToken,
+    };
+  } catch (err) {
+    console.error('[FirebaseGoogleRedirectResult]', err);
+    throw err;
+  }
+}
+
+export function formatAuthError(err) {
+  if (!err) return '';
+  const code = typeof err === 'object' && err.code ? err.code : '';
+  const rawMsg = typeof err === 'object' && err.message ? err.message : String(err);
+
+  // User cancelled or closed popup voluntarily
+  if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+    return '';
+  }
+
+  // Popup blocked by browser
+  if (code === 'auth/popup-blocked') {
+    return 'Google sign-in popup was blocked by your browser. Please allow popups or use the direct sign-in button below.';
+  }
+
+  // Unauthorized domain in Firebase
+  if (code === 'auth/unauthorized-domain') {
+    return 'This domain is not authorized for Google Sign-In in Firebase. Please add this domain to Authorized Domains in your Firebase Console.';
+  }
+
+  // Network error
+  if (code === 'auth/network-request-failed') {
+    return 'Network connection error. Please check your internet connection and try again.';
+  }
+
+  // Account issues
+  if (code === 'auth/user-disabled') {
+    return 'This account has been disabled. Please contact support.';
+  }
+
+  if (
+    code === 'auth/user-not-found' ||
+    code === 'auth/wrong-password' ||
+    code === 'auth/invalid-credential' ||
+    code === 'auth/invalid-login-credentials'
+  ) {
+    return 'Invalid email or password. Please verify your credentials and try again.';
+  }
+
+  if (code === 'auth/email-already-in-use') {
+    return 'An account with this email address already exists. Please sign in instead.';
+  }
+
+  if (code === 'auth/weak-password') {
+    return 'Password is too weak. Please use at least 8 characters.';
+  }
+
+  if (code === 'auth/too-many-requests') {
+    return 'Too many sign-in attempts. Please wait a moment and try again.';
+  }
+
+  if (code === 'auth/operation-not-allowed') {
+    return 'Google sign-in is currently disabled. Please contact support.';
+  }
+
+  if (code === 'auth/invalid-api-key') {
+    return 'Firebase configuration error: Invalid API key.';
+  }
+
+  // Strip raw "Firebase: Error (auth/...)" wrapper if present
+  const match = rawMsg.match(/Firebase:\s*Error\s*\(([^)]+)\)\.?/i);
+  if (match) {
+    const matchedCode = match[1];
+    if (matchedCode === 'auth/popup-blocked') {
+      return 'Google sign-in popup was blocked by your browser. Please allow popups or use the direct sign-in button below.';
+    }
+    const cleanWord = matchedCode
+      .replace(/^auth\//, '')
+      .split('-')
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+    return `Authentication error: ${cleanWord}.`;
+  }
+
+  return rawMsg;
 }
 
 export async function registerWithFirebaseEmail(email, password) {

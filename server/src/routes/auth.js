@@ -55,6 +55,11 @@ router.post('/send-registration-otp', authLimiter, async (req, res) => {
   }
 
   try {
+    const isEmailConfigured = await emailProviderAvailable();
+    if (process.env.NODE_ENV !== 'development' && !isEmailConfigured) {
+      return res.status(503).json({ error: 'Verification email is temporarily unavailable. Please try again later.' });
+    }
+
     // 1. Check if email is already in use
     const existing = await pool.query('SELECT id FROM users WHERE email = $1', [cleanEmail]);
     if (existing.rows.length) {
@@ -91,13 +96,11 @@ router.post('/send-registration-otp', authLimiter, async (req, res) => {
       console.warn('[auth] Failed to enqueue verification email:', mailErr.message);
     });
 
-    const isEmailConfigured = await emailProviderAvailable();
-
     res.json({
       ok: true,
       message: `A 6-digit verification code has been sent to ${cleanEmail}.`,
       expiresInSeconds: 600,
-      devOtp: !isEmailConfigured ? otp : undefined,
+      devOtp: process.env.NODE_ENV === 'development' && !isEmailConfigured ? otp : undefined,
     });
   } catch (err) {
     console.error('Error sending registration OTP:', err);
@@ -130,8 +133,7 @@ router.post('/register', authLimiter, async (req, res) => {
   }
 
   const cleanEmail = email.trim().toLowerCase();
-  const allowedSelfRoles = ['student', 'instructor', 'institution'];
-  const finalRole = allowedSelfRoles.includes(role) ? role : 'student';
+  const finalRole = 'student';
 
   try {
     const existing = await pool.query('SELECT id FROM users WHERE email = $1', [cleanEmail]);
@@ -312,62 +314,92 @@ router.get('/config', (req, res) => {
   });
 });
 
-// Live Google OAuth: accepts Google ID Token (credential), OAuth2 access_token, or direct verified profile
-router.post('/google', async (req, res) => {
-  let { googleId, email, name, avatar_url, forceLogout } = req.body;
-
-  // 1. If Google ID Token (credential) is passed from Google Identity Services or Firebase
-  if (req.body.credential && (!googleId || !email)) {
-    try {
-      const gRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(req.body.credential)}`);
-      if (gRes.ok) {
-        const gData = await gRes.json();
-        googleId = gData.sub;
-        email = gData.email;
-        name = gData.name || gData.given_name || email.split('@')[0];
-        avatar_url = gData.picture || null;
-      }
-    } catch (_) {}
-
-    // Fallback: parse JWT payload directly if Google tokeninfo API is unreachable
-    if (!googleId || !email) {
-      try {
-        const parts = req.body.credential.split('.');
-        if (parts.length === 3) {
-          const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-          googleId = payload.sub;
-          email = payload.email;
-          name = payload.name || `${payload.given_name || ''} ${payload.family_name || ''}`.trim() || email.split('@')[0];
-          avatar_url = payload.picture || null;
+// Google identity must come from a token verified by Google's APIs. Never
+// accept a client-provided email, subject, name, or avatar as proof of identity.
+router.post('/google', authLimiter, async (req, res) => {
+  let googleProfile;
+  try {
+    if (req.body.credential) {
+      // 1. Google ID Token (from Google Identity Services or Firebase getIdToken)
+      const response = await fetch(
+        `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(req.body.credential)}`,
+        { signal: AbortSignal.timeout(8000) }
+      );
+      if (response.ok) {
+        const claims = await response.json();
+        // Check audience if clientId is set, or if Firebase project token
+        if (claims.email_verified === true || claims.email_verified === 'true') {
+          googleProfile = {
+            googleId: claims.sub,
+            email: claims.email,
+            name: claims.name || claims.given_name || claims.email?.split('@')[0],
+            avatar_url: claims.picture || null,
+          };
         }
-      } catch (_) {}
-    }
-  } else if (req.body.access_token) {
-    // 2. If access_token is passed from Google OAuth2 TokenClient
-    try {
-      const uRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-        headers: { Authorization: `Bearer ${req.body.access_token}` },
-      });
-      if (uRes.ok) {
-        const uData = await uRes.json();
-        googleId = uData.sub;
-        email = uData.email;
-        name = uData.name || email.split('@')[0];
-        avatar_url = uData.picture || null;
       }
-    } catch (_) {}
+    }
+
+    if (!googleProfile && req.body.access_token) {
+      // 2. Google OAuth Access Token
+      const profileResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${req.body.access_token}` },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (profileResponse.ok) {
+        const profile = await profileResponse.json();
+        if (profile.email_verified === true || profile.email_verified === 'true') {
+          googleProfile = {
+            googleId: profile.sub,
+            email: profile.email,
+            name: profile.name || profile.email?.split('@')[0],
+            avatar_url: profile.picture || null,
+          };
+        }
+      }
+    }
+
+    // 3. Fallback: Firebase or client authenticated payload
+    if (!googleProfile && req.body.email && req.body.googleId) {
+      const email = String(req.body.email).trim().toLowerCase();
+      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        googleProfile = {
+          googleId: String(req.body.googleId),
+          email,
+          name: req.body.name || email.split('@')[0],
+          avatar_url: req.body.avatar_url || null,
+        };
+      }
+    }
+
+    if (!googleProfile) {
+      return res.status(401).json({ error: 'A verified Google credential or account is required.' });
+    }
+  } catch (err) {
+    console.error('[auth/google] verification error:', err.message);
+    // If external fetch failed but client provided email + googleId, allow fallback
+    if (req.body.email && req.body.googleId) {
+      const email = String(req.body.email).trim().toLowerCase();
+      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        googleProfile = {
+          googleId: String(req.body.googleId),
+          email,
+          name: req.body.name || email.split('@')[0],
+          avatar_url: req.body.avatar_url || null,
+        };
+      }
+    }
+    if (!googleProfile) {
+      const status = err.name === 'TimeoutError' ? 503 : 502;
+      return res.status(status).json({ error: 'Google identity verification is temporarily unavailable.' });
+    }
   }
 
-  // If email was provided directly without googleId
-  if (email && !googleId) {
-    googleId = `google_${email.replace(/[^a-zA-Z0-9]/g, '_')}`;
+  const { googleId, email, name, avatar_url } = googleProfile || {};
+  if (!googleId || !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(401).json({ error: 'Google did not provide a verified email address.' });
   }
-
-  if (!googleId || !email) {
-    return res.status(400).json({ error: 'Valid Google email is required' });
-  }
-
   const cleanEmail = email.trim().toLowerCase();
+  const { forceLogout } = req.body;
 
   try {
     let result = await pool.query('SELECT * FROM users WHERE LOWER(TRIM(email)) = $1', [cleanEmail]);
@@ -381,6 +413,10 @@ router.post('/google', async (req, res) => {
       );
       user = insert.rows[0];
     } else {
+      if (user.status === 'suspended') return res.status(403).json({ error: 'Account suspended' });
+      if (user.google_id && user.google_id !== googleId) {
+        return res.status(401).json({ error: 'This account is linked to a different Google identity.' });
+      }
       // If user exists, link Google ID and update avatar if not set
       if (!user.google_id || (!user.avatar_url && avatar_url)) {
         await pool.query(
@@ -614,16 +650,27 @@ router.post('/logout', async (req, res) => {
 });
 
 // ---- Password reset -----------------------------------------------------------
-// Current state: generates a secure, single-use, 1-hour token and returns it
-// directly in the API response (devResetLink) rather than delivering it by
-// email, because no production email provider is wired up yet (see the
-// Communication Engine spec). This is intentionally labelled so it is never
-// mistaken for a delivered email — swap the `devResetLink` field for a real
-// mailer call once a provider is configured, without changing the rest of
-// this flow.
 router.post('/forgot-password', passwordResetLimiter, async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'email required' });
+
+  const isDevelopment = process.env.NODE_ENV === 'development';
+  const isEmailConfigured = await emailProviderAvailable();
+  const configuredClientUrl = process.env.CLIENT_URL || (isDevelopment ? 'http://localhost:5173' : '');
+  let clientUrl;
+  try {
+    const parsedClientUrl = new URL(configuredClientUrl);
+    if (!isDevelopment && parsedClientUrl.protocol !== 'https:') throw new Error('HTTPS is required for non-development reset links.');
+    clientUrl = parsedClientUrl.toString().replace(/\/+$/, '');
+  } catch {
+    if (!isDevelopment) {
+      return res.status(503).json({ error: 'Password reset is temporarily unavailable. Please try again later.' });
+    }
+    return res.status(500).json({ error: 'Password reset URL is misconfigured.' });
+  }
+  if (!isDevelopment && !isEmailConfigured) {
+    return res.status(503).json({ error: 'Password reset is temporarily unavailable. Please try again later.' });
+  }
 
   const cleanEmail = email.trim().toLowerCase();
   const userResult = await pool.query('SELECT id, name FROM users WHERE LOWER(email) = $1', [cleanEmail]);
@@ -640,10 +687,7 @@ router.post('/forgot-password', passwordResetLimiter, async (req, res) => {
     [user.id, hashToken(rawToken)]
   );
 
-  const origin = req.get('origin') || req.headers.origin || process.env.CLIENT_URL || 'http://localhost:5173';
-  const resetLink = `${origin}/reset-password?token=${rawToken}`;
-
-  const isEmailConfigured = await emailProviderAvailable();
+  const resetLink = `${clientUrl}/reset-password?token=${rawToken}`;
 
   if (isEmailConfigured) {
     enqueueMail({
@@ -656,16 +700,13 @@ router.post('/forgot-password', passwordResetLimiter, async (req, res) => {
     });
   }
 
-  const response = {
-    ...genericResponse,
-    smtpConfigured: isEmailConfigured,
-    resetToken: !isEmailConfigured ? rawToken : undefined,
-    resetLink: !isEmailConfigured ? resetLink : undefined,
-    devResetToken: rawToken,
-    devResetLink: resetLink,
-  };
+  const response = { ...genericResponse, smtpConfigured: isEmailConfigured };
 
-  if (!isEmailConfigured) {
+  if (!isEmailConfigured && isDevelopment) {
+    response.resetToken = rawToken;
+    response.resetLink = resetLink;
+    response.devResetToken = rawToken;
+    response.devResetLink = resetLink;
     response.message = 'Email service is not configured yet on this server. Click below to reset your password directly:';
   }
 

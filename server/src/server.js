@@ -1,4 +1,6 @@
-if (process.env.NODE_ENV !== 'production') { require('dotenv').config(); }
+if (!process.env.NODE_ENV || process.env.NODE_ENV === 'development') {
+  require('dotenv').config({ override: process.env.NODE_ENV === 'development' });
+}
 require('express-async-errors');
 const express = require('express');
 const nodePath = require('path');
@@ -37,8 +39,9 @@ const allowedOrigins = (process.env.CORS_ORIGINS || '')
   .map((o) => o.trim())
   .filter(Boolean);
 
-if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
-  console.warn('WARNING: CORS_ORIGINS is not set in production — no cross-origin requests will be allowed except same-origin/non-browser clients.');
+const isDevelopment = process.env.NODE_ENV === 'development';
+if (!isDevelopment && allowedOrigins.length === 0) {
+  console.warn('WARNING: CORS_ORIGINS is not set outside development — no cross-origin browser requests will be allowed.');
 }
 
 app.use(cors({
@@ -46,7 +49,7 @@ app.use(cors({
     // No Origin header = same-origin request, curl/server-to-server call, or
     // a mobile app — never something a browser CORS policy needs to gate.
     if (!origin) return callback(null, true);
-    if (allowedOrigins.length === 0 && process.env.NODE_ENV !== 'production') return callback(null, true);
+    if (allowedOrigins.length === 0 && isDevelopment) return callback(null, true);
     if (allowedOrigins.includes(origin)) return callback(null, true);
     return callback(new Error('Not allowed by CORS'));
   },
@@ -139,7 +142,7 @@ app.use((err, req, res, next) => {
   // \"bundle_subjects\" does not exist" when a migration hasn't been run
   // yet) so it's actually debuggable from the browser instead of a generic
   // 500 with no clue what broke.
-  const detail = process.env.NODE_ENV === 'production' ? undefined : (err?.message || String(err));
+  const detail = isDevelopment ? (err?.message || String(err)) : undefined;
   res.status(err?.status || 500).json({ error: 'Internal server error', detail });
 });
 

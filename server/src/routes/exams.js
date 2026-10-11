@@ -2,6 +2,7 @@ const express = require('express');
 const pool = require('../db/pool');
 const { authenticate, authorize } = require('../middleware/auth');
 const { quizSubmitLimiter } = require('../middleware/rateLimit');
+const { enqueueMail, notifyAdmins } = require('../utils/mailQueue');
 
 const router = express.Router();
 
@@ -848,7 +849,71 @@ async function gradeAndSubmitAttempt(attemptId, userId, options = {}) {
     console.error('Failed to update course completion', err);
   }
 
-  return { attempt: updated.rows[0], passed: score >= quiz.pass_percent, pendingReview };
+  const passed = score >= quiz.pass_percent;
+
+  // Dispatch Exam Results to student & Admin Notification asynchronously
+  (async () => {
+    try {
+      const uRes = await pool.query('SELECT name, email FROM users WHERE id = $1', [userId]);
+      const student = uRes.rows[0];
+      if (student && student.email) {
+        let subjectTitle = '';
+        if (quiz.subject_id) {
+          const sRes = await pool.query('SELECT title FROM subjects WHERE id = $1', [quiz.subject_id]);
+          subjectTitle = sRes.rows[0]?.title || '';
+        }
+
+        const durationMinutes = attempt.started_at
+          ? Math.max(1, Math.round((new Date(updated.rows[0].submitted_at || Date.now()) - new Date(attempt.started_at)) / 60000))
+          : 0;
+
+        // 1. Student Exam Results Email
+        await enqueueMail({
+          to: student.email,
+          subject: `Exam Results: ${quiz.title} — Score: ${score}% (${passed ? 'PASSED ✅' : 'NEEDS IMPROVEMENT'}) | FlyCentric`,
+          template: 'exam-results',
+          data: {
+            name: student.name,
+            quizTitle: quiz.title,
+            subjectTitle,
+            type: quiz.type || 'exam',
+            score,
+            passPercent: quiz.pass_percent,
+            passed,
+            correctCount: correct,
+            totalQuestions: total,
+            timeTakenMinutes: durationMinutes,
+            attemptId,
+            submittedAt: new Date().toLocaleString('en-IN'),
+          },
+        });
+
+        // 2. Admin Platform Notification
+        await notifyAdmins({
+          eventType: 'Exam Submission',
+          subject: `${student.name} submitted ${quiz.title} (${score}%)`,
+          title: `Exam Graded: ${quiz.title}`,
+          details: {
+            'Cadet Name': student.name,
+            'Cadet Email': student.email,
+            'Exam': quiz.title,
+            'Subject': subjectTitle || 'Aviation Ground School',
+            'Final Score': `${score}% (Threshold: ${quiz.pass_percent}%)`,
+            'Status': passed ? 'PASSED ✅' : 'NEEDS IMPROVEMENT ❌',
+            'Correct Answers': `${correct} of ${total}`,
+            'Time Spent': `${durationMinutes} minutes`,
+            'Submitted At': new Date().toLocaleString('en-IN'),
+          },
+          actionUrl: `${process.env.CLIENT_URL || 'http://localhost:5173'}/admin/reports`,
+          actionLabel: 'View Exam Reports',
+        });
+      }
+    } catch (mailErr) {
+      console.warn('[exams] Failed to enqueue exam-results / notify admins:', mailErr.message);
+    }
+  })();
+
+  return { attempt: updated.rows[0], passed, pendingReview };
 }
 
 router.post('/attempts/:id/submit', authenticate, quizSubmitLimiter, async (req, res) => {

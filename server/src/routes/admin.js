@@ -5,6 +5,14 @@ const multer = require('multer');
 const pool = require('../db/pool');
 const { authenticate, authorize } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
+const {
+  getTemplateList,
+  getTemplateDetail,
+  saveTemplateOverride,
+  resetTemplateOverride,
+  renderEmailAsync,
+} = require('../utils/emailTemplates');
+const { deliver } = require('../utils/mailQueue');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -173,13 +181,27 @@ router.put('/settings', async (req, res) => {
 });
 
 router.post('/settings/test-email', async (req, res) => {
-  const { to, smtp_host, smtp_port, smtp_user, smtp_pass, mail_from, smtp_secure } = req.body;
+  const {
+    to,
+    provider,
+    resend_api_key,
+    resend_from,
+    smtp_host,
+    smtp_port,
+    smtp_user,
+    smtp_pass,
+    mail_from,
+    smtp_secure,
+  } = req.body;
   if (!to) return res.status(400).json({ error: 'Recipient email address is required' });
 
   try {
-    const { testSmtpConnection } = require('../utils/mailQueue');
-    const result = await testSmtpConnection({
+    const { testEmailConnection } = require('../utils/mailQueue');
+    const result = await testEmailConnection({
       to,
+      provider,
+      resendApiKey: resend_api_key,
+      resendFrom: resend_from,
       host: smtp_host,
       port: smtp_port,
       user: smtp_user,
@@ -187,9 +209,9 @@ router.post('/settings/test-email', async (req, res) => {
       from: mail_from,
       secure: smtp_secure,
     });
-    res.json({ ok: true, message: `Test email sent successfully to ${to}`, result });
+    res.json({ ok: true, message: result.message || `Test email sent successfully to ${to}`, result });
   } catch (err) {
-    res.status(400).json({ error: 'SMTP connection or delivery failed', details: err.message });
+    res.status(400).json({ error: 'Email delivery failed', details: err.message });
   }
 });
 
@@ -1218,6 +1240,127 @@ router.get('/reports-summary', async (req, res) => {
       avg_exam_score: avgExamScore,
     },
   });
+});
+
+// ==============================================================================
+// Dynamic Email Templates Configuration & Live Testing Endpoints
+// ==============================================================================
+
+// 1. List all configurable email templates with status and metadata
+router.get('/email-templates', async (req, res) => {
+  try {
+    const templates = await getTemplateList();
+    res.json({ ok: true, templates });
+  } catch (err) {
+    console.error('[admin.email-templates] list error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch email templates: ' + err.message });
+  }
+});
+
+// 2. Get full detail of a single email template (with raw HTML, preview, sample data, available variables)
+router.get('/email-templates/:id', async (req, res) => {
+  try {
+    const template = await getTemplateDetail(req.params.id);
+    if (!template) {
+      return res.status(404).json({ error: `Template '${req.params.id}' not found` });
+    }
+    res.json({ ok: true, template });
+  } catch (err) {
+    console.error('[admin.email-templates] detail error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch template detail: ' + err.message });
+  }
+});
+
+// 3. Save or update an email template override (subject, html_body, is_active)
+router.put('/email-templates/:id', async (req, res) => {
+  try {
+    const { subject, html_body, text_body, is_active } = req.body;
+    const updated = await saveTemplateOverride(req.params.id, {
+      subject,
+      html_body,
+      text_body,
+      is_active,
+      updated_by: req.user?.id,
+    });
+
+    await logAudit({
+      req,
+      action: 'email_template.update',
+      entityType: 'email_template',
+      entityId: req.params.id,
+      meta: {
+        subject: updated.subject,
+        is_active: updated.is_active,
+        is_customized: updated.is_customized,
+      },
+    });
+
+    res.json({ ok: true, template: updated, message: 'Email template published successfully' });
+  } catch (err) {
+    console.error('[admin.email-templates] update error:', err.message);
+    res.status(500).json({ error: 'Failed to save email template: ' + err.message });
+  }
+});
+
+// 4. Reset an email template override back to system default
+router.post('/email-templates/:id/reset', async (req, res) => {
+  try {
+    const reset = await resetTemplateOverride(req.params.id);
+    await logAudit({
+      req,
+      action: 'email_template.reset',
+      entityType: 'email_template',
+      entityId: req.params.id,
+    });
+    res.json({ ok: true, template: reset, message: 'Template reset to system default' });
+  } catch (err) {
+    console.error('[admin.email-templates] reset error:', err.message);
+    res.status(500).json({ error: 'Failed to reset email template: ' + err.message });
+  }
+});
+
+// 5. Test email dispatch (Render and send immediately to specified recipient)
+router.post('/email-templates/:id/test', async (req, res) => {
+  try {
+    const { to, data = {} } = req.body;
+    if (!to || !to.includes('@')) {
+      return res.status(400).json({ error: 'Valid recipient email address is required' });
+    }
+
+    const tpl = await getTemplateDetail(req.params.id);
+    if (!tpl) {
+      return res.status(404).json({ error: `Template '${req.params.id}' not found` });
+    }
+
+    // Merge sample data with any user-provided overrides
+    const mergedData = {
+      ...(tpl.sampleData || {}),
+      ...data,
+      recipientEmail: to,
+    };
+
+    const deliveryResult = await deliver({
+      to,
+      subject: `[Test Preview] ${tpl.subject}`,
+      template: req.params.id,
+      data: mergedData,
+    });
+
+    const isDeliveredLive = deliveryResult.delivered === true;
+
+    res.json({
+      ok: true,
+      delivered: isDeliveredLive,
+      provider: deliveryResult.provider || 'none',
+      messageId: deliveryResult.id || deliveryResult.messageId || null,
+      message: isDeliveredLive
+        ? `Test email dispatched to ${to} via ${deliveryResult.provider === 'smtp' ? 'SMTP' : 'Resend API'}!`
+        : `Email delivery was simulated (logged to server console). To deliver real emails to inboxes, add your Resend API Key in Settings -> Email & SMTP (https://resend.com/onboarding).`,
+    });
+  } catch (err) {
+    console.error('[admin.email-templates] test error:', err.message);
+    res.status(500).json({ error: 'Failed to send test email: ' + err.message });
+  }
 });
 
 module.exports = router;

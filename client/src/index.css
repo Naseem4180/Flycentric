@@ -1455,6 +1455,7 @@ tbody tr:hover { background: var(--page-bg); }
   user-select: none;
 }
 .cbt-question-text {
+  font-size: calc(1.04rem + var(--cbt-font-delta, 0) * 0.07rem);
   font-weight: 500; line-height: 1.65;
   color: #ffffff;
   margin-bottom: 24px;
@@ -1595,6 +1596,7 @@ tbody tr:hover { background: var(--page-bg); }
 }
 
 .cbt-option-text {
+  font-size: calc(0.95rem + var(--cbt-font-delta, 0) * 0.07rem);
   color: #ffffff; line-height: 1.5; flex: 1;
 }
 .cbt-option-status-icon {
@@ -1971,51 +1973,124 @@ tbody tr:hover { background: var(--page-bg); }
    Responsive Breakpoints: Tablet (iPad 768px-1024px) & Mobile (iPhone <= 767px)
    ========================================================================== */
 @media (max-width: 1024px) {
-  /* Tablet layout: hide desktop brand text, show backend icon mark */
+  /* Tablet layout: hide desktop brand text and fullscreen control, show icon mark */
   .cbt-brand-text { display: none !important; }
-  .cbt-logo-icon-link { display: inline-flex !important; }
+  .cbt-logo-icon-link {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 36px !important;
+    height: 36px !important;
+    border-radius: 8px !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+    border: 0.5px solid rgba(255, 255, 255, 0.12) !important;
+    flex-shrink: 0 !important;
+  }
   .cbt-topbar-center { display: none !important; }
 
   /* Hide fixed desktop sidebar, show horizontal substrip */
   .cbt-sidebar { display: none !important; }
   .cbt-main { border-right: none !important; width: 100% !important; }
   .cbt-substrip { display: flex !important; }
+
+  /* Fullscreen removal on mobile & tablet touch layouts */
+  .cbt-desktop-only { display: none !important; }
+  .cbt-mobile-only { display: inline-flex !important; }
+
+  /* iPad / Tablet font size: exact same 17px for questions and options */
+  .cbt-question-text,
+  .cbt-option-text {
+    font-size: calc(17px + var(--cbt-font-delta, 0) * 1.5px) !important;
+  }
 }
 
 @media (max-width: 767px) {
-  /* iPhone layout: one compact row without clipping or horizontal scroll */
-  .cbt-topbar {
-    padding: 0 8px !important;
-    height: 50px !important;
-    gap: 6px !important;
-    overflow-x: hidden !important;
+  /* ========================================================================
+     Apple/iOS-Inspired Mobile Exam & Practice UI (iPhone & Touch Devices)
+     ======================================================================== */
+
+  /* Mobile phone font size: exact same 16px for questions and options */
+  .cbt-question-text,
+  .cbt-option-text {
+    font-size: calc(16px + var(--cbt-font-delta, 0) * 1.5px) !important;
   }
+
+  /* Compact, Apple-style top toolbar respecting iOS safe areas */
+  .cbt-topbar {
+    padding: max(6px, env(safe-area-inset-top)) 10px 6px !important;
+    height: 50px !important;
+    min-height: 50px !important;
+    gap: 6px !important;
+    background: #0f152b !important;
+    border-bottom: 0.5px solid rgba(255, 255, 255, 0.12) !important;
+    overflow-x: auto !important;
+    scrollbar-width: none !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+  .cbt-topbar::-webkit-scrollbar { display: none; }
+
   .cbt-topbar-left {
     gap: 6px !important;
     min-width: 0 !important;
-    flex-shrink: 1 !important;
-  }
-  .cbt-topbar-right {
-    gap: 4px !important;
     flex-shrink: 0 !important;
   }
 
+  /* Compact 2D brand symbol as clickable button control */
+  .cbt-logo-icon-link {
+    width: 32px !important;
+    height: 32px !important;
+    border-radius: 8px !important;
+    background: rgba(255, 255, 255, 0.06) !important;
+    border: 0.5px solid rgba(255, 255, 255, 0.12) !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
   .cbt-mode-pill {
-    padding: 2px 6px !important;
-    font-size: 0.68rem !important;
+    padding: 2px 7px !important;
+    font-size: 0.70rem !important;
+    font-weight: 600 !important;
+    border-radius: 9999px !important;
+    height: 24px !important;
+    display: inline-flex !important;
+    align-items: center !important;
     white-space: nowrap !important;
   }
 
-  .cbt-ctrl-btn {
-    padding: 2px 5px !important;
-    font-size: 0.70rem !important;
-    min-width: 24px !important;
-    height: 28px !important;
+  .cbt-topbar-right {
+    gap: 4px !important;
+    flex-shrink: 0 !important;
+    display: flex !important;
+    align-items: center !important;
   }
+
+  .cbt-font-controls {
+    display: flex !important;
+    align-items: center !important;
+    gap: 3px !important;
+  }
+
+  /* Compact toolbar controls */
+  .cbt-ctrl-btn {
+    padding: 0 6px !important;
+    font-size: 0.72rem !important;
+    font-weight: 600 !important;
+    min-width: 26px !important;
+    height: 28px !important;
+    border-radius: 6px !important;
+    background: rgba(255, 255, 255, 0.06) !important;
+    border: 0.5px solid rgba(255, 255, 255, 0.12) !important;
+  }
+
+  /* iOS style theme capsule toggle */
   .cbt-theme-toggle {
     width: 36px !important;
     height: 20px !important;
     padding: 0 3px !important;
+    border-radius: 9999px !important;
+    background: rgba(255, 255, 255, 0.06) !important;
+    border: 0.5px solid rgba(255, 255, 255, 0.12) !important;
   }
   .cbt-theme-slider {
     width: 14px !important;
@@ -2027,25 +2102,28 @@ tbody tr:hover { background: var(--page-bg); }
     transform: translateX(16px) !important;
   }
 
+  /* Compact timer capsule */
   .cbt-timer {
-    padding: 2px 6px !important;
+    padding: 2px 7px !important;
     gap: 4px !important;
     height: 28px !important;
+    border-radius: 6px !important;
+    background: rgba(255, 255, 255, 0.06) !important;
+    border: 0.5px solid rgba(255, 255, 255, 0.12) !important;
   }
   .cbt-timer-label { display: none !important; }
   .cbt-timer-icon { display: inline-block !important; }
   .cbt-timer-val { font-size: 0.76rem !important; }
 
-  /* Submit / End button for iPhone — guaranteed zero clipping */
-  .cbt-desktop-only { display: none !important; }
-  .cbt-mobile-only { display: inline-flex !important; }
+  /* Submit & End buttons on mobile */
   .cbt-mobile-submit {
     display: inline-flex !important;
     align-items: center !important;
     gap: 4px !important;
     flex-shrink: 0 !important;
-    padding: 4px 8px !important;
+    padding: 0 9px !important;
     font-size: 0.72rem !important;
+    font-weight: 600 !important;
     height: 28px !important;
     white-space: nowrap !important;
     background: #dc2626 !important;
@@ -2054,85 +2132,192 @@ tbody tr:hover { background: var(--page-bg); }
     border-radius: 6px !important;
   }
   .cbt-btn-end {
-    padding: 4px 8px !important;
+    padding: 0 9px !important;
     font-size: 0.72rem !important;
+    font-weight: 600 !important;
     height: 28px !important;
+    border-radius: 6px !important;
     white-space: nowrap !important;
     flex-shrink: 0 !important;
   }
 
-  /* Question header compact */
+  /* Horizontal Question Strip below toolbar */
+  .cbt-substrip {
+    padding: 6px 10px !important;
+    background: #0f152b !important;
+    border-bottom: 0.5px solid rgba(255, 255, 255, 0.12) !important;
+    gap: 6px !important;
+  }
+  .cbt-strip-btn {
+    width: 32px !important;
+    height: 32px !important;
+    border-radius: 7px !important;
+    font-size: 0.76rem !important;
+  }
+  .cbt-strip-nav {
+    width: 28px !important;
+    height: 28px !important;
+    border-radius: 6px !important;
+  }
+
+  /* Question Header: Ultra-compact Apple style */
   .cbt-question-header {
-    padding: 12px 14px; flex-wrap: wrap; gap: 8px;
-  }
-  .cbt-progress-track { width: 130px; height: 6px; }
-  .cbt-qnum-title { font-size: 0.88rem; }
-
-  /* Question area compact */
-  .cbt-question-area {
-    padding: 18px 14px 28px;
-  }
-  .cbt-option {
-    padding: 12px 14px; gap: 10px;
-  }
-
-  /* Bottom bar on iPhone / mobile */
-  .cbt-bottombar {
-    padding: 8px 12px !important;
-    padding-bottom: max(10px, env(safe-area-inset-bottom)) !important;
+    padding: 10px 14px !important;
+    display: flex !important;
+    flex-direction: column !important;
     gap: 8px !important;
+    background: #0f152b !important;
+    border-bottom: 0.5px solid rgba(255, 255, 255, 0.12) !important;
   }
-  .cbt-bottombar .cbt-btn {
-    height: 40px !important;
-    font-size: 0.78rem !important;
+
+  /* Row 1: X / Y Counter + Sleek Progress Track + Percentage */
+  .cbt-question-header-left {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+    gap: 12px !important;
+  }
+  .cbt-qnum-title {
+    font-size: 0.88rem !important;
+    font-weight: 700 !important;
+    color: #ffffff !important;
     white-space: nowrap !important;
   }
+  .cbt-progress-wrap {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    flex: 1 !important;
+    justify-content: flex-end !important;
+  }
+  .cbt-progress-track {
+    flex: 1 !important;
+    max-width: 150px !important;
+    height: 4px !important;
+    border-radius: 9999px !important;
+    background: rgba(255, 255, 255, 0.1) !important;
+  }
+  .cbt-progress-pct {
+    font-size: 0.74rem !important;
+    font-weight: 600 !important;
+    color: #94a3b8 !important;
+  }
 
-  /* Exam mode 2x2 grid layout */
-  .cbt-bottombar.is-exam {
-    display: grid !important;
-    grid-template-columns: 1fr 1fr !important;
+  /* Row 2: Metadata (Easy/Medium/Hard, Icon-only Brain, Icon-only Flag) */
+  .cbt-question-header-right {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    width: 100% !important;
     gap: 8px !important;
   }
-  .cbt-bottombar.is-exam .cbt-btn-prev {
-    grid-column: 1 !important;
-    grid-row: 1 !important;
+  .cbt-difficulty {
+    font-size: 0.76rem !important;
+    font-weight: 600 !important;
+    padding: 2px 8px !important;
+    border-radius: 6px !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+    border: 0.5px solid rgba(255, 255, 255, 0.1) !important;
+    display: inline-flex !important;
+    align-items: center !important;
+  }
+  .cbt-pill-action {
+    min-width: 38px !important;
+    height: 32px !important;
+    padding: 0 10px !important;
+    border-radius: 7px !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+    border: 0.5px solid rgba(255, 255, 255, 0.12) !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  /* Question Area & Spacing */
+  .cbt-question-area {
+    padding: 14px 14px 120px !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+  .cbt-question-text {
+    line-height: 1.55 !important;
+    margin-bottom: 16px !important;
+  }
+
+  /* Option Cards: Apple Minimal, Space-Efficient, Touch-Friendly */
+  .cbt-options {
+    gap: 8px !important;
+  }
+  .cbt-option {
+    padding: 11px 13px !important;
+    min-height: 44px !important;
+    border-radius: 10px !important;
+    gap: 10px !important;
+    background: #12182b !important;
+    border: 0.5px solid rgba(255, 255, 255, 0.12) !important;
+  }
+  .cbt-letter-badge {
+    width: 24px !important;
+    height: 24px !important;
+    font-size: 0.76rem !important;
+  }
+  .cbt-radio-indicator {
+    width: 18px !important;
+    height: 18px !important;
+  }
+
+  /* Bottom Navigation Bar: Sticky, Non-Obstructive, Apple-Style */
+  .cbt-bottombar {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    padding: 8px 12px max(10px, env(safe-area-inset-bottom)) !important;
+    background: rgba(15, 21, 43, 0.96) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    border-top: 0.5px solid rgba(255, 255, 255, 0.12) !important;
+    z-index: 40 !important;
+  }
+  .cbt-bottombar .cbt-btn {
+    height: 42px !important;
+    min-height: 42px !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+  }
+
+  /* Exam mode action bar on mobile */
+  .cbt-bottombar.is-exam {
+    display: flex !important;
+    gap: 6px !important;
     width: 100% !important;
-    margin: 0 !important;
+  }
+  .cbt-bottombar.is-exam .cbt-btn-prev {
+    flex: 1 !important;
     padding: 0 8px !important;
+    font-size: 0.76rem !important;
   }
   .cbt-bottombar.is-exam .cbt-bottombar-actions {
-    display: contents !important;
+    display: flex !important;
+    flex: 3 !important;
+    gap: 6px !important;
   }
-  .cbt-bottombar.is-exam .cbt-btn-clear {
-    grid-column: 2 !important;
-    grid-row: 1 !important;
-    width: 100% !important;
-    padding: 0 8px !important;
-  }
-  .cbt-bottombar.is-exam .cbt-btn-confirm {
-    grid-column: 1 !important;
-    grid-row: 2 !important;
-    width: 100% !important;
-    padding: 0 8px !important;
-  }
-  .cbt-bottombar.is-exam .cbt-btn-mark-review {
-    grid-column: 2 !important;
-    grid-row: 2 !important;
-    width: 100% !important;
+  .cbt-bottombar.is-exam .cbt-bottombar-actions .cbt-btn {
+    flex: 1 !important;
     padding: 0 6px !important;
     font-size: 0.74rem !important;
   }
 
-  /* Practice mode 3-button flex row */
+  /* Practice mode action bar on mobile */
   .cbt-bottombar.is-practice {
     display: flex !important;
     gap: 8px !important;
+    width: 100% !important;
   }
   .cbt-bottombar.is-practice .cbt-btn-prev {
     flex: 1 !important;
-    width: auto !important;
     padding: 0 8px !important;
+    font-size: 0.78rem !important;
   }
   .cbt-bottombar.is-practice .cbt-bottombar-actions {
     display: flex !important;
@@ -2141,15 +2326,15 @@ tbody tr:hover { background: var(--page-bg); }
   }
   .cbt-bottombar.is-practice .cbt-bottombar-actions .cbt-btn {
     flex: 1 !important;
-    width: auto !important;
     padding: 0 8px !important;
+    font-size: 0.78rem !important;
   }
 }
 
 @media (max-width: 380px) {
-  .cbt-topbar { padding: 0 6px !important; gap: 4px !important; }
+  .cbt-topbar { padding: max(4px, env(safe-area-inset-top)) 6px 4px !important; gap: 4px !important; }
   .cbt-mode-pill { display: none !important; }
-  .cbt-bottombar.is-exam .cbt-btn-mark-review { font-size: 0.68rem !important; }
+  .cbt-bottombar.is-exam .cbt-bottombar-actions .cbt-btn { font-size: 0.68rem !important; padding: 0 4px !important; }
 }
 
 

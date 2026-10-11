@@ -12,7 +12,7 @@ import useTheme from '../../hooks/useTheme';
 
 const SECTIONS = [
   { id: 'general', label: 'General', icon: Building2, description: 'Platform identity and contact details' },
-  { id: 'smtp', label: 'Email & SMTP', icon: Mail, description: 'SMTP server and transactional email configuration' },
+  { id: 'smtp', label: 'Email (Resend / SMTP)', icon: Mail, description: 'Resend API and transactional email configuration' },
   { id: 'exams', label: 'Exams', icon: GraduationCap, description: 'Defaults applied to new quizzes' },
   { id: 'notifications', label: 'Notifications', icon: Bell, description: 'What the platform emails and alerts on' },
   { id: 'appearance', label: 'Appearance', icon: Palette, description: 'How the admin panel looks for you' },
@@ -23,6 +23,10 @@ const DEFAULTS = {
   support_email: '',
   contact_phone: '',
   institution_name: '',
+  resend_api_key: '',
+  resend_from: 'FlyCentric <onboarding@resend.dev>',
+  email_provider: 'resend',
+  admin_notification_email: '',
   smtp_host: '',
   smtp_port: 587,
   smtp_user: '',
@@ -70,6 +74,7 @@ export default function AdminSettings() {
   // Email test states
   const [testEmailTo, setTestEmailTo] = useState('');
   const [testingEmail, setTestingEmail] = useState(false);
+  const [showResendKey, setShowResendKey] = useState(false);
   const [showSmtpPass, setShowSmtpPass] = useState(false);
 
   const load = useCallback(() => {
@@ -92,9 +97,17 @@ export default function AdminSettings() {
   }
 
   function applyPreset(provider) {
-    if (provider === 'gmail') {
+    if (provider === 'resend') {
       setForm((f) => ({
         ...f,
+        email_provider: 'resend',
+        resend_from: f.resend_from || 'FlyCentric <onboarding@resend.dev>',
+      }));
+      toast.info('Resend Selected', 'Paste your API Key (starting with re_) from https://resend.com/onboarding');
+    } else if (provider === 'gmail') {
+      setForm((f) => ({
+        ...f,
+        email_provider: 'smtp',
         smtp_host: 'smtp.gmail.com',
         smtp_port: 587,
         smtp_secure: false,
@@ -103,6 +116,7 @@ export default function AdminSettings() {
     } else if (provider === 'brevo') {
       setForm((f) => ({
         ...f,
+        email_provider: 'smtp',
         smtp_host: 'smtp-relay.brevo.com',
         smtp_port: 587,
         smtp_secure: false,
@@ -111,6 +125,7 @@ export default function AdminSettings() {
     } else if (provider === 'sendgrid') {
       setForm((f) => ({
         ...f,
+        email_provider: 'smtp',
         smtp_host: 'smtp.sendgrid.net',
         smtp_port: 587,
         smtp_user: 'apikey',
@@ -157,6 +172,9 @@ export default function AdminSettings() {
     try {
       const res = await api.post('/admin/settings/test-email', {
         to: testEmailTo,
+        provider: form.email_provider || (form.resend_api_key ? 'resend' : 'smtp'),
+        resend_api_key: form.resend_api_key,
+        resend_from: form.resend_from,
         smtp_host: form.smtp_host,
         smtp_port: form.smtp_port,
         smtp_user: form.smtp_user,
@@ -164,9 +182,10 @@ export default function AdminSettings() {
         mail_from: form.mail_from,
         smtp_secure: form.smtp_secure,
       });
-      toast.success('Test Email Sent! 🚀', res.message || `Test email dispatched to ${testEmailTo}`);
+      toast.success('Test Email Delivered! 🚀', res.message || `Test email dispatched to ${testEmailTo}`);
     } catch (err) {
-      toast.error('SMTP Delivery Failed', err.message || 'Check your SMTP host, port, username, or password.');
+      const errMsg = err.details || err.message || 'Check your Resend API Key or SMTP credentials.';
+      toast.error('Email Delivery Failed', errMsg);
     } finally {
       setTestingEmail(false);
     }
@@ -254,110 +273,197 @@ export default function AdminSettings() {
             </Card>
           ) : section === 'smtp' ? (
             <>
+              {/* Primary: Resend Email Engine (Official) */}
               <Card>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                   <div>
-                    <h3 style={{ fontSize: '1.05rem', fontWeight: 800, margin: 0, color: 'var(--text)' }}>Transactional Email & SMTP Server</h3>
+                    <h3 style={{ fontSize: '1.05rem', fontWeight: 800, margin: 0, color: 'var(--text)' }}>
+                      Transactional Email Engine
+                    </h3>
                     <p style={{ fontSize: '.82rem', color: 'var(--muted)', margin: '4px 0 0' }}>
-                      Sends payment invoices, welcome letters, password resets, and course expiration notices to students.
+                      Automated delivery for student onboarding, verification OTPs, payment invoices, exam results, and platform alerts.
                     </p>
                   </div>
-                  <Badge tone={isSmtpConfigured ? 'green' : 'amber'}>
-                    {isSmtpConfigured ? <><CheckCircle2 size={12} /> SMTP Active</> : <><AlertCircle size={12} /> Log-Only Mode</>}
+                  <Badge tone={Boolean(form?.resend_api_key) ? 'green' : (Boolean(form?.smtp_host && form?.smtp_user && form?.smtp_pass) ? 'green' : 'amber')}>
+                    {Boolean(form?.resend_api_key) ? (
+                      <><CheckCircle2 size={12} /> Resend API Active 🚀</>
+                    ) : Boolean(form?.smtp_host && form?.smtp_user && form?.smtp_pass) ? (
+                      <><CheckCircle2 size={12} /> SMTP Active</>
+                    ) : (
+                      <><AlertCircle size={12} /> Log-Only Mode</>
+                    )}
                   </Badge>
                 </div>
 
                 {/* Preset quick-selector */}
                 <div style={{ background: 'var(--surface-alt,#f8fafc)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 16px', marginBottom: 20 }}>
                   <div style={{ fontSize: '.75rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)', letterSpacing: '0.04em', marginBottom: 8 }}>
-                    <Zap size={13} style={{ display: 'inline', verticalAlign: -2, marginRight: 4, color: '#4f46e5' }} /> Quick Setup Presets
+                    <Zap size={13} style={{ display: 'inline', verticalAlign: -2, marginRight: 4, color: '#4f46e5' }} /> Quick Email Presets
                   </div>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <Button size="xs" variant="primary" onClick={() => applyPreset('resend')}>✨ Resend (Recommended)</Button>
                     <Button size="xs" variant="secondary" onClick={() => applyPreset('gmail')}>Gmail (App Password)</Button>
-                    <Button size="xs" variant="secondary" onClick={() => applyPreset('brevo')}>Brevo (Sendinblue)</Button>
+                    <Button size="xs" variant="secondary" onClick={() => applyPreset('brevo')}>Brevo</Button>
                     <Button size="xs" variant="secondary" onClick={() => applyPreset('sendgrid')}>SendGrid</Button>
                   </div>
                 </div>
 
-                <div className="form-grid">
-                  <div className="field">
-                    <label htmlFor="s-smtp-host">SMTP Host</label>
-                    <input
-                      id="s-smtp-host"
-                      value={form.smtp_host || ''}
-                      onChange={(e) => set('smtp_host', e.target.value)}
-                      placeholder="e.g. smtp.gmail.com"
-                    />
+                {/* Resend API Key & From */}
+                <div style={{ background: 'rgba(79,70,229,0.04)', border: '1.5px solid rgba(79,70,229,0.18)', borderRadius: 10, padding: 18, marginBottom: 20 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <div style={{ fontWeight: 800, fontSize: '.92rem', color: '#312e81' }}>
+                      Resend Integration (https://resend.com/onboarding)
+                    </div>
+                    <a
+                      href="https://resend.com/onboarding"
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ fontSize: '.76rem', color: '#4f46e5', fontWeight: 700, textDecoration: 'underline' }}
+                    >
+                      Get Resend API Key ↗
+                    </a>
                   </div>
-                  <div className="field">
-                    <label htmlFor="s-smtp-port">SMTP Port</label>
-                    <input
-                      id="s-smtp-port"
-                      type="number"
-                      value={form.smtp_port || 587}
-                      onChange={(e) => set('smtp_port', Number(e.target.value) || 587)}
-                      placeholder="587 or 465"
-                    />
-                  </div>
-                </div>
 
-                <div className="form-grid">
                   <div className="field">
-                    <label htmlFor="s-smtp-user">SMTP Username / Email</label>
-                    <input
-                      id="s-smtp-user"
-                      value={form.smtp_user || ''}
-                      onChange={(e) => set('smtp_user', e.target.value)}
-                      placeholder="e.g. your-academy@gmail.com"
-                    />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="s-smtp-pass">
-                      SMTP Password / App Password
-                    </label>
+                    <label htmlFor="s-resend-key">Resend API Key</label>
                     <div style={{ position: 'relative' }}>
                       <input
-                        id="s-smtp-pass"
-                        type={showSmtpPass ? 'text' : 'password'}
-                        value={form.smtp_pass || ''}
-                        onChange={(e) => set('smtp_pass', e.target.value)}
-                        placeholder="e.g. 16-character App Password"
-                        style={{ paddingRight: 40 }}
+                        id="s-resend-key"
+                        type={showResendKey ? 'text' : 'password'}
+                        value={form.resend_api_key || ''}
+                        onChange={(e) => set('resend_api_key', e.target.value.trim())}
+                        placeholder="re_123456789_abcdef..."
+                        style={{ paddingRight: 40, fontFamily: 'monospace' }}
                       />
                       <button
                         type="button"
-                        onClick={() => setShowSmtpPass(!showSmtpPass)}
+                        onClick={() => setShowResendKey(!showResendKey)}
                         style={{
                           position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
                           background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)',
                           padding: 4, display: 'flex', alignItems: 'center'
                         }}
                       >
-                        {showSmtpPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                        {showResendKey ? <EyeOff size={16} /> : <Eye size={16} />}
                       </button>
+                    </div>
+                    <p style={{ margin: '4px 0 0', fontSize: '.75rem', color: 'var(--muted)' }}>
+                      Starts with <code>re_</code>. Leave blank to fallback to SMTP or development logging.
+                    </p>
+                  </div>
+
+                  <div className="form-grid" style={{ marginTop: 12 }}>
+                    <div className="field">
+                      <label htmlFor="s-resend-from">Sender Address (From Header)</label>
+                      <input
+                        id="s-resend-from"
+                        value={form.resend_from || ''}
+                        onChange={(e) => set('resend_from', e.target.value)}
+                        placeholder="FlyCentric <onboarding@resend.dev> or FlyCentric <support@yourdomain.com>"
+                      />
+                      <p style={{ margin: '4px 0 0', fontSize: '.75rem', color: 'var(--muted)' }}>
+                        Use <code>onboarding@resend.dev</code> for testing, or your verified domain.
+                      </p>
+                    </div>
+                    <div className="field">
+                      <label htmlFor="s-admin-notif">Admin Alert Recipient Email</label>
+                      <input
+                        id="s-admin-notif"
+                        type="email"
+                        value={form.admin_notification_email || ''}
+                        onChange={(e) => set('admin_notification_email', e.target.value.trim())}
+                        placeholder="admin@flycentric.in"
+                      />
+                      <p style={{ margin: '4px 0 0', fontSize: '.75rem', color: 'var(--muted)' }}>
+                        Receives platform notifications (new cadets, payments, exam completions, refunds).
+                      </p>
                     </div>
                   </div>
                 </div>
 
-                <div className="field">
-                  <label htmlFor="s-mail-from">Default Sender (From Header)</label>
-                  <input
-                    id="s-mail-from"
-                    value={form.mail_from || ''}
-                    onChange={(e) => set('mail_from', e.target.value)}
-                    placeholder="FlyCentric Aviation <support@flycentric.in>"
+                {/* Custom SMTP Configuration (Fallback) */}
+                <div style={{ marginTop: 24, paddingTop: 18, borderTop: '1px solid var(--border)' }}>
+                  <div style={{ fontWeight: 700, fontSize: '.88rem', color: 'var(--text)', marginBottom: 6 }}>
+                    Custom SMTP Configuration (Optional Fallback)
+                  </div>
+                  <p style={{ margin: '0 0 14px', fontSize: '.78rem', color: 'var(--muted)' }}>
+                    Standard mail server credentials used if Resend API key is not configured.
+                  </p>
+
+                  <div className="form-grid">
+                    <div className="field">
+                      <label htmlFor="s-smtp-host">SMTP Host</label>
+                      <input
+                        id="s-smtp-host"
+                        value={form.smtp_host || ''}
+                        onChange={(e) => set('smtp_host', e.target.value)}
+                        placeholder="e.g. smtp.gmail.com"
+                      />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="s-smtp-port">SMTP Port</label>
+                      <input
+                        id="s-smtp-port"
+                        type="number"
+                        value={form.smtp_port || 587}
+                        onChange={(e) => set('smtp_port', Number(e.target.value) || 587)}
+                        placeholder="587 or 465"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-grid">
+                    <div className="field">
+                      <label htmlFor="s-smtp-user">SMTP Username / Email</label>
+                      <input
+                        id="s-smtp-user"
+                        value={form.smtp_user || ''}
+                        onChange={(e) => set('smtp_user', e.target.value)}
+                        placeholder="e.g. your-academy@gmail.com"
+                      />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="s-smtp-pass">SMTP Password / App Password</label>
+                      <div style={{ position: 'relative' }}>
+                        <input
+                          id="s-smtp-pass"
+                          type={showSmtpPass ? 'text' : 'password'}
+                          value={form.smtp_pass || ''}
+                          onChange={(e) => set('smtp_pass', e.target.value)}
+                          placeholder="e.g. 16-character App Password"
+                          style={{ paddingRight: 40 }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowSmtpPass(!showSmtpPass)}
+                          style={{
+                            position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                            background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)',
+                            padding: 4, display: 'flex', alignItems: 'center'
+                          }}
+                        >
+                          {showSmtpPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="field">
+                    <label htmlFor="s-mail-from">SMTP Sender (From Header)</label>
+                    <input
+                      id="s-mail-from"
+                      value={form.mail_from || ''}
+                      onChange={(e) => set('mail_from', e.target.value)}
+                      placeholder="FlyCentric Aviation <support@flycentric.in>"
+                    />
+                  </div>
+
+                  <ToggleRow
+                    label="Use SSL / TLS (Port 465)"
+                    description="Enable for implicit SSL (usually port 465). Keep disabled for STARTTLS (port 587 or 25)."
+                    checked={form.smtp_secure}
+                    onChange={(v) => set('smtp_secure', v)}
                   />
-                </div>
-
-                <ToggleRow
-                  label="Use SSL / TLS (Port 465)"
-                  description="Enable for implicit SSL (usually port 465). Keep disabled for STARTTLS (port 587 or 25)."
-                  checked={form.smtp_secure}
-                  onChange={(v) => set('smtp_secure', v)}
-                />
-
-                <div style={{ marginTop: 16, padding: '12px 16px', background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 8, fontSize: '.8rem', color: '#1e40af', lineHeight: 1.5 }}>
-                  <strong>💡 Gmail App Password Instructions:</strong> If you use Gmail, Google requires an <strong>App Password</strong> rather than your standard account password. Go to <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 700, textDecoration: 'underline' }}>Google Account Security &rarr; App Passwords</a>, create one for "FlyCentric LMS", and paste the 16 characters into the password field above.
                 </div>
               </Card>
 

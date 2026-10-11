@@ -9,6 +9,7 @@ import {
   handleMarkReviewAndNext,
   paletteStatus,
   getAvailableActions,
+  createSerializedSaveQueue,
 } from '../client/src/utils/examBehavior.js';
 
 test('1. Practice mode: selecting an option stores selection without revealing until Reveal Answer is clicked', () => {
@@ -158,4 +159,26 @@ test('7. State persistence across question navigation', () => {
   // Navigate back to 702
   state = { ...state, current: 1 };
   assert.ok(state.marked.has(702), '702 review flag preserved');
+});
+
+test('8. Answer saves are ordered and the queue recovers after a failed save', async () => {
+  const queue = createSerializedSaveQueue();
+  const events = [];
+  let releaseFirst;
+  const first = queue.enqueue(() => new Promise((resolve) => {
+    events.push('first-start');
+    releaseFirst = () => { events.push('first-end'); resolve(); };
+  }));
+  const second = queue.enqueue(async () => { events.push('second'); });
+
+  await Promise.resolve();
+  assert.deepEqual(events, ['first-start'], 'later saves wait for the current save');
+  releaseFirst();
+  await Promise.all([first, second]);
+  assert.deepEqual(events, ['first-start', 'first-end', 'second']);
+
+  await assert.rejects(queue.enqueue(async () => { throw new Error('save failed'); }), /save failed/);
+  await queue.enqueue(async () => { events.push('after-failure'); });
+  await queue.flush();
+  assert.equal(events.at(-1), 'after-failure', 'a failed request does not block later saves');
 });

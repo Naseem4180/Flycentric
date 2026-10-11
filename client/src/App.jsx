@@ -47,6 +47,7 @@ import AdminInstructorDoubts from './pages/admin/AdminInstructorDoubts';
 import AdminMemoryBank from './pages/admin/AdminMemoryBank';
 import AdminNotifications from './pages/admin/AdminNotifications';
 import AdminEmailCampaigns from './pages/admin/AdminEmailCampaigns';
+import AdminEmailTemplates from './pages/admin/AdminEmailTemplates';
 import AdminSettings from './pages/admin/AdminSettings';
 import AdminAuditLog from './pages/admin/AdminAuditLog';
 import AdminCourses from './pages/admin/AdminCourses';
@@ -110,15 +111,41 @@ function RootRoute() {
   return <Navigate to="/dashboard" replace />;
 }
 
+function HomeRoute() {
+  const { user, loading } = useAuth();
+  if (loading) return <AppLoadingScreen />;
+  if (!user) return <Landing />;
+  if (user.role === 'admin') {
+    return (
+      <AdminLayout>
+        <Landing />
+      </AdminLayout>
+    );
+  }
+  if (user.role === 'instructor') {
+    return (
+      <InstructorShell>
+        <Landing />
+      </InstructorShell>
+    );
+  }
+  return (
+    <StudentShell>
+      <Landing />
+    </StudentShell>
+  );
+}
+
 function AppRoutes() {
   const location = useLocation();
   const { user } = useAuth();
   const isExamRoute = location.pathname.startsWith('/take-exam');
 
   // Dashboard / sidebar routes have their own shell (sidebar + AppTopbar).
-  // Complete standalone pages like /home, /courses, /jobs, /login show the main Navbar.
+  // Complete standalone pages like /courses, /jobs, /login show the main Navbar.
   const isSidebarPage = location.pathname.startsWith('/admin') ||
     location.pathname.startsWith('/instructor') ||
+    (Boolean(user) && location.pathname === '/home') ||
     (user?.role === 'student' && [
       '/dashboard', '/quizzes', '/exam-history', '/explore',
       '/my-purchases', '/my-doubts', '/report-exam-question',
@@ -143,7 +170,7 @@ function AppRoutes() {
         <Route path="/checkout" element={<Protected roles={['student', 'admin', 'instructor']}><StudentAware><Checkout /></StudentAware></Protected>} />
         <Route path="/checkout/:bundleId" element={<Protected roles={['student', 'admin', 'instructor']}><StudentAware><Checkout /></StudentAware></Protected>} />
         <Route path="/" element={<RootRoute />} />
-        <Route path="/home" element={<Landing />} />
+        <Route path="/home" element={<HomeRoute />} />
         <Route path="/dashboard" element={<Protected roles={['student']}><StudentShell><StudentDashboard /></StudentShell></Protected>} />
         <Route path="/quizzes" element={<Protected roles={['student']}><StudentShell><StudentQuizzes /></StudentShell></Protected>} />
         <Route path="/exam-history" element={<Protected roles={['student']}><StudentShell><ExamHistory /></StudentShell></Protected>} />
@@ -192,6 +219,7 @@ function AppRoutes() {
           <Route path="memory-bank" element={<AdminMemoryBank />} />
           <Route path="notifications" element={<AdminNotifications />} />
           <Route path="email-campaigns" element={<AdminEmailCampaigns />} />
+          <Route path="email-templates" element={<AdminEmailTemplates />} />
           <Route path="advertisements" element={<AdminAdvertisements />} />
           <Route path="student-analytics" element={<AdminStudentInsights />} />
           <Route path="trash" element={<AdminTrash />} />

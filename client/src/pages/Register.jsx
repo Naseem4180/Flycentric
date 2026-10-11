@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import {
-  User, Camera, Mail, Phone, Lock, Calendar, Globe, MapPin, Eye, EyeOff, X, Check, AlertCircle, ShieldCheck, RefreshCw,
+  User, Camera, Mail, Phone, Lock, Calendar, Globe, MapPin, Eye, EyeOff, X, Check, AlertCircle, RefreshCw,
 } from 'lucide-react';
 import useAuth from '../context/useAuth';
 import BrandLogo from '../components/BrandLogo';
@@ -216,16 +216,10 @@ export default function Register() {
           <div style={{ marginBottom: 20 }}>
             <GoogleLoginButton
               text="Sign up with Google"
+              separatorText="or sign up with email"
               onSuccess={handleGoogleRegister}
               onError={(err) => setError(err.message)}
             />
-            <div style={{ display: 'flex', alignItems: 'center', margin: '16px 0 12px', gap: 10 }}>
-              <div style={{ flex: 1, height: 1, background: 'var(--border, #e2e8f0)' }} />
-              <span style={{ fontSize: '.74rem', color: 'var(--muted, #64748b)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em' }}>
-                or sign up with email
-              </span>
-              <div style={{ flex: 1, height: 1, background: 'var(--border, #e2e8f0)' }} />
-            </div>
           </div>
 
           <form onSubmit={handleSubmit} className="auth-form" noValidate>
@@ -320,10 +314,7 @@ export default function Register() {
                   autoComplete="email"
                 />
               </div>
-              <span className="field-hint" style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 4 }}>
-                <ShieldCheck size={14} style={{ color: '#2563eb', flexShrink: 0 }} />
-                A 6-digit verification code will be sent to this email to verify your identity.
-              </span>
+              <span className="field-hint">Use an email address you can access for account updates.</span>
             </div>
 
             {/* Mobile Number */}

@@ -1,9 +1,11 @@
 const path = require('path');
 
-// Only load .env file in development — on Render, env vars are injected directly
-if (process.env.NODE_ENV !== 'production') {
-  require('dotenv').config({ path: path.join(__dirname, '../../.env') });
-  require('dotenv').config();
+// Local dotenv files are only eligible in development; staging/prod use injected configuration.
+const isDevelopment = !process.env.NODE_ENV || process.env.NODE_ENV === 'development';
+if (isDevelopment) {
+  const override = process.env.NODE_ENV === 'development';
+  require('dotenv').config({ path: path.join(__dirname, '../../.env'), override });
+  require('dotenv').config({ override });
 }
 
 const { Pool } = require('pg');
@@ -11,11 +13,8 @@ const { Pool } = require('pg');
 const databaseUrl = process.env.DATABASE_URL;
 
 if (!databaseUrl) {
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error(
-      '[DB] DATABASE_URL is required in production. ' +
-      'Set it in your Render Dashboard → Web Service → Environment.'
-    );
+  if (!isDevelopment) {
+    throw new Error('[DB] DATABASE_URL is required outside development. Set it in the deployment environment.');
   } else {
     console.warn('[DB WARNING] DATABASE_URL not set — using local dev fallback.');
   }

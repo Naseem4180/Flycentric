@@ -34,20 +34,14 @@ const DEFAULT_CMS = {
     enabled: true,
     title: 'Latest Announcements & Flight Updates',
     subtitle: 'Important DGCA regulatory updates, new batch schedules, and exam alerts.',
-    items: [
-      { id: '1', title: 'New DGCA 2026 Batch Enrolments Open', tag: 'Admissions', date: 'Sept 2026', text: 'Admissions are now open for upcoming DGCA Ground Classes and Comprehensive CBT Mock Series.', link: '/courses', link_text: 'View Courses' },
-      { id: '2', title: 'Updated Air Regulations Question Bank Added', tag: 'Curriculum', date: 'Recent', text: 'Over 1,000+ new questions and explanations updated strictly to latest DGCA pattern.', link: '/courses', link_text: 'Explore Bank' }
-    ]
+    items: []
   },
   coupons_section: {
     enabled: true,
     title: 'Exclusive Student Discount Coupons',
     subtitle: 'Use these limited-time promotional discount codes at checkout to unlock savings on your pilot training bundles.',
-    banner_text: '🎉 Special Festive & Cadet Pilot Discount Offer! Use code FLY50 for instant savings.',
-    items: [
-      { id: '1', code: 'FLY50', discount: '50% OFF', description: 'Applicable across DGCA full ground school bundles.', expires: 'Limited Time' },
-      { id: '2', code: 'CADET10', discount: '10% OFF', description: 'Instant discount on all chapter mock test packs.', expires: 'Active' }
-    ]
+    banner_text: '',
+    items: []
   },
   features_section: {
     title: 'The smartest way to prepare',

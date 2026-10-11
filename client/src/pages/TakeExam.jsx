@@ -212,8 +212,10 @@ export default function TakeExam() {
 
   function beginExam() {
     setError('');
-    // Trigger fullscreen directly on user click gesture so browser allows it
-    containerRef.current?.requestFullscreen?.().catch(() => {});
+    // Trigger fullscreen directly on user click gesture so browser allows it (desktop only)
+    if (typeof window !== 'undefined' && window.innerWidth > 1024) {
+      containerRef.current?.requestFullscreen?.().catch(() => {});
+    }
     setConfirmed(true);
     // Explicitly start fresh: reset answers, confirmed states, and position
     setAnswers({});
@@ -263,7 +265,7 @@ export default function TakeExam() {
   }
 
   useEffect(() => {
-    if (!confirmed || !isExam || !attempt || submittedRef.current) return undefined;
+    if (!confirmed || !isExam || !attempt || submittedRef.current || (typeof window !== 'undefined' && window.innerWidth <= 1024)) return undefined;
     function onFullscreenChange() {
       if (!document.fullscreenElement && !submittedRef.current) {
         setFullscreenLost(true);
@@ -644,7 +646,7 @@ export default function TakeExam() {
   const currentFeedback = q ? feedback[q.id] : null;
 
   return (
-    <div className="cbt-shell" ref={containerRef} data-theme={theme}>
+    <div className="cbt-shell" ref={containerRef} data-theme={theme} style={{ '--cbt-font-delta': fontDelta }}>
       {!confirmed ? (
         !quiz ? (
           <div className="cbt-loading">Loading assessment…</div>
@@ -707,10 +709,14 @@ export default function TakeExam() {
                 <Logo size={28} />
               </Link>
               <span className="cbt-brand-text">FlyCentric Examination Portal</span>
-              {isPractice && (
+              {isPractice ? (
                 <span className="cbt-mode-pill cbt-mode-practice">
                   <span className="cbt-desktop-only">Practice mode · Untimed</span>
                   <span className="cbt-mobile-only">Practice</span>
+                </span>
+              ) : (
+                <span className="cbt-mode-pill cbt-mode-exam cbt-mobile-only">
+                  Exam
                 </span>
               )}
             </div>
@@ -742,10 +748,10 @@ export default function TakeExam() {
                 </button>
               </div>
 
-              {/* Fullscreen Toggle */}
+              {/* Fullscreen Toggle (desktop only) */}
               <button
                 type="button"
-                className="cbt-ctrl-btn"
+                className="cbt-ctrl-btn cbt-desktop-only"
                 onClick={toggleFullscreen}
                 title="Toggle Fullscreen"
                 aria-label="Toggle Fullscreen"
@@ -780,7 +786,8 @@ export default function TakeExam() {
                   className="cbt-btn-end cbt-btn-end-practice"
                   onClick={handleExit}
                 >
-                  End practice
+                  <span className="cbt-desktop-only">End practice</span>
+                  <span className="cbt-mobile-only">End</span>
                 </button>
               ) : (
                 <>
@@ -807,7 +814,7 @@ export default function TakeExam() {
 
           {/* Fullscreen / Tabswitch Warnings */}
           {fullscreenLost && (
-            <div className="cbt-banner cbt-banner-warning">
+            <div className="cbt-banner cbt-banner-warning cbt-desktop-only">
               <span>You exited full-screen. The exam is still running.</span>
               <button className="cbt-banner-btn" onClick={() => containerRef.current?.requestFullscreen?.().catch(() => {})}>
                 Return to full screen
@@ -869,7 +876,10 @@ export default function TakeExam() {
               {/* Question Header */}
               <div className="cbt-question-header">
                 <div className="cbt-question-header-left">
-                  <span className="cbt-qnum-title">Question {current + 1} of {questions.length}</span>
+                  <span className="cbt-qnum-title">
+                    <span className="cbt-desktop-only">Question {current + 1} of {questions.length}</span>
+                    <span className="cbt-mobile-only">{current + 1} / {questions.length}</span>
+                  </span>
                   <div className="cbt-progress-wrap">
                     <div className="cbt-progress-track">
                       <div
@@ -883,25 +893,30 @@ export default function TakeExam() {
 
                 <div className="cbt-question-header-right">
                   <span className="cbt-difficulty">
-                    Difficulty: <b className={`cbt-diff-${q?.difficulty || 'easy'}`}>{q?.difficulty || 'easy'}</b>
+                    <span className="cbt-desktop-only">Difficulty: </span>
+                    <b className={`cbt-diff-${q?.difficulty || 'easy'}`}>
+                      {q?.difficulty ? (q.difficulty.charAt(0).toUpperCase() + q.difficulty.slice(1)) : 'Easy'}
+                    </b>
                   </span>
                   <button
                     type="button"
                     className={`cbt-pill-action ${savedIds.has(q?.id) ? 'active' : ''}`}
                     onClick={() => toggleMemoryBank(q?.id)}
                     title="Save to Memory Bank"
+                    aria-label="Save question"
                   >
-                    <Brain size={14} />
-                    <span>{savedIds.has(q?.id) ? 'Saved' : 'Save'}</span>
+                    <Brain size={15} />
+                    <span className="cbt-desktop-only">{savedIds.has(q?.id) ? 'Saved' : 'Save'}</span>
                   </button>
                   <button
                     type="button"
                     className="cbt-pill-action"
                     onClick={openReport}
                     title="Report question"
+                    aria-label="Report question"
                   >
-                    <Flag size={14} />
-                    <span>Report</span>
+                    <Flag size={15} />
+                    <span className="cbt-desktop-only">Report</span>
                   </button>
                 </div>
               </div>
@@ -934,10 +949,7 @@ export default function TakeExam() {
                   </div>
                 )}
 
-                <p
-                  className="cbt-question-text"
-                  style={{ fontSize: `calc(1.04rem + ${fontDelta * 0.07}rem)` }}
-                >
+                <p className="cbt-question-text">
                   {q?.question_text}
                 </p>
 
@@ -989,10 +1001,7 @@ export default function TakeExam() {
                             {isSelected && <span className="cbt-radio-dot" />}
                           </span>
                           <span className="cbt-letter-badge">{opt.key}.</span>
-                          <span
-                            className="cbt-option-text"
-                            style={{ fontSize: `calc(0.95rem + ${fontDelta * 0.07}rem)` }}
-                          >
+                          <span className="cbt-option-text">
                             {opt.text}
                           </span>
                           {isRevealed && isWrong && (
@@ -1036,10 +1045,7 @@ export default function TakeExam() {
                               {isSelected && <Check size={12} />}
                             </span>
                             <span className="cbt-letter-badge">{opt.key}.</span>
-                            <span
-                              className="cbt-option-text"
-                              style={{ fontSize: `calc(0.95rem + ${fontDelta * 0.07}rem)` }}
-                            >
+                            <span className="cbt-option-text">
                               {opt.text}
                             </span>
                           </div>
@@ -1114,7 +1120,8 @@ export default function TakeExam() {
                   disabled={current === 0}
                   onClick={() => goTo(current - 1)}
                 >
-                  ← Previous
+                  <span className="cbt-desktop-only">← Previous</span>
+                  <span className="cbt-mobile-only">Previous</span>
                 </button>
 
                 {isPractice ? (
@@ -1131,7 +1138,8 @@ export default function TakeExam() {
                       className={`cbt-btn ${isRevealed ? 'cbt-btn-next-primary' : 'cbt-btn-next-outline'}`}
                       onClick={advanceOrReview}
                     >
-                      Next →
+                      <span className="cbt-desktop-only">Next →</span>
+                      <span className="cbt-mobile-only">Next</span>
                     </button>
                   </div>
                 ) : (
@@ -1141,7 +1149,8 @@ export default function TakeExam() {
                       className="cbt-btn cbt-btn-clear"
                       onClick={handleClearAnswer}
                     >
-                      Clear Answer
+                      <span className="cbt-desktop-only">Clear Answer</span>
+                      <span className="cbt-mobile-only">Clear</span>
                     </button>
                     <button
                       type="button"
@@ -1155,7 +1164,8 @@ export default function TakeExam() {
                       className="cbt-btn cbt-btn-mark-review"
                       onClick={handleMarkReviewAndNext}
                     >
-                      Mark review &amp; Next
+                      <span className="cbt-desktop-only">Mark review &amp; Next</span>
+                      <span className="cbt-mobile-only">Mark &amp; Next</span>
                     </button>
                   </div>
                 )}

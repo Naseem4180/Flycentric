@@ -1,6 +1,7 @@
-if (process.env.NODE_ENV !== 'production') { require('dotenv').config(); }
+if (!process.env.NODE_ENV || process.env.NODE_ENV === 'development') {
+  require('dotenv').config({ override: process.env.NODE_ENV === 'development' });
+}
 const bcrypt = require('bcryptjs');
-const pool = require('./pool');
 
 /**
  * FlyCentric Database Seeder
@@ -15,6 +16,15 @@ const pool = require('./pool');
  *   it clears all tables for a fresh installation and seeds ONLY the admin user.
  */
 async function seed() {
+  const adminEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+  const adminPassword = process.env.ADMIN_PASSWORD || '';
+  if (!adminEmail || adminPassword.length < 12 || /^(change_me|replace_with|your_)/i.test(adminPassword)) {
+    console.error('Seed requires ADMIN_EMAIL and a unique ADMIN_PASSWORD of at least 12 characters.');
+    process.exitCode = 1;
+    return;
+  }
+
+  const pool = require('./pool');
   const isReset = process.argv.includes('--reset');
   const client = await pool.connect();
 
@@ -66,8 +76,6 @@ async function seed() {
       console.log('✅ Tables truncated successfully.');
     }
 
-    const adminEmail = (process.env.ADMIN_EMAIL || 'admin@flycentric.com').trim().toLowerCase();
-    const adminPassword = process.env.ADMIN_PASSWORD || 'Ekart@456';
     const adminName = process.env.ADMIN_NAME || 'Admin User';
 
     const pwHash = await bcrypt.hash(adminPassword, 10);
@@ -96,7 +104,6 @@ async function seed() {
     console.log('\n======================================================');
     console.log('🎉 Seed finished successfully!');
     console.log(`👤 Admin Email:    ${adminEmail}`);
-    console.log(`🔑 Admin Password: ${adminPassword}`);
     console.log('📚 Content Status: Clean (No dummy courses, subjects, or questions)');
     console.log('======================================================\n');
   } catch (err) {

@@ -2426,7 +2426,7 @@ td .row, td .btn-group { flex-wrap: nowrap; }
 .settings-nav button {
   display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 0; border-radius: var(--r-sm);
   background: none; color: var(--muted); font-family: inherit; font-size: .84rem; font-weight: 600;
-  text-align: left; cursor: pointer; white-space: nowrap; transition: all var(--t-fast);
+  text-align: left; cursor: pointer; white-space: normal; transition: all var(--t-fast);
 }
 .settings-nav button:hover { background: var(--surface-alt); color: var(--text); }
 .settings-nav button.active { background: var(--primary-light); color: var(--primary-700); font-weight: 700; }

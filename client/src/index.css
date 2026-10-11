@@ -70,7 +70,9 @@ h1, h2, h3, h4 {
 }
 p { margin: 0 0 0.75em; line-height: 1.55; color: var(--ink); }
 a { color: var(--blue); text-decoration: none; }
-button, input, select, textarea { font-family: var(--font-body); cursor: pointer; }
+button, select { font-family: var(--font-body); cursor: pointer; }
+input, textarea { font-family: var(--font-body); cursor: text; }
+input[type="button"], input[type="submit"], input[type="reset"], input[type="checkbox"], input[type="radio"], input[type="file"] { cursor: pointer; }
 svg { display: block; }
 
 .app-shell { min-height: 100%; display: flex; flex-direction: column; }
@@ -2448,7 +2450,7 @@ tbody tr:hover { background: var(--page-bg); }
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
   .curriculum-tree { flex-direction: column; }
   .curriculum-tree-side { width: 100%; }
-  table { display: block; overflow-x: auto; white-space: nowrap; }
+  table { display: block; overflow-x: auto; white-space: normal; }
 }
 
 /* ==========================================================================

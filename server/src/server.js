@@ -183,6 +183,24 @@ app.listen(port, () => {
         "UPDATE attempts SET status = 'expired' WHERE status = 'in_progress' AND deadline_at IS NOT NULL AND deadline_at < now()"
       ).catch((err) => console.error('Failed to expire stale attempts', err));
 
+      // Ensure Primary Admin Account exists
+      try {
+        const bcrypt = require('bcryptjs');
+        const adminEmail = (process.env.ADMIN_EMAIL || 'admin@flycentric.in').trim().toLowerCase();
+        const adminPassword = process.env.ADMIN_PASSWORD || 'Admin@123';
+        const existingAdmin = await pool.query("SELECT id FROM users WHERE role = 'admin' LIMIT 1");
+        if (existingAdmin.rows.length === 0) {
+          const hash = await bcrypt.hash(adminPassword, 10);
+          await pool.query(
+            "INSERT INTO users (email, password_hash, name, role, status) VALUES ($1, $2, 'Admin User', 'admin', 'active') ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash, role = 'admin', status = 'active'",
+            [adminEmail, hash]
+          );
+          console.log(`[db] Primary Admin account initialized: ${adminEmail}`);
+        }
+      } catch (adminErr) {
+        console.error('[db] Admin account check error:', adminErr.message);
+      }
+
       // Automated Email Engine + background jobs scheduler (see jobs/scheduler.js).
       require('./jobs/scheduler').start();
     })

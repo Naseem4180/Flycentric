@@ -152,35 +152,43 @@ app.listen(port, () => {
   const hasRzp = process.env.RAZORPAY_KEY_ID && (process.env.RAZORPAY_KEY_ID.startsWith('rzp_test_') || process.env.RAZORPAY_KEY_ID.startsWith('rzp_live_')) && !process.env.RAZORPAY_KEY_ID.includes('yourKeyIdHere');
   console.log(`[payments] Gateway Mode: ${hasRzp ? `Razorpay Connected (${process.env.RAZORPAY_KEY_ID})` : 'Demo Mode (Instant enrollment without Razorpay credentials)'}`);
 
-  // Self-healing schema migrations: ensures columns exist even if manual migrations were not run
-  pool.query(`
-    ALTER TABLE bundle_access ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
-    ALTER TABLE bundle_access ADD COLUMN IF NOT EXISTS validity_months INTEGER;
-    ALTER TABLE payments ADD COLUMN IF NOT EXISTS validity_months INTEGER;
-    ALTER TABLE course_enrollments ADD COLUMN IF NOT EXISTS validity_months INTEGER;
-    ALTER TABLE course_enrollments ADD COLUMN IF NOT EXISTS last_expiry_warning_at TIMESTAMPTZ;
-    CREATE INDEX IF NOT EXISTS idx_bundle_access_expires ON bundle_access(expires_at) WHERE expires_at IS NOT NULL;
-    ALTER TABLE chapters ADD COLUMN IF NOT EXISTS video_url TEXT;
-    CREATE TABLE IF NOT EXISTS email_verifications (
-      id SERIAL PRIMARY KEY,
-      email TEXT NOT NULL,
-      otp TEXT NOT NULL,
-      expires_at TIMESTAMPTZ NOT NULL,
-      verified BOOLEAN DEFAULT FALSE,
-      created_at TIMESTAMPTZ DEFAULT now()
-    );
-    CREATE INDEX IF NOT EXISTS idx_email_verifications_email ON email_verifications(email);
-  `).then(() => {
-    console.log('[db] Self-healing schema check completed successfully');
-  }).catch((err) => console.error('[db] Self-healing schema check error:', err.message));
+  // Automatic Schema Migration & Bootstrap
+  // Ensures all required tables (users, attempts, email_campaigns, bundle_access, etc.)
+  // exist even on freshly provisioned cloud databases like Render PostgreSQL.
+  const { runMigrations } = require('./db/migrate');
+  runMigrations(pool)
+    .then(async () => {
+      await pool.query(`
+        ALTER TABLE bundle_access ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+        ALTER TABLE bundle_access ADD COLUMN IF NOT EXISTS validity_months INTEGER;
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS validity_months INTEGER;
+        ALTER TABLE course_enrollments ADD COLUMN IF NOT EXISTS validity_months INTEGER;
+        ALTER TABLE course_enrollments ADD COLUMN IF NOT EXISTS last_expiry_warning_at TIMESTAMPTZ;
+        CREATE INDEX IF NOT EXISTS idx_bundle_access_expires ON bundle_access(expires_at) WHERE expires_at IS NOT NULL;
+        ALTER TABLE chapters ADD COLUMN IF NOT EXISTS video_url TEXT;
+        CREATE TABLE IF NOT EXISTS email_verifications (
+          id SERIAL PRIMARY KEY,
+          email TEXT NOT NULL,
+          otp TEXT NOT NULL,
+          expires_at TIMESTAMPTZ NOT NULL,
+          verified BOOLEAN DEFAULT FALSE,
+          created_at TIMESTAMPTZ DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_email_verifications_email ON email_verifications(email);
+      `);
+      console.log('[db] Self-healing schema check completed successfully');
 
-  // Close attempts whose server deadline has already passed. This repairs
-  // abandoned sessions from before the client started submitting on exit and
-  // prevents them from remaining visible as "In Progress" indefinitely.
-  pool.query(
-    "UPDATE attempts SET status = 'expired' WHERE status = 'in_progress' AND deadline_at IS NOT NULL AND deadline_at < now()"
-  ).catch((err) => console.error('Failed to expire stale attempts', err));
+      // Close attempts whose server deadline has already passed
+      await pool.query(
+        "UPDATE attempts SET status = 'expired' WHERE status = 'in_progress' AND deadline_at IS NOT NULL AND deadline_at < now()"
+      ).catch((err) => console.error('Failed to expire stale attempts', err));
 
-  // Automated Email Engine + idle-timeout safety net (see jobs/scheduler.js).
-  require('./jobs/scheduler').start();
+      // Automated Email Engine + background jobs scheduler (see jobs/scheduler.js).
+      require('./jobs/scheduler').start();
+    })
+    .catch((err) => {
+      console.error('[db] Startup schema migration error:', err.message);
+      // Still start scheduler so background service remains resilient
+      require('./jobs/scheduler').start();
+    });
 });

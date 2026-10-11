@@ -1,16 +1,23 @@
 const fs = require('fs');
 const path = require('path');
-const pool = require('./pool');
+const defaultPool = require('./pool');
 
-async function migrate() {
+async function runMigrations(customPool = defaultPool) {
   const sql = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
-  const client = await pool.connect();
+  const client = await customPool.connect();
   try {
     await client.query(sql);
-    console.log('Migration applied successfully.');
+    console.log('[db] Base database schema verified/migrated successfully.');
   } finally {
     client.release();
-    await pool.end();
+  }
+}
+
+async function migrate() {
+  try {
+    await runMigrations(defaultPool);
+  } finally {
+    await defaultPool.end();
   }
 }
 
@@ -21,4 +28,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = migrate;
+module.exports = { migrate, runMigrations };

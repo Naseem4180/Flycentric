@@ -19,8 +19,8 @@ async function seed() {
   const adminEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
   const adminPassword = process.env.ADMIN_PASSWORD || '';
   if (!adminEmail || adminPassword.length < 12 || /^(change_me|replace_with|your_)/i.test(adminPassword)) {
-    console.error('Seed requires ADMIN_EMAIL and a unique ADMIN_PASSWORD of at least 12 characters.');
-    process.exitCode = 1;
+    console.warn('[seed] Skipping automatic admin seeding: Set ADMIN_EMAIL and ADMIN_PASSWORD (min 12 chars) in Render Environment variables to seed your primary admin.');
+    process.exitCode = 0;
     return;
   }
 

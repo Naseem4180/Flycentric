@@ -17,6 +17,7 @@ const REPORT_REASONS = [
   { key: 'general', label: 'Other feedback' },
 ];
 import Gauge from '../components/Gauge';
+import FormattedQuestionText from '../components/FormattedQuestionText';
 
 // Time-Per-Question thresholds — a question answered in under this many
 // seconds was likely rushed/guessed; over this many, the student was stuck
@@ -468,9 +469,12 @@ export default function ExamReview() {
                       />
                     </div>
                   )}
-                  <p className="review-question-text" style={{ fontSize: '0.96rem', marginTop: 12, lineHeight: 1.55 }}>
-                    {r.question_text}
-                  </p>
+                  <FormattedQuestionText
+                    as="p"
+                    className="review-question-text"
+                    style={{ fontSize: '0.96rem', marginTop: 12, lineHeight: 1.55 }}
+                    text={r.question_text}
+                  />
 
                   {skipped && (
                     <div className="review-skipped-note">
@@ -494,7 +498,7 @@ export default function ExamReview() {
                         <div key={opt.key}>
                           <div className={`option-row ${cls}`}>
                             <span className="option-key">{opt.key}</span>
-                            <span>{opt.text}</span>
+                            <FormattedQuestionText text={opt.text} inline />
                             {opt.key === r.your_answer && <span className="muted" style={{ marginLeft: 'auto', fontSize: '0.75rem' }}>your answer</span>}
                             {isWrongOption && opt.rationale && (
                               <button
@@ -528,8 +532,8 @@ export default function ExamReview() {
                       fontSize: '0.86rem',
                       lineHeight: 1.5,
                     }}>
-                      <strong style={{ color: 'var(--ink, #0f172a)' }}>Explanation: </strong>
-                      <span className="muted">{r.explanation}</span>
+                      <strong style={{ color: 'var(--ink, #0f172a)', display: 'block', marginBottom: 4 }}>Explanation:</strong>
+                      <FormattedQuestionText as="div" className="muted" text={r.explanation} />
                     </div>
                   )}
 

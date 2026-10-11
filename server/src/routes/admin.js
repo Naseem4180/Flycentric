@@ -1,5 +1,6 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const { parse } = require('csv-parse/sync');
 const multer = require('multer');
 const pool = require('../db/pool');
@@ -12,7 +13,7 @@ const {
   resetTemplateOverride,
   renderEmailAsync,
 } = require('../utils/emailTemplates');
-const { deliver } = require('../utils/mailQueue');
+const { deliver, enqueueMail, emailProviderAvailable } = require('../utils/mailQueue');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -47,15 +48,33 @@ router.post('/users', async (req, res) => {
 });
 
 router.patch('/users/:id', async (req, res) => {
-  const { name, role, institution_id, status } = req.body;
+  const { name, role, institution_id, status, password } = req.body;
   const before = await pool.query('SELECT role, status FROM users WHERE id = $1', [req.params.id]);
+  let passwordHash = null;
+  if (password && typeof password === 'string' && password.trim().length >= 8) {
+    passwordHash = await bcrypt.hash(password.trim(), 10);
+  }
   const result = await pool.query(
-    `UPDATE users SET name = COALESCE($1,name), role = COALESCE($2,role),
-       institution_id = COALESCE($3,institution_id), status = COALESCE($4,status)
-     WHERE id = $5 RETURNING id, email, name, role, institution_id, status`,
-    [name, role, institution_id, status, req.params.id]
+    `UPDATE users SET
+       name = COALESCE($1, name),
+       role = COALESCE($2, role),
+       institution_id = COALESCE($3, institution_id),
+       status = COALESCE($4, status),
+       password_hash = COALESCE($5, password_hash)
+     WHERE id = $6 RETURNING id, email, name, role, institution_id, status`,
+    [name, role, institution_id, status, passwordHash, req.params.id]
   );
   if (!result.rows.length) return res.status(404).json({ error: 'User not found' });
+
+  if (passwordHash) {
+    await pool.query('DELETE FROM refresh_tokens WHERE user_id = $1', [req.params.id]).catch(() => {});
+    await pool.query('UPDATE user_sessions SET is_active = false WHERE user_id = $1', [req.params.id]).catch(() => {});
+    await logAudit({
+      req, action: 'user.password_updated', entityType: 'user', entityId: req.params.id,
+      meta: { updatedBy: req.user.email },
+    });
+  }
+
   if (before.rows.length && (role || status)) {
     await logAudit({
       req, action: 'user.update', entityType: 'user', entityId: req.params.id,
@@ -81,6 +100,99 @@ router.post('/users/:id/reactivate', async (req, res) => {
   if (!result.rows.length) return res.status(404).json({ error: 'User not found' });
   await logAudit({ req, action: 'user.reactivate', entityType: 'user', entityId: req.params.id });
   res.json({ user: result.rows[0] });
+});
+
+// Admin Password Reset Endpoint (Direct or Send Reset Link)
+router.post('/users/:id/reset-password', async (req, res) => {
+  const { id } = req.params;
+  const { newPassword, sendEmail = false, sendResetLink = false } = req.body;
+
+  const userRes = await pool.query('SELECT id, email, name, role FROM users WHERE id = $1', [id]);
+  if (!userRes.rows.length) return res.status(404).json({ error: 'User not found' });
+  const targetUser = userRes.rows[0];
+
+  const isDevelopment = process.env.NODE_ENV === 'development';
+  const configuredClientUrl = process.env.CLIENT_URL || (isDevelopment ? 'http://localhost:5173' : 'https://flycentric.in');
+  const clientUrl = configuredClientUrl.replace(/\/+$/, '');
+
+  // Mode 1: Generate & send reset link
+  if (sendResetLink) {
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    await pool.query(
+      `INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES ($1, $2, now() + interval '24 hours')`,
+      [targetUser.id, tokenHash]
+    );
+
+    const resetLink = `${clientUrl}/reset-password?token=${rawToken}`;
+    const emailAvailable = await emailProviderAvailable();
+
+    if (emailAvailable) {
+      await enqueueMail({
+        to: targetUser.email,
+        subject: 'Reset your FlyCentric password',
+        template: 'password-reset',
+        data: { resetLink, name: targetUser.name || 'Cadet' },
+      }).catch((err) => console.warn('[admin.reset-password] Mail delivery warning:', err.message));
+    }
+
+    await logAudit({
+      req,
+      action: 'user.password_reset_link_generated',
+      entityType: 'user',
+      entityId: targetUser.id,
+      meta: { targetEmail: targetUser.email, emailed: emailAvailable },
+    });
+
+    return res.json({
+      ok: true,
+      mode: 'link',
+      resetLink,
+      emailed: emailAvailable,
+      message: emailAvailable
+        ? `Password reset link emailed to ${targetUser.email}`
+        : `Password reset link generated successfully.`,
+    });
+  }
+
+  // Mode 2: Direct password reset
+  if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
+    return res.status(400).json({ error: 'New password must be at least 8 characters long.' });
+  }
+
+  const hash = await bcrypt.hash(newPassword, 10);
+  await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, targetUser.id]);
+  await pool.query('DELETE FROM refresh_tokens WHERE user_id = $1', [targetUser.id]).catch(() => {});
+  await pool.query('UPDATE user_sessions SET is_active = false WHERE user_id = $1', [targetUser.id]).catch(() => {});
+
+  if (sendEmail) {
+    const emailAvailable = await emailProviderAvailable();
+    if (emailAvailable) {
+      await enqueueMail({
+        to: targetUser.email,
+        subject: 'Security Alert: Your FlyCentric password was updated 🛡️',
+        template: 'password-changed',
+        data: {
+          name: targetUser.name || 'Cadet',
+          message: `Your FlyCentric password was updated by platform administration. You can sign in using your email and updated password.`,
+        },
+      }).catch((err) => console.warn('[admin.reset-password] Alert email warning:', err.message));
+    }
+  }
+
+  await logAudit({
+    req,
+    action: 'user.password_reset_direct',
+    entityType: 'user',
+    entityId: targetUser.id,
+    meta: { targetEmail: targetUser.email, notifiedByEmail: !!sendEmail },
+  });
+
+  return res.json({
+    ok: true,
+    mode: 'direct',
+    message: `Password successfully updated for ${targetUser.name || targetUser.email}.`,
+  });
 });
 
 // CSV export of all users -------------------------------------------------------

@@ -1461,6 +1461,53 @@ tbody tr:hover { background: var(--page-bg); }
   margin-bottom: 24px;
   white-space: pre-wrap;
 }
+.formatted-question-content p {
+  margin: 0 0 10px 0;
+  line-height: 1.6;
+}
+.formatted-question-content p:last-child {
+  margin-bottom: 0;
+}
+.formatted-question-content ul,
+.cbt-question-text ul.cbt-question-list,
+.formatted-question-content ul.cbt-question-list {
+  margin: 10px 0 14px 24px;
+  padding: 0;
+  list-style-type: disc;
+}
+.formatted-question-content ol,
+.cbt-question-text ol {
+  margin: 10px 0 14px 24px;
+  padding: 0;
+  list-style-type: decimal;
+}
+.formatted-question-content li,
+.cbt-question-text li {
+  margin-bottom: 6px;
+  line-height: 1.6;
+}
+.formatted-question-content .cbt-question-conclusion,
+.cbt-question-text .cbt-question-conclusion {
+  margin-top: 14px;
+  font-weight: 600;
+}
+.formatted-question-content strong,
+.formatted-question-content b {
+  font-weight: 700;
+}
+.formatted-question-content sub,
+.formatted-question-content sup {
+  font-size: 75%;
+  line-height: 0;
+  position: relative;
+  vertical-align: baseline;
+}
+.formatted-question-content sup {
+  top: -0.5em;
+}
+.formatted-question-content sub {
+  bottom: -0.25em;
+}
 .cbt-instruction-text {
   font-size: 0.82rem; color: #94a3b8; margin: -12px 0 16px;
 }

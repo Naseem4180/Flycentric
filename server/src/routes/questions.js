@@ -5,7 +5,7 @@ const { parse } = require('csv-parse/sync');
 const pool = require('../db/pool');
 const { authenticate, authorize } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
-const { parseQuestionUpload } = require('../utils/importParser');
+const { parseQuestionUpload, normalizeQuestionHtml } = require('../utils/importParser');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
@@ -328,7 +328,14 @@ router.post('/', authenticate, authorize('admin', 'instructor'), async (req, res
   const appearanceYears = normalizeAppearances(appearances);
   if (appearanceYears === null) return res.status(400).json({ error: 'appearances must contain four-digit years separated by commas' });
 
-  const hash = contentHash(question_text, options, correct_option, explanation);
+  const cleanQuestionText = normalizeQuestionHtml(question_text);
+  const cleanExplanation = explanation ? normalizeQuestionHtml(explanation) : explanation;
+  const cleanOptions = Array.isArray(options) ? options.map((o) => ({
+    ...o,
+    text: normalizeQuestionHtml(o.text),
+  })) : options;
+
+  const hash = contentHash(cleanQuestionText, cleanOptions, correct_option, cleanExplanation);
   if (!allow_duplicate) {
     const dup = await pool.query(
       'SELECT id, question_text FROM questions WHERE content_hash = $1 AND deleted_at IS NULL AND is_latest = true LIMIT 1',
@@ -346,8 +353,8 @@ router.post('/', authenticate, authorize('admin', 'instructor'), async (req, res
   const result = await pool.query(
     `INSERT INTO questions (chapter_id, subject_id, question_text, question_type, options, correct_option, explanation, difficulty, tags, image_url, appearances, created_by, content_hash)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
-    [finalChapterId || null, finalSubjectId || null, question_text, type, JSON.stringify(options || []), correct_option || null,
-     explanation || null, difficulty || 'medium', tags || [], image_url || null, appearanceYears, req.user.id, hash]
+    [finalChapterId || null, finalSubjectId || null, cleanQuestionText, type, JSON.stringify(cleanOptions || []), correct_option || null,
+     cleanExplanation || null, difficulty || 'medium', tags || [], image_url || null, appearanceYears, req.user.id, hash]
   );
   const question = result.rows[0];
   await pool.query('UPDATE questions SET root_question_id = $1 WHERE id = $1', [question.id]);
@@ -388,12 +395,19 @@ router.patch('/:id', authenticate, authorize('admin', 'instructor'), async (req,
     finalChapterId = await resolveOrCreateChapter(req.body.chapter_title, finalSubjectId);
   }
 
+  const cleanQuestionText = question_text !== undefined ? normalizeQuestionHtml(question_text) : before.question_text;
+  const cleanExplanation = explanation !== undefined ? (explanation ? normalizeQuestionHtml(explanation) : explanation) : before.explanation;
+  const cleanOptions = Array.isArray(options) ? options.map((o) => ({
+    ...o,
+    text: normalizeQuestionHtml(o.text),
+  })) : (options ?? before.options);
+
   const merged = {
-    question_text: question_text ?? before.question_text,
+    question_text: cleanQuestionText,
     question_type: question_type ?? before.question_type,
-    options: options ?? before.options,
+    options: cleanOptions,
     correct_option: correct_option ?? before.correct_option,
-    explanation: explanation ?? before.explanation,
+    explanation: cleanExplanation,
     difficulty: difficulty ?? before.difficulty,
     tags: tags ?? before.tags,
     image_url: image_url ?? before.image_url,

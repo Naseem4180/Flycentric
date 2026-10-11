@@ -90,12 +90,75 @@ function cleanCorruptChars(str) {
     .replace(/\uFFFD/g, "'");
 }
 
+function hasHtml(text) {
+  if (!text || typeof text !== 'string') return false;
+  return /<[a-z][\s\S]*>/i.test(text) || /&(?:nbsp|amp|lt|gt|quot|#39|#\d+|deg|plusmn|le|ge|mu);/i.test(text);
+}
+
+function normalizeQuestionHtml(input) {
+  if (!input || typeof input !== 'string') return input || '';
+  let str = input.trim();
+  if (!hasHtml(str)) return str;
+
+  // Clean corrupt unicode characters first
+  str = cleanCorruptChars(str);
+
+  // Handle unclosed <li> tags (common in aviation dumps: text:<li>1)...<li>2)...<li>conclusion)
+  if (/<li/i.test(str) && !/<\/li>/i.test(str)) {
+    const parts = str.split(/<li[^>]*>/i);
+    const prefix = parts[0].trim();
+    const items = parts.slice(1).map((p) => p.trim()).filter(Boolean);
+
+    const listItems = [];
+    const suffixItems = [];
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const isLast = i === items.length - 1;
+      const looksLikeConclusion = /^(the\s+combination|which\s+of|select\s+the|choose\s+the|find\s+the|statements?|mark\s+the)/i.test(item);
+      const isNumbered = /^([0-9]+[.)\-]|[a-z][.)\-]|\([0-9a-z]+\))/i.test(item);
+
+      if (isLast && looksLikeConclusion && !isNumbered) {
+        suffixItems.push(item);
+      } else {
+        listItems.push(item);
+      }
+    }
+
+    let html = '';
+    if (prefix) html += `<p>${prefix}</p>`;
+    if (listItems.length > 0) {
+      html += '<ul class="cbt-question-list">';
+      for (const li of listItems) {
+        html += `<li>${li}</li>`;
+      }
+      html += '</ul>';
+    }
+    if (suffixItems.length > 0) {
+      html += `<p class="cbt-question-conclusion">${suffixItems.join(' ')}</p>`;
+    }
+    return html;
+  }
+
+  // If has <li>...</li> but no wrapping <ul> or <ol>
+  if (/<li[^>]*>[\s\S]*?<\/li>/i.test(str) && !/<(?:ul|ol)[^>]*>/i.test(str)) {
+    str = str.replace(/(?:<li[^>]*>[\s\S]*?<\/li>\s*)+/gi, (match) => {
+      return `<ul class="cbt-question-list">${match}</ul>`;
+    });
+  }
+
+  return str;
+}
+
 function normalizeRecord(raw) {
   const out = {};
   for (const [key, value] of Object.entries(raw || {})) {
     const rawK = normalizeKey(key);
     if (!rawK) continue;
-    const strVal = value == null ? '' : cleanCorruptChars(String(value).trim());
+    let strVal = value == null ? '' : cleanCorruptChars(String(value).trim());
+    if (['question_text', 'question', 'explanation', 'solution', 'option_a', 'option_b', 'option_c', 'option_d'].includes(rawK)) {
+      strVal = normalizeQuestionHtml(strVal);
+    }
     // Coerce once here
     out[rawK] = strVal;
     const aliased = HEADER_ALIASES[rawK];
@@ -185,4 +248,4 @@ function parseQuestionUpload(buffer, filename) {
   };
 }
 
-module.exports = { parseQuestionUpload, normalizeKey, isBlank };
+module.exports = { parseQuestionUpload, normalizeKey, isBlank, normalizeQuestionHtml, hasHtml };

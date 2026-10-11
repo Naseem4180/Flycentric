@@ -12,6 +12,7 @@ import {
   PageHeader, Card, Button, Modal, ConfirmModal, ImportCsvModal, useToast, downloadCsv,
   EmptyState, ErrorState, SkeletonTable, Pagination, RowMenu, DifficultyBadge, Badge, FilterChips,
 } from '../../ui';
+import FormattedQuestionText, { stripHtmlToPlainText } from '../../components/FormattedQuestionText';
 
 // Authoring is deliberately limited to these two. Older content may still
 // carry legacy types, so LEGACY_TYPE_LABELS keeps those rows readable in the
@@ -51,10 +52,11 @@ function parseAppearanceYears(value) {
 
 function cleanDisplayText(text) {
   if (!text) return '';
-  return String(text)
+  const cleaned = String(text)
     .replace(/(\w)[\uFFFD](s|t|re|ve|ll|d|m)\b/gi, "$1'$2")
     .replace(/(\d+)\s*[\uFFFD]\s*(\d+)/g, "$1 - $2")
     .replace(/\uFFFD/g, "'");
+  return stripHtmlToPlainText(cleaned);
 }
 
 function sameReferenceId(left, right) {
@@ -1440,11 +1442,13 @@ export default function AdminQuestions() {
                   />
                 </div>
               )}
-              {form.question_text && <p style={{ fontWeight: 600, margin: '10px 0 12px' }}>{form.question_text}</p>}
+              {form.question_text && (
+                <FormattedQuestionText as="div" style={{ fontWeight: 600, margin: '10px 0 12px' }} text={form.question_text} />
+              )}
               {form.options.map((o) => (
                 <div key={o.key} className={`preview-option ${String(form.correct_option || '').split(',').includes(o.key) ? 'correct' : ''}`}>
                   <span className="preview-option-key">{o.key}</span>
-                  <span>{o.text || <em style={{ color: 'var(--muted-2)' }}>empty</em>}</span>
+                  <span>{o.text ? <FormattedQuestionText text={o.text} inline /> : <em style={{ color: 'var(--muted-2)' }}>empty</em>}</span>
                 </div>
               ))}
             </div>
@@ -1481,17 +1485,17 @@ export default function AdminQuestions() {
                 />
               </div>
             )}
-            <p style={{ fontWeight: 600, fontSize: '.92rem' }}>{cleanDisplayText(previewQuestion.question_text)}</p>
+            <FormattedQuestionText as="div" style={{ fontWeight: 600, fontSize: '.92rem', marginBottom: 14 }} text={previewQuestion.question_text} />
             {(previewQuestion.options || []).map((o) => (
               <div key={o.key} className={`preview-option ${String(previewQuestion.correct_option || '').split(',').includes(o.key) ? 'correct' : ''}`}>
                 <span className="preview-option-key">{o.key}</span>
-                <span>{cleanDisplayText(o.text)}</span>
+                <span><FormattedQuestionText text={o.text} inline /></span>
               </div>
             ))}
             {previewQuestion.explanation && (
               <>
                 <strong style={{ display: 'block', marginTop: 16, fontSize: '.8rem' }}>Explanation</strong>
-                <p className="muted" style={{ marginTop: 5 }}>{cleanDisplayText(previewQuestion.explanation)}</p>
+                <FormattedQuestionText as="div" className="muted" style={{ marginTop: 5 }} text={previewQuestion.explanation} />
               </>
             )}
           </>

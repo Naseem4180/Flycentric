@@ -9,6 +9,7 @@ import { api } from '../../api';
 import {
   Button, Modal, ConfirmModal, useToast, EmptyState, Badge, StatusBadge, RowMenu, RichTextEditor,
 } from '../../ui';
+import FormattedQuestionText from '../../components/FormattedQuestionText';
 
 // Subjects & Quizzes — course builder.
 //
@@ -2525,7 +2526,7 @@ Chapter 4: CAR Section 2`}
                         onClick={(e) => e.stopPropagation()}
                       />
                       <div className="cb-question-option-text">
-                        {q.question_text}
+                        <FormattedQuestionText text={q.question_text} />
                       </div>
                       <button
                         type="button"
@@ -2615,7 +2616,7 @@ Chapter 4: CAR Section 2`}
                                   }}>
                                     {optKey}
                                   </span>
-                                  <span style={{ flex: 1 }}>{optText}</span>
+                                  <span style={{ flex: 1 }}><FormattedQuestionText text={optText} inline /></span>
                                   {isCorrect && (
                                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: '0.72rem', color: '#047857', fontWeight: 700 }}>
                                       <Check size={13} /> Correct

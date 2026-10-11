@@ -21,6 +21,7 @@ import Logo from '../components/Logo';
 import {
   paletteStatus,
 } from '../utils/examBehavior';
+import FormattedQuestionText from '../components/FormattedQuestionText';
 
 const REPORT_REASONS = [
   { key: 'appeared_in_exam_exact', label: 'Appeared in exam (Exact match)' },
@@ -949,9 +950,11 @@ export default function TakeExam() {
                   </div>
                 )}
 
-                <p className="cbt-question-text">
-                  {q?.question_text}
-                </p>
+                <FormattedQuestionText
+                  as="p"
+                  className="cbt-question-text"
+                  text={q?.question_text}
+                />
 
                 {/* Warning Toast for Locked Confirmed Answers in Exam Mode */}
                 {lockedNotice && (
@@ -1002,7 +1005,7 @@ export default function TakeExam() {
                           </span>
                           <span className="cbt-letter-badge">{opt.key}.</span>
                           <span className="cbt-option-text">
-                            {opt.text}
+                            <FormattedQuestionText text={opt.text} inline />
                           </span>
                           {isRevealed && isWrong && (
                             <X size={20} className="cbt-option-status-icon is-wrong" />
@@ -1046,7 +1049,7 @@ export default function TakeExam() {
                             </span>
                             <span className="cbt-letter-badge">{opt.key}.</span>
                             <span className="cbt-option-text">
-                              {opt.text}
+                              <FormattedQuestionText text={opt.text} inline />
                             </span>
                           </div>
                         );
@@ -1104,9 +1107,11 @@ export default function TakeExam() {
                     </div>
                     <div className="cbt-explanation-body">
                       <div className="cbt-expl-title">Explanation:</div>
-                      <p className="cbt-expl-text">
-                        {currentFeedback.explanation || 'No detailed explanation provided for this question.'}
-                      </p>
+                      <FormattedQuestionText
+                        as="div"
+                        className="cbt-expl-text"
+                        text={currentFeedback.explanation || 'No detailed explanation provided for this question.'}
+                      />
                     </div>
                   </div>
                 )}

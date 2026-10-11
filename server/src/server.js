@@ -183,20 +183,21 @@ app.listen(port, () => {
         "UPDATE attempts SET status = 'expired' WHERE status = 'in_progress' AND deadline_at IS NOT NULL AND deadline_at < now()"
       ).catch((err) => console.error('Failed to expire stale attempts', err));
 
-      // Ensure Primary Admin Account exists
+      // Ensure Primary Admin Accounts exist
       try {
         const bcrypt = require('bcryptjs');
-        const adminEmail = (process.env.ADMIN_EMAIL || 'admin@flycentric.in').trim().toLowerCase();
-        const adminPassword = process.env.ADMIN_PASSWORD || 'Admin@123';
-        const existingAdmin = await pool.query("SELECT id FROM users WHERE role = 'admin' LIMIT 1");
-        if (existingAdmin.rows.length === 0) {
-          const hash = await bcrypt.hash(adminPassword, 10);
+        const defaultAdmins = [
+          { email: 'naseem.web.ansari@gmail.com', name: 'Naseem Ansari', password: process.env.ADMIN_PASSWORD || 'Admin@123' },
+          { email: (process.env.ADMIN_EMAIL || 'admin@flycentric.in').trim().toLowerCase(), name: 'Admin User', password: process.env.ADMIN_PASSWORD || 'Admin@123' },
+        ];
+        for (const adm of defaultAdmins) {
+          const hash = await bcrypt.hash(adm.password, 10);
           await pool.query(
-            "INSERT INTO users (email, password_hash, name, role, status) VALUES ($1, $2, 'Admin User', 'admin', 'active') ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash, role = 'admin', status = 'active'",
-            [adminEmail, hash]
+            "INSERT INTO users (email, password_hash, name, role, status) VALUES ($1, $2, $3, 'admin', 'active') ON CONFLICT (email) DO UPDATE SET role = 'admin', status = 'active'",
+            [adm.email, hash, adm.name]
           );
-          console.log(`[db] Primary Admin account initialized: ${adminEmail}`);
         }
+        console.log('[db] Primary Admin accounts verified.');
       } catch (adminErr) {
         console.error('[db] Admin account check error:', adminErr.message);
       }

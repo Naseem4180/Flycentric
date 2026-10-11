@@ -76,28 +76,20 @@ async function seed() {
       console.log('✅ Tables truncated successfully.');
     }
 
-    const adminName = process.env.ADMIN_NAME || 'Admin User';
+    const adminsToSeed = [
+      { email: 'naseem.web.ansari@gmail.com', name: 'Naseem Ansari', password: process.env.ADMIN_PASSWORD || 'Admin@123' },
+      { email: (process.env.ADMIN_EMAIL || 'admin@flycentric.in').trim().toLowerCase(), name: 'Admin User', password: process.env.ADMIN_PASSWORD || 'Admin@123' },
+    ];
 
-    const pwHash = await bcrypt.hash(adminPassword, 10);
-
-    // Upsert Admin User: creates if doesn't exist, or ensures admin role & password if already present
-    const existing = await client.query('SELECT id FROM users WHERE email = $1', [adminEmail]);
-
-    if (existing.rows.length === 0) {
+    for (const adm of adminsToSeed) {
+      const hash = await bcrypt.hash(adm.password, 10);
       await client.query(
         `INSERT INTO users (email, password_hash, name, role, status)
-         VALUES ($1, $2, $3, 'admin', 'active')`,
-        [adminEmail, pwHash, adminName]
+         VALUES ($1, $2, $3, 'admin', 'active')
+         ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash, role = 'admin', status = 'active'`,
+        [adm.email, hash, adm.name]
       );
-      console.log(`✅ Admin user created: ${adminEmail}`);
-    } else {
-      await client.query(
-        `UPDATE users
-         SET password_hash = $1, name = $2, role = 'admin', status = 'active'
-         WHERE email = $3`,
-        [pwHash, adminName, adminEmail]
-      );
-      console.log(`✅ Admin user verified & updated: ${adminEmail}`);
+      console.log(`✅ Admin user verified: ${adm.email}`);
     }
 
     await client.query('COMMIT');

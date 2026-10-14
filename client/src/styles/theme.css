@@ -61,7 +61,7 @@
   --t-fast: 150ms cubic-bezier(.25, 1, .5, 1);
   --t-base: 220ms cubic-bezier(.25, 1, .5, 1);
 
-  --sidebar-w: 272px;
+  --sidebar-w: 264px;
   --sidebar-w-collapsed: 76px;
   --topbar-h: 68px;
 
@@ -232,7 +232,7 @@ html, body { max-width: 100%; overflow-x: hidden; }
 }
 
 .admin-sidebar {
-  width: var(--sidebar-w, 272px);
+  width: var(--sidebar-w, 264px);
   flex-shrink: 0;
   position: sticky;
   top: 0;
@@ -249,8 +249,8 @@ html, body { max-width: 100%; overflow-x: hidden; }
 .admin-sidebar-nav {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 16px 12px;
+  gap: 4px;
+  padding: 14px 12px;
   overflow-y: auto;
   overflow-x: hidden;
   flex: 1;
@@ -267,11 +267,14 @@ html, body { max-width: 100%; overflow-x: hidden; }
   min-height: 42px;
   border-radius: 8px;
   color: #334155;
-  font-size: 0.9rem;
-  font-weight: 500;
+  font-size: 0.91rem;
+  font-weight: 600;
   text-decoration: none;
   background: transparent;
   border: none;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   transition: all 0.15s ease;
 }
 
@@ -292,7 +295,7 @@ html, body { max-width: 100%; overflow-x: hidden; }
   left: 0;
   top: 50%;
   transform: translateY(-50%);
-  width: 3.5px;
+  width: 4px;
   height: 24px;
   background: #e11d48;
   border-radius: 0 4px 4px 0;
@@ -300,10 +303,18 @@ html, body { max-width: 100%; overflow-x: hidden; }
 
 .admin-sidebar .admin-nav-link svg.nav-icon {
   flex-shrink: 0;
-  color: #1e293b;
+  color: #0f172a;
 }
 
-/* Accordion Container - Clean, fluid, no boxy card */
+.admin-sidebar .admin-nav-link .nav-link-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Accordion Container */
 .admin-accordion {
   position: relative;
   display: flex;
@@ -312,26 +323,42 @@ html, body { max-width: 100%; overflow-x: hidden; }
   transition: all 0.15s ease;
 }
 
-/* Red indicator on left edge of active parent (whether open or collapsed) */
-.admin-accordion.is-parent-active > .admin-accordion-header::before {
+/* Red indicator on left edge when collapsed and active */
+.admin-accordion:not(.is-open).is-parent-active > .admin-accordion-header::before {
   content: '';
   position: absolute;
   left: 0;
   top: 50%;
   transform: translateY(-50%);
-  width: 3.5px;
+  width: 4px;
   height: 24px;
   background: #e11d48;
   border-radius: 0 4px 4px 0;
   z-index: 5;
 }
 
-/* When the accordion is OPEN: no rigid card border! Seamless and natural */
+/* When the accordion is OPEN: enclosed in a neat white rounded card container matching SS2 */
 .admin-accordion.is-open {
-  background: transparent;
-  border: none;
-  box-shadow: none;
-  margin: 0;
+  background: #ffffff;
+  border: 1px solid #eef2f6;
+  border-radius: 10px;
+  margin: 4px 0 12px 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Red indicator on the left edge of the open card, aligned with the header */
+.admin-accordion.is-open::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  width: 4px;
+  height: 26px;
+  background: #e11d48;
+  border-radius: 0 4px 4px 0;
+  z-index: 5;
 }
 
 /* Accordion Header */
@@ -341,15 +368,16 @@ html, body { max-width: 100%; overflow-x: hidden; }
   align-items: center;
   gap: 12px;
   width: 100%;
-  padding: 10px 14px 10px 16px;
+  padding: 11px 16px;
   border-radius: 8px;
   background: transparent;
   border: none;
   color: #334155;
-  font-size: 0.88rem;
-  font-weight: 500;
+  font-size: 0.91rem;
+  font-weight: 600;
   cursor: pointer;
   text-align: left;
+  min-width: 0;
   transition: all 0.15s ease;
 }
 
@@ -359,22 +387,25 @@ html, body { max-width: 100%; overflow-x: hidden; }
 }
 
 .admin-accordion.is-open .admin-accordion-header {
-  color: #0f172a;
+  color: #1e293b;
   font-weight: 600;
+  border-radius: 10px 10px 0 0;
 }
 
 .admin-accordion-header svg.header-icon {
   flex-shrink: 0;
-  color: #1e293b;
+  color: #0f172a;
 }
 
 .admin-accordion-header .accordion-label {
   flex: 1;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   font-family: inherit;
-  font-size: 0.88rem;
+  font-size: 0.91rem;
+  font-weight: 600;
 }
 
 .admin-accordion-header .accordion-chevron {
@@ -385,7 +416,7 @@ html, body { max-width: 100%; overflow-x: hidden; }
 
 .admin-accordion-header.expanded .accordion-chevron {
   transform: rotate(180deg);
-  color: #64748b;
+  color: #94a3b8;
 }
 
 .admin-shell.sidebar-collapsed .admin-accordion-header {
@@ -403,7 +434,7 @@ html, body { max-width: 100%; overflow-x: hidden; }
   display: flex;
   flex-direction: column;
   gap: 3px;
-  padding: 4px 8px 10px 38px;
+  padding: 4px 10px 10px 42px;
   animation: fcAccordionSlideDown 0.18s ease-out;
 }
 
@@ -658,11 +689,11 @@ html, body { max-width: 100%; overflow-x: hidden; }
 .admin-accordion.is-open .admin-accordion-body::before {
   content: '';
   position: absolute;
-  left: 23px;
+  left: 25px;
   top: 0;
-  bottom: 12px;
+  bottom: 10px;
   width: 1.5px;
-  background: #e2e8f0;
+  background: #475569;
   border-radius: 1px;
 }
 
@@ -671,28 +702,38 @@ html, body { max-width: 100%; overflow-x: hidden; }
   display: flex;
   align-items: center;
   padding: 8px 14px;
-  border-radius: 6px;
-  color: #475569;
-  font-size: 0.85rem;
+  border-radius: 7px;
+  color: #334155;
+  font-size: 0.88rem;
   font-weight: 500;
   text-decoration: none;
-  white-space: nowrap;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   background: transparent;
-  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .admin-subnav-link:hover {
   background: #f8fafc;
   color: #0f172a;
-  transform: translateX(2px);
 }
 
-/* Active Subnav Item: soft light pill matching reference */
+/* Active Subnav Item: soft light blush pill matching SS2 */
 .admin-subnav-link.active {
-  background: #fef2f2 !important;
-  color: #e11d48 !important;
+  background: #fff1f2 !important;
+  color: #1e293b !important;
   font-weight: 600 !important;
   transform: none;
+}
+
+.admin-subnav-label {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .admin-subnav-active-glow {

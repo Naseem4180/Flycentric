@@ -202,8 +202,8 @@ export default function AdminSidebar({ collapsed, badges = {}, onNavigate, onExp
                 }}
                 title={collapsed ? item.label : undefined}
               >
-                <Icon size={17} strokeWidth={2} className="nav-icon" />
-                {!collapsed && <span className="nav-link-label">{item.label}</span>}
+                <Icon size={18} strokeWidth={2.1} className="nav-icon" />
+                {!collapsed && <span className="nav-link-label" title={item.label}>{item.label}</span>}
               </NavLink>
             );
           }
@@ -228,13 +228,13 @@ export default function AdminSidebar({ collapsed, badges = {}, onNavigate, onExp
                   type="button"
                   onClick={() => toggleGroup(item.id)}
                   className={`admin-accordion-header ${isOpen ? 'expanded' : ''} ${isParentActive ? 'is-active-parent' : ''}`}
-                  title={collapsed ? item.label : undefined}
+                  title={item.label}
                   aria-expanded={isOpen}
                 >
-                  <Icon size={17} strokeWidth={2} className="header-icon" />
-                  {!collapsed && <span className="accordion-label">{item.label}</span>}
+                  <Icon size={18} strokeWidth={2.1} className="header-icon" />
+                  {!collapsed && <span className="accordion-label" title={item.label}>{item.label}</span>}
                   {!collapsed && (
-                    <ChevronDown size={14} strokeWidth={2} className="accordion-chevron" />
+                    <ChevronDown size={15} strokeWidth={1.8} className="accordion-chevron" />
                   )}
                 </button>
 
@@ -249,6 +249,7 @@ export default function AdminSidebar({ collapsed, badges = {}, onNavigate, onExp
                           to={to}
                           onClick={onNavigate}
                           className={({ isActive }) => `admin-subnav-link ${isActive ? 'active' : ''}`}
+                          title={label}
                         >
                           <span className="admin-subnav-label">{label}</span>
                           {count > 0 && (

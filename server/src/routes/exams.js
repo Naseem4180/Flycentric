@@ -250,7 +250,7 @@ router.get('/quizzes', authenticate, async (req, res) => {
   }
 });
 
-router.patch('/quizzes/:id', authenticate, authorize('admin', 'instructor'), async (req, res) => {
+router.patch('/quizzes/:id(\\d+)', authenticate, authorize('admin', 'instructor'), async (req, res) => {
   const { question_ids, title, type, duration_minutes, pass_percent, attempt_limit, status, allow_review_after_submit, chapter_id, chapter_ids, require_previous_completion, shuffle_questions, shuffle_options } = req.body;
   if (type && !['practice', 'exam'].includes(type)) {
     return res.status(400).json({ error: "type must be 'practice' or 'exam'" });
@@ -294,7 +294,7 @@ router.patch('/quizzes/:id', authenticate, authorize('admin', 'instructor'), asy
 
 // Quick Publish / Unpublish toggle — a lighter-weight sibling of the general
 // PATCH above, used by the one-click status pill in the admin quiz table.
-router.patch('/quizzes/:id/status', authenticate, authorize('admin', 'instructor'), async (req, res) => {
+router.patch('/quizzes/:id(\\d+)/status', authenticate, authorize('admin', 'instructor'), async (req, res) => {
   const { status } = req.body;
   if (!['draft', 'published'].includes(status)) return res.status(400).json({ error: "status must be 'draft' or 'published'" });
   const result = await pool.query(
@@ -305,12 +305,12 @@ router.patch('/quizzes/:id/status', authenticate, authorize('admin', 'instructor
   res.json({ quiz: result.rows[0] });
 });
 
-router.delete('/quizzes/:id', authenticate, authorize('admin'), async (req, res) => {
+router.delete('/quizzes/:id(\\d+)', authenticate, authorize('admin'), async (req, res) => {
   await pool.query('UPDATE quizzes SET deleted_at = now() WHERE id = $1', [req.params.id]);
   res.json({ ok: true });
 });
 
-router.get('/quizzes/:id', authenticate, async (req, res) => {
+router.get('/quizzes/:id(\\d+)', authenticate, async (req, res) => {
   const quizResult = await pool.query(
     `SELECT q.*,
             s.title AS subject_title,
@@ -351,7 +351,7 @@ router.get('/quizzes/:id', authenticate, async (req, res) => {
 });
 
 // ---- Attempts ----------------------------------------------------------------
-router.post('/quizzes/:id/start', authenticate, authorize('student', 'admin', 'instructor'), async (req, res) => {
+router.post('/quizzes/:id(\\d+)/start', authenticate, authorize('student', 'admin', 'instructor'), async (req, res) => {
   const quizResult = await pool.query('SELECT * FROM quizzes WHERE id = $1 AND deleted_at IS NULL', [req.params.id]);
   const quiz = quizResult.rows[0];
   if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
@@ -617,7 +617,7 @@ router.post('/quizzes/:id/start', authenticate, authorize('student', 'admin', 'i
 
 // Persist a single answer immediately on selection — not only on submit.
 // selected_option may be an empty string to explicitly clear a previous answer.
-router.post('/attempts/:id/answer', authenticate, async (req, res) => {
+router.post('/attempts/:id(\\d+)/answer', authenticate, async (req, res) => {
   const { question_id, selected_option, time_spent_seconds } = req.body;
   if (!question_id || selected_option == null) return res.status(400).json({ error: 'question_id and selected_option required' });
   const attemptResult = await pool.query('SELECT * FROM attempts WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
@@ -916,7 +916,7 @@ async function gradeAndSubmitAttempt(attemptId, userId, options = {}) {
   return { attempt: updated.rows[0], passed, pendingReview };
 }
 
-router.post('/attempts/:id/submit', authenticate, quizSubmitLimiter, async (req, res) => {
+router.post('/attempts/:id(\\d+)/submit', authenticate, quizSubmitLimiter, async (req, res) => {
   const attemptResult = await pool.query('SELECT * FROM attempts WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
   const attempt = attemptResult.rows[0];
   if (!attempt) return res.status(404).json({ error: 'Attempt not found' });
@@ -959,7 +959,7 @@ router.post('/attempts/:id/submit', authenticate, quizSubmitLimiter, async (req,
 // back to the live question for pre-snapshot attempts) so this always shows
 // exactly what the student was scored against, even if the question has
 // since been edited or the correct option changed.
-router.get('/attempts/:id/review', authenticate, async (req, res) => {
+router.get('/attempts/:id(\\d+)/review', authenticate, async (req, res) => {
   const attemptResult = await pool.query('SELECT * FROM attempts WHERE id = $1', [req.params.id]);
   const attempt = attemptResult.rows[0];
   if (!attempt) return res.status(404).json({ error: 'Attempt not found' });
@@ -1097,7 +1097,7 @@ router.get('/attempts/mine', authenticate, async (req, res) => {
 // UPDATE, no payload) so it can run every ~20s per candidate. This is the
 // ONLY real signal that a student is still connected — attempt status alone
 // cannot distinguish "working through question 12" from "closed the laptop".
-router.post('/attempts/:id/heartbeat', authenticate, async (req, res) => {
+router.post('/attempts/:id(\\d+)/heartbeat', authenticate, async (req, res) => {
   const result = await pool.query(
     `UPDATE attempts SET last_seen_at = now()
      WHERE id = $1 AND user_id = $2 AND status = 'in_progress'

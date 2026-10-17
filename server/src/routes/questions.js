@@ -38,8 +38,12 @@ function normalizeAppearances(value) {
 // options, correct option(s), and explanation/description (if available).
 function contentHash(questionText, options, correctOption, explanation) {
   const normalizedText = String(questionText || '').trim().toLowerCase().replace(/\s+/g, ' ');
-  const normalizedOptions = (options || [])
-    .map((o) => `${String(o.key || '').trim().toUpperCase()}:${String(o.text || '').trim().toLowerCase().replace(/\s+/g, ' ')}`)
+  let opts = options;
+  if (typeof opts === 'string') {
+    try { opts = JSON.parse(opts); } catch (_) {}
+  }
+  const normalizedOptions = (Array.isArray(opts) ? opts : [])
+    .map((o) => `${String(o?.key || '').trim().toUpperCase()}:${String(o?.text || '').trim().toLowerCase().replace(/\s+/g, ' ')}`)
     .sort()
     .join('|');
   const normalizedCorrect = String(correctOption || '')
@@ -66,13 +70,15 @@ async function validateQuestionPayload({ question_type, difficulty, subject_id, 
     return `difficulty must be one of: ${DIFFICULTIES.join(', ')}`;
   }
   if (subject_id) {
-    const found = await pool.query('SELECT id FROM subjects WHERE id = $1 AND deleted_at IS NULL', [subject_id]);
+    if (isNaN(Number(subject_id))) return `subject_id must be a valid number`;
+    const found = await pool.query('SELECT id FROM subjects WHERE id = $1 AND deleted_at IS NULL', [Number(subject_id)]);
     if (!found.rows.length) return `subject_id ${subject_id} does not exist`;
   }
   if (chapter_id) {
-    const found = await pool.query('SELECT id, subject_id FROM chapters WHERE id = $1 AND deleted_at IS NULL', [chapter_id]);
+    if (isNaN(Number(chapter_id))) return `chapter_id must be a valid number`;
+    const found = await pool.query('SELECT id, subject_id FROM chapters WHERE id = $1 AND deleted_at IS NULL', [Number(chapter_id)]);
     if (!found.rows.length) return `chapter_id ${chapter_id} does not exist`;
-    if (subject_id && String(found.rows[0].subject_id) !== String(subject_id)) {
+    if (subject_id && found.rows[0].subject_id != null && String(found.rows[0].subject_id) !== String(subject_id)) {
       return `chapter_id ${chapter_id} does not belong to subject_id ${subject_id}`;
     }
   }
@@ -98,17 +104,35 @@ router.get('/', async (req, res) => {
   // in the PATCH handler below) are hidden by default so lists/pickers only
   // ever show the current, editable version of each question.
   if (!include_old_versions) clauses.push('q.is_latest = true');
-  if (chapter_id) { params.push(chapter_id); clauses.push(`q.chapter_id = $${params.length}`); }
-  if (subject_id) {
-    params.push(subject_id);
+  if (chapter_id && chapter_id !== 'all' && chapter_id !== 'undefined' && !isNaN(Number(chapter_id))) {
+    params.push(Number(chapter_id));
+    clauses.push(`q.chapter_id = $${params.length}`);
+  }
+  if (subject_id && subject_id !== 'all' && subject_id !== 'undefined' && !isNaN(Number(subject_id))) {
+    params.push(Number(subject_id));
     const subjectParam = `$${params.length}`;
     clauses.push(`(q.subject_id = ${subjectParam} OR q.chapter_id IN (
       SELECT id FROM chapters WHERE subject_id = ${subjectParam} AND deleted_at IS NULL
     ))`);
   }
   if (difficulty) { params.push(difficulty); clauses.push(`q.difficulty = $${params.length}`); }
-  if (is_faq) { params.push(is_faq === 'true'); clauses.push(`q.is_faq = $${params.length}`); }
-  if (q) { params.push(q); clauses.push(`to_tsvector('english', q.question_text) @@ plainto_tsquery($${params.length})`); }
+  if (is_faq !== undefined && is_faq !== '') {
+    params.push(is_faq === 'true' || is_faq === true);
+    clauses.push(`q.is_faq = $${params.length}`);
+  }
+  if (q) {
+    const rawQ = String(q).trim();
+    const cleanId = rawQ.replace(/^#/, '');
+    if (/^\d+$/.test(cleanId)) {
+      params.push(parseInt(cleanId, 10));
+      params.push(`%${cleanId}%`);
+      clauses.push(`(q.id = $${params.length - 1} OR q.question_text ILIKE $${params.length})`);
+    } else {
+      params.push(`%${rawQ}%`);
+      params.push(rawQ);
+      clauses.push(`(q.question_text ILIKE $${params.length - 1} OR to_tsvector('english', q.question_text) @@ plainto_tsquery($${params.length}))`);
+    }
+  }
   if (keywords) {
     const raw = String(keywords).trim();
     const cleanId = raw.replace(/^#/, '');
@@ -136,7 +160,9 @@ router.get('/', async (req, res) => {
       }
     }
   }
-  params.push(limit); params.push(offset);
+  const cleanLimit = Math.min(Math.max(1, parseInt(limit, 10) || 50), 500);
+  const cleanOffset = Math.max(0, parseInt(offset, 10) || 0);
+  params.push(cleanLimit); params.push(cleanOffset);
   const query = `
     SELECT q.*,
            COALESCE(q.subject_id, c.subject_id) AS subject_id,
@@ -154,7 +180,9 @@ router.get('/', async (req, res) => {
 });
 
 // ---- Mark FAQ ----------------------------------------------------------------
-router.post('/:id/faq', authenticate, authorize('admin'), async (req, res) => {
+router.post('/:id(\\d+)/faq', authenticate, authorize('admin'), async (req, res) => {
+  const qid = Number(req.params.id);
+  if (!qid || !Number.isInteger(qid)) return res.status(400).json({ error: 'Invalid question ID' });
   const { is_faq, month, year, appearance_code } = req.body;
   let code = appearance_code ? String(appearance_code).trim() : null;
   if (!code && month && year) {
@@ -167,7 +195,7 @@ router.post('/:id/faq', authenticate, authorize('admin'), async (req, res) => {
   if (is_faq === false) {
     result = await pool.query(
       'UPDATE questions SET is_faq = false WHERE id = $1 AND deleted_at IS NULL RETURNING *',
-      [req.params.id]
+      [qid]
     );
   } else {
     if (code) {
@@ -179,12 +207,12 @@ router.post('/:id/faq', authenticate, authorize('admin'), async (req, res) => {
                ELSE array_append(COALESCE(appearances, '{}'::text[]), $1)
              END
          WHERE id = $2 AND deleted_at IS NULL RETURNING *`,
-        [code, req.params.id]
+        [code, qid]
       );
     } else {
       result = await pool.query(
         'UPDATE questions SET is_faq = true WHERE id = $1 AND deleted_at IS NULL RETURNING *',
-        [req.params.id]
+        [qid]
       );
     }
   }
@@ -194,7 +222,9 @@ router.post('/:id/faq', authenticate, authorize('admin'), async (req, res) => {
 });
 
 // ---- Report Exam Question (student flags a question appeared in a real exam) --
-router.post('/:id/appearance', authenticate, async (req, res) => {
+router.post('/:id(\\d+)/appearance', authenticate, async (req, res) => {
+  const qid = Number(req.params.id);
+  if (!qid || !Number.isInteger(qid)) return res.status(400).json({ error: 'Invalid question ID' });
   const { exam_center, exam_date, note, subject_id, month, year, appearance_code } = req.body;
   let code = appearance_code ? String(appearance_code).trim() : null;
   if (!code && month && year) {
@@ -213,7 +243,7 @@ router.post('/:id/appearance', authenticate, async (req, res) => {
   const result = await pool.query(
     `INSERT INTO exam_appearances (question_id, reported_by, subject_id, exam_center, exam_date, appearance_code, note, status)
      VALUES ($1,$2,$3,$4,$5,$6,$7,'pending') RETURNING *`,
-    [req.params.id, req.user.id, subject_id || null, exam_center || null, exam_date || null, code || null, note || null]
+    [qid, req.user.id, subject_id || null, exam_center || null, exam_date || null, code || null, note || null]
   );
   res.status(201).json({ appearance: result.rows[0] });
 });
@@ -232,10 +262,12 @@ router.get('/appearances/queue', authenticate, authorize('admin'), async (req, r
   res.json({ appearances: result.rows });
 });
 
-router.patch('/appearances/:id', authenticate, authorize('admin'), async (req, res) => {
+router.patch('/appearances/:id(\\d+)', authenticate, authorize('admin'), async (req, res) => {
+  const aid = Number(req.params.id);
+  if (!aid || !Number.isInteger(aid)) return res.status(400).json({ error: 'Invalid appearance ID' });
   const { status } = req.body;
   if (!['pending', 'confirmed', 'dismissed'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
-  const result = await pool.query('UPDATE exam_appearances SET status = $1 WHERE id = $2 RETURNING *', [status, req.params.id]);
+  const result = await pool.query('UPDATE exam_appearances SET status = $1 WHERE id = $2 RETURNING *', [status, aid]);
   if (!result.rows.length) return res.status(404).json({ error: 'Appearance report not found' });
   
   const appearance = result.rows[0];
@@ -298,7 +330,7 @@ async function resolveOrCreateChapter(chapterName, subjectId) {
 }
 
 router.post('/', authenticate, authorize('admin', 'instructor'), async (req, res) => {
-  const { chapter_id, subject_id, question_text, question_type, options, correct_option, explanation, difficulty, tags, image_url, appearances, allow_duplicate } = req.body;
+  const { chapter_id, subject_id, question_text, question_type, options, correct_option, explanation, difficulty, tags, image_url, appearances, allow_duplicate, is_faq } = req.body;
   const type = question_type || 'mcq';
   if (!AUTHORABLE_TYPES.includes(type)) {
     return res.status(400).json({ error: `question_type must be one of: ${AUTHORABLE_TYPES.join(', ')}` });
@@ -310,7 +342,13 @@ router.post('/', authenticate, authorize('admin', 'instructor'), async (req, res
   }
   const needsOptions = OPTION_TYPES.includes(type);
   if (!question_text) return res.status(400).json({ error: 'question_text required' });
-  if (needsOptions && (!options || !options.length || !correct_option)) {
+
+  let parsedOptions = options;
+  if (typeof parsedOptions === 'string') {
+    try { parsedOptions = JSON.parse(parsedOptions); } catch (_) {}
+  }
+
+  if (needsOptions && (!parsedOptions || !parsedOptions.length || !correct_option)) {
     return res.status(400).json({ error: 'options and correct_option are required for this question type' });
   }
 
@@ -330,10 +368,10 @@ router.post('/', authenticate, authorize('admin', 'instructor'), async (req, res
 
   const cleanQuestionText = normalizeQuestionHtml(question_text);
   const cleanExplanation = explanation ? normalizeQuestionHtml(explanation) : explanation;
-  const cleanOptions = Array.isArray(options) ? options.map((o) => ({
+  const cleanOptions = Array.isArray(parsedOptions) ? parsedOptions.map((o) => ({
     ...o,
-    text: normalizeQuestionHtml(o.text),
-  })) : options;
+    text: normalizeQuestionHtml(o?.text),
+  })) : parsedOptions;
 
   const hash = contentHash(cleanQuestionText, cleanOptions, correct_option, cleanExplanation);
   if (!allow_duplicate) {
@@ -351,23 +389,14 @@ router.post('/', authenticate, authorize('admin', 'instructor'), async (req, res
   }
 
   const result = await pool.query(
-    `INSERT INTO questions (chapter_id, subject_id, question_text, question_type, options, correct_option, explanation, difficulty, tags, image_url, appearances, created_by, content_hash)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+    `INSERT INTO questions (chapter_id, subject_id, question_text, question_type, options, correct_option, explanation, difficulty, tags, image_url, appearances, created_by, content_hash, is_faq)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
     [finalChapterId || null, finalSubjectId || null, cleanQuestionText, type, JSON.stringify(cleanOptions || []), correct_option || null,
-     cleanExplanation || null, difficulty || 'medium', tags || [], image_url || null, appearanceYears, req.user.id, hash]
+     cleanExplanation || null, difficulty || 'medium', tags || [], image_url || null, appearanceYears, req.user.id, hash, Boolean(is_faq)]
   );
   const question = result.rows[0];
   await pool.query('UPDATE questions SET root_question_id = $1 WHERE id = $1', [question.id]);
   question.root_question_id = question.id; // keep the API response in sync with the row we just backfilled
-
-
-  if (chapter_id) {
-    /* syncQuestionsToChapterQuiz disabled — auto-creation of chapter quizzes is no longer wanted
-    await syncQuestionsToChapterQuiz(pool, Number(chapter_id), [question.id], req.user.id).catch((err) => {
-      console.warn('Failed to sync single question to chapter quiz', err);
-    });
-    */
-  }
 
   res.status(201).json({ question });
 });
@@ -380,27 +409,37 @@ router.post('/', authenticate, authorize('admin', 'instructor'), async (req, res
 // the corrected content. Already-submitted attempts are unaffected — they
 // read from their own frozen question_snapshot (see schema.sql), never from
 // the live `questions` table — so this cannot retroactively change a grade.
-router.patch('/:id', authenticate, authorize('admin', 'instructor'), async (req, res) => {
-  const { question_text, question_type, options, correct_option, explanation, difficulty, tags, image_url, chapter_id, subject_id, appearances } = req.body;
-  const current = await pool.query('SELECT * FROM questions WHERE id = $1 AND deleted_at IS NULL', [req.params.id]);
+router.patch('/:id(\\d+)', authenticate, authorize('admin', 'instructor'), async (req, res) => {
+  const qid = Number(req.params.id);
+  if (!qid || !Number.isInteger(qid)) {
+    return res.status(400).json({ error: 'Invalid question ID' });
+  }
+
+  const { question_text, question_type, options, correct_option, explanation, difficulty, tags, image_url, chapter_id, subject_id, appearances, is_faq } = req.body;
+  const current = await pool.query('SELECT * FROM questions WHERE id = $1 AND deleted_at IS NULL', [qid]);
   if (!current.rows.length) return res.status(404).json({ error: 'Question not found' });
   const before = current.rows[0];
 
-  let finalSubjectId = subject_id ?? before.subject_id;
-  if (!subject_id && req.body.subject_title) {
+  let finalSubjectId = subject_id !== undefined ? (subject_id || null) : before.subject_id;
+  if (!finalSubjectId && req.body.subject_title) {
     finalSubjectId = await resolveOrCreateSubject(req.body.subject_title);
   }
-  let finalChapterId = chapter_id ?? before.chapter_id;
-  if (!chapter_id && req.body.chapter_title) {
+  let finalChapterId = chapter_id !== undefined ? (chapter_id || null) : before.chapter_id;
+  if (!finalChapterId && req.body.chapter_title) {
     finalChapterId = await resolveOrCreateChapter(req.body.chapter_title, finalSubjectId);
+  }
+
+  let parsedOptions = options;
+  if (typeof parsedOptions === 'string') {
+    try { parsedOptions = JSON.parse(parsedOptions); } catch (_) {}
   }
 
   const cleanQuestionText = question_text !== undefined ? normalizeQuestionHtml(question_text) : before.question_text;
   const cleanExplanation = explanation !== undefined ? (explanation ? normalizeQuestionHtml(explanation) : explanation) : before.explanation;
-  const cleanOptions = Array.isArray(options) ? options.map((o) => ({
+  const cleanOptions = Array.isArray(parsedOptions) ? parsedOptions.map((o) => ({
     ...o,
-    text: normalizeQuestionHtml(o.text),
-  })) : (options ?? before.options);
+    text: normalizeQuestionHtml(o?.text),
+  })) : (parsedOptions ?? before.options);
 
   const merged = {
     question_text: cleanQuestionText,
@@ -410,10 +449,11 @@ router.patch('/:id', authenticate, authorize('admin', 'instructor'), async (req,
     explanation: cleanExplanation,
     difficulty: difficulty ?? before.difficulty,
     tags: tags ?? before.tags,
-    image_url: image_url ?? before.image_url,
+    image_url: image_url !== undefined ? (image_url || null) : before.image_url,
     chapter_id: finalChapterId,
     subject_id: finalSubjectId,
     appearances: appearances ?? before.appearances ?? [],
+    is_faq: is_faq !== undefined ? Boolean(is_faq) : Boolean(before.is_faq),
   };
   const validationError = await validateQuestionPayload(merged);
   if (validationError) return res.status(400).json({ error: validationError });
@@ -428,12 +468,13 @@ router.patch('/:id', authenticate, authorize('admin', 'instructor'), async (req,
     && merged.question_type === before.question_type
     && JSON.stringify(merged.options || []) === JSON.stringify(before.options || [])
     && merged.correct_option === before.correct_option
-    && merged.explanation === before.explanation
+    && (merged.explanation || null) === (before.explanation || null)
     && merged.difficulty === before.difficulty
     && JSON.stringify(merged.tags || []) === JSON.stringify(before.tags || [])
-    && merged.image_url === before.image_url
+    && (merged.image_url || null) === (before.image_url || null)
     && sameReferenceId(merged.chapter_id, before.chapter_id)
     && sameReferenceId(merged.subject_id, before.subject_id)
+    && Boolean(merged.is_faq) === Boolean(before.is_faq)
   );
 
   if (isAppearanceOnlyEdit) {
@@ -453,21 +494,25 @@ router.patch('/:id', authenticate, authorize('admin', 'instructor'), async (req,
   try {
     await client.query('BEGIN');
     const hash = contentHash(merged.question_text, merged.options, merged.correct_option, merged.explanation);
+    const rootId = before.root_question_id || before.id;
     const inserted = await client.query(
       `INSERT INTO questions
         (chapter_id, subject_id, question_text, question_type, options, correct_option, explanation, difficulty, tags, image_url, appearances,
-         created_by, content_hash, version, root_question_id, is_latest)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,true) RETURNING *`,
+         created_by, content_hash, version, root_question_id, is_latest, is_faq)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,true,$16) RETURNING *`,
       [merged.chapter_id || null, merged.subject_id || null, merged.question_text, merged.question_type,
        JSON.stringify(merged.options || []), merged.correct_option || null, merged.explanation || null,
       merged.difficulty || 'medium', merged.tags || [], merged.image_url || null, appearanceYears, req.user.id, hash,
-      (before.version || 1) + 1, before.root_question_id || before.id]
+      (before.version || 1) + 1, rootId, merged.is_faq]
     );
     created = inserted.rows[0];
     await client.query(
       'UPDATE questions SET is_latest = false, superseded_by = $1 WHERE id = $2',
       [created.id, before.id]
     );
+    if (!before.root_question_id) {
+      await client.query('UPDATE questions SET root_question_id = $1 WHERE id = $1', [before.id]);
+    }
     // Repoint any live quiz's question_ids from the old id to the new one so
     // students who haven't started yet get the corrected version. array_replace
     // is a no-op for quizzes that never referenced this question.
@@ -499,10 +544,16 @@ router.patch('/:id', authenticate, authorize('admin', 'instructor'), async (req,
   res.json({ question: created, previousVersionId: before.id });
 });
 
-router.delete('/:id', authenticate, authorize('admin', 'instructor'), async (req, res) => {
+router.delete('/:id(\\d+)', authenticate, authorize('admin', 'instructor'), async (req, res) => {
   const qid = Number(req.params.id);
+  if (!qid || !Number.isInteger(qid)) {
+    return res.status(400).json({ error: 'Invalid question ID' });
+  }
   // Soft-delete the question itself
-  await pool.query('UPDATE questions SET deleted_at = now() WHERE id = $1', [qid]);
+  const del = await pool.query('UPDATE questions SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL RETURNING id', [qid]);
+  if (!del.rows.length) {
+    return res.status(404).json({ error: 'Question not found or already deleted' });
+  }
   // Remove this question ID from ALL quizzes that reference it
   await pool.query(
     `UPDATE quizzes
@@ -511,7 +562,7 @@ router.delete('/:id', authenticate, authorize('admin', 'instructor'), async (req
      WHERE $1 = ANY(question_ids) AND deleted_at IS NULL`,
     [qid]
   );
-  await logAudit({ req, action: 'question.delete', entityType: 'question', entityId: req.params.id });
+  await logAudit({ req, action: 'question.delete', entityType: 'question', entityId: qid });
   res.json({ ok: true, removedFromQuizzes: true });
 });
 
@@ -944,7 +995,9 @@ router.get('/report-reasons', (req, res) => {
   });
 });
 
-router.post('/:id/report', authenticate, async (req, res) => {
+router.post('/:id(\\d+)/report', authenticate, async (req, res) => {
+  const qid = Number(req.params.id);
+  if (!qid || !Number.isInteger(qid)) return res.status(400).json({ error: 'Invalid question ID' });
   const { reason, note } = req.body;
   if (!reason) return res.status(400).json({ error: 'reason required' });
   if (!REPORT_REASONS.includes(reason)) {
@@ -952,7 +1005,7 @@ router.post('/:id/report', authenticate, async (req, res) => {
   }
   const result = await pool.query(
     'INSERT INTO discrepancy_reports (question_id, reported_by, reason, note) VALUES ($1,$2,$3,$4) RETURNING *',
-    [req.params.id, req.user.id, reason, note || null]
+    [qid, req.user.id, reason, note || null]
   );
   res.status(201).json({ report: result.rows[0] });
 });
@@ -1011,49 +1064,62 @@ router.get('/reports/queue', authenticate, authorize('admin'), async (req, res) 
   res.json({ reports: result.rows });
 });
 
-router.get('/reports/:id', authenticate, authorize('admin'), async (req, res) => {
+router.get('/reports/:id(\\d+)', authenticate, authorize('admin'), async (req, res) => {
+  const rid = Number(req.params.id);
+  if (!rid || !Number.isInteger(rid)) return res.status(400).json({ error: 'Invalid report ID' });
   const result = await pool.query(
     `SELECT dr.*, q.question_text, q.options, q.correct_option, q.explanation, q.difficulty,
             u.name AS reporter_name, u.email AS reporter_email, u.role AS reporter_role, u.created_at AS reporter_since
      FROM discrepancy_reports dr LEFT JOIN questions q ON q.id = dr.question_id
      LEFT JOIN users u ON u.id = dr.reported_by
      WHERE dr.id = $1`,
-    [req.params.id]
+    [rid]
   );
   if (!result.rows.length) return res.status(404).json({ error: 'Report not found' });
   res.json({ report: result.rows[0] });
 });
 
-router.patch('/reports/:id', authenticate, authorize('admin'), async (req, res) => {
+router.patch('/reports/:id(\\d+)', authenticate, authorize('admin'), async (req, res) => {
+  const rid = Number(req.params.id);
+  if (!rid || !Number.isInteger(rid)) return res.status(400).json({ error: 'Invalid report ID' });
   const { status } = req.body;
+  if (!status || !['open', 'resolved', 'dismissed'].includes(status)) {
+    return res.status(400).json({ error: 'status must be one of: open, resolved, dismissed' });
+  }
   const result = await pool.query(
-    "UPDATE discrepancy_reports SET status = $1 WHERE id = $2 AND status IN ('open') RETURNING *",
-    [status, req.params.id]
+    'UPDATE discrepancy_reports SET status = $1 WHERE id = $2 RETURNING *',
+    [status, rid]
   );
+  if (!result.rows.length) return res.status(404).json({ error: 'Report not found' });
   res.json({ report: result.rows[0] });
 });
 
-router.get('/:id', async (req, res) => {
+router.get('/:id(\\d+)', async (req, res) => {
+  const qid = Number(req.params.id);
+  if (!qid || !Number.isInteger(qid)) return res.status(400).json({ error: 'Invalid question ID' });
   const result = await pool.query(
     `SELECT q.*, s.title AS subject_title, c.title AS chapter_title
      FROM questions q
      LEFT JOIN subjects s ON s.id = q.subject_id
      LEFT JOIN chapters c ON c.id = q.chapter_id
      WHERE q.id = $1 AND q.deleted_at IS NULL`,
-    [req.params.id]
+    [qid]
   );
   if (!result.rows.length) return res.status(404).json({ error: 'Question not found' });
   res.json({ question: result.rows[0] });
 });
 
-router.post('/:id/restore', authenticate, authorize('admin'), async (req, res) => {
-  await pool.query('UPDATE questions SET deleted_at = NULL WHERE id = $1', [req.params.id]);
+router.post('/:id(\\d+)/restore', authenticate, authorize('admin'), async (req, res) => {
+  const qid = Number(req.params.id);
+  if (!qid || !Number.isInteger(qid)) return res.status(400).json({ error: 'Invalid question ID' });
+  const result = await pool.query('UPDATE questions SET deleted_at = NULL WHERE id = $1 RETURNING id', [qid]);
+  if (!result.rows.length) return res.status(404).json({ error: 'Question not found' });
   res.json({ ok: true });
 });
 
-router.delete('/:id/permanent', authenticate, authorize('admin'), async (req, res) => {
+router.delete('/:id(\\d+)/permanent', authenticate, authorize('admin'), async (req, res) => {
   const qid = Number(req.params.id);
-  if (!qid) return res.status(400).json({ error: 'Invalid ID' });
+  if (!qid || !Number.isInteger(qid)) return res.status(400).json({ error: 'Invalid ID' });
 
   try {
     await pool.query('UPDATE doubts SET question_id = NULL WHERE question_id = $1', [qid]);

@@ -50,8 +50,8 @@ const STUDENT_NAV = [
     accent: '#10b981',
     accentRgb: '16, 185, 129',
     children: [
-      { to: '/my-results', icon: History, label: 'Exam Results' },
-      { to: '/exam-history', icon: CalendarClock, label: 'Exam History' },
+      { to: '/my-results', icon: History, label: 'Exam History' },
+      { to: '/exam-history', icon: CalendarClock, label: 'Performance' },
       { to: '/analytics', icon: BarChart3, label: 'Analytics' },
     ],
   },

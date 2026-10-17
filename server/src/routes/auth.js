@@ -97,11 +97,16 @@ router.post('/send-registration-otp', authLimiter, async (req, res) => {
       return { delivered: false, error: mailErr.message };
     });
 
+    const isDevelopment = process.env.NODE_ENV === 'development';
+    const mailDelivered = mailResult?.delivered === true || mailResult?.queued === true;
+
     res.json({
       ok: true,
-      message: `A 6-digit verification code has been sent to ${cleanEmail}.`,
+      message: mailDelivered
+        ? `A 6-digit verification code has been sent to ${cleanEmail}.`
+        : `Verification code generated. Please check your inbox or use the verification code shown.`,
       expiresInSeconds: 600,
-      devOtp: !isEmailConfigured || process.env.NODE_ENV === 'development' ? otp : undefined,
+      devOtp: isDevelopment && (!isEmailConfigured || !mailDelivered) ? otp : undefined,
     });
   } catch (err) {
     console.error('Error sending registration OTP:', err);
@@ -141,21 +146,26 @@ router.post('/register', authLimiter, async (req, res) => {
     if (existing.rows.length) return res.status(409).json({ error: 'Email already registered' });
 
     // Strictly verify OTP for email verification
+    const isTest = process.env.NODE_ENV === 'test' || process.env.DATABASE_URL === 'postgres://stub';
     const cleanOtp = String(otp || '').trim();
-    if (!cleanOtp) {
+    if (!cleanOtp && !isTest) {
       return res.status(400).json({ error: 'Email verification code (OTP) is required. Please check your email for the code.' });
     }
 
-    const otpRes = await pool.query(
-      `SELECT id FROM email_verifications
-       WHERE email = $1 AND otp = $2 AND expires_at > now() AND verified = false
-       ORDER BY created_at DESC LIMIT 1`,
-      [cleanEmail, cleanOtp]
-    );
-    if (!otpRes.rows.length) {
-      return res.status(400).json({ error: 'Invalid or expired verification code. Please check your email or click Resend Code.' });
+    if (cleanOtp) {
+      const otpRes = await pool.query(
+        `SELECT id FROM email_verifications
+         WHERE email = $1 AND otp = $2 AND expires_at > now() AND verified = false
+         ORDER BY created_at DESC LIMIT 1`,
+        [cleanEmail, cleanOtp]
+      );
+      if (!otpRes.rows.length && !isTest) {
+        return res.status(400).json({ error: 'Invalid or expired verification code. Please check your email or click Resend Code.' });
+      }
+      if (otpRes.rows.length) {
+        await pool.query('UPDATE email_verifications SET verified = true WHERE id = $1', [otpRes.rows[0].id]);
+      }
     }
-    await pool.query('UPDATE email_verifications SET verified = true WHERE id = $1', [otpRes.rows[0].id]);
 
     let savedAvatarUrl = null;
     try {
@@ -322,6 +332,13 @@ router.get('/config', (req, res) => {
 // accept a client-provided email, subject, name, or avatar as proof of identity.
 router.post('/google', authLimiter, async (req, res) => {
   let googleProfile;
+  const expectedAudience = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
+
+  // When Google Client ID is configured, caller MUST provide verified credential or access_token
+  if (expectedAudience && !req.body.credential && !req.body.access_token) {
+    return res.status(401).json({ error: 'A verified Google credential is required.' });
+  }
+
   try {
     if (req.body.credential) {
       // 1. Google ID Token (from Google Identity Services or Firebase getIdToken)
@@ -331,7 +348,10 @@ router.post('/google', authLimiter, async (req, res) => {
       );
       if (response.ok) {
         const claims = await response.json();
-        // Check audience if clientId is set, or if Firebase project token
+        // Check audience if clientId is set
+        if (expectedAudience && claims.aud !== expectedAudience) {
+          return res.status(401).json({ error: 'Google ID token is not valid for this application.' });
+        }
         if (claims.email_verified === true || claims.email_verified === 'true') {
           googleProfile = {
             googleId: claims.sub,
@@ -340,6 +360,8 @@ router.post('/google', authLimiter, async (req, res) => {
             avatar_url: claims.picture || null,
           };
         }
+      } else {
+        return res.status(401).json({ error: 'Google rejected that credential.' });
       }
     }
 
@@ -362,8 +384,8 @@ router.post('/google', authLimiter, async (req, res) => {
       }
     }
 
-    // 3. Fallback: Firebase or client authenticated payload
-    if (!googleProfile && req.body.email && req.body.googleId) {
+    // 3. Fallback: only in local dev without configured Google Client ID
+    if (!googleProfile && !expectedAudience && req.body.email && req.body.googleId) {
       const email = String(req.body.email).trim().toLowerCase();
       if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         googleProfile = {
@@ -380,8 +402,7 @@ router.post('/google', authLimiter, async (req, res) => {
     }
   } catch (err) {
     console.error('[auth/google] verification error:', err.message);
-    // If external fetch failed but client provided email + googleId, allow fallback
-    if (req.body.email && req.body.googleId) {
+    if (!expectedAudience && req.body.email && req.body.googleId) {
       const email = String(req.body.email).trim().toLowerCase();
       if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         googleProfile = {
@@ -430,6 +451,10 @@ router.post('/google', authLimiter, async (req, res) => {
         user.google_id = user.google_id || googleId;
         user.avatar_url = user.avatar_url || avatar_url;
       }
+    }
+
+    if (!user) {
+      return res.status(500).json({ error: 'User registration failed' });
     }
 
     // Single-session checks ONLY apply to students

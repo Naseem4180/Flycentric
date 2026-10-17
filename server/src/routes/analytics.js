@@ -416,12 +416,17 @@ router.get('/me', authenticate, async (req, res) => {
   // courses they never bought, so coverage (and therefore readiness) was
   // pushed artificially towards zero and could never reach 100%.
   const coverageParams = [req.user.id];
-  let coverageSubjectClause = '';
-  if (subject_id) { coverageParams.push(subject_id); coverageSubjectClause = `AND qn.subject_id = $${coverageParams.length}`; }
+  let totalSubtopicsSubjectClause = '';
+  let allSubtopicsSubjectClause = '';
+  if (subject_id) {
+    coverageParams.push(subject_id);
+    totalSubtopicsSubjectClause = `AND (qn.subject_id = $${coverageParams.length} OR qn.chapter_id IN (SELECT id FROM chapters WHERE subject_id = $${coverageParams.length}))`;
+    allSubtopicsSubjectClause = `AND s.id = $${coverageParams.length}`;
+  }
   const totalSubtopicsResult = await pool.query(
     `SELECT COUNT(DISTINCT COALESCE(qn.tags[1], 'Untagged'))::int AS c
      FROM questions qn
-     WHERE qn.deleted_at IS NULL AND qn.is_latest = true ${coverageSubjectClause}
+     WHERE qn.deleted_at IS NULL AND qn.is_latest = true ${totalSubtopicsSubjectClause}
        AND EXISTS (
          SELECT 1 FROM quizzes q
          JOIN bundle_access ba ON ba.user_id = $1
@@ -463,7 +468,7 @@ router.get('/me', authenticate, async (req, res) => {
      JOIN quizzes q ON qq.id = ANY(q.question_ids) AND q.deleted_at IS NULL AND q.status = 'published' AND q.source IS DISTINCT FROM 'memory_bank'
      LEFT JOIN chapters c ON c.id = qq.chapter_id
      LEFT JOIN subjects s ON s.id = COALESCE(qq.subject_id, c.subject_id, q.subject_id)
-     WHERE qq.deleted_at IS NULL AND qq.is_latest = true ${coverageSubjectClause}
+     WHERE qq.deleted_at IS NULL AND qq.is_latest = true ${allSubtopicsSubjectClause}
        AND (
          $1::int IN (SELECT id FROM users WHERE role IN ('admin', 'instructor'))
          OR EXISTS (

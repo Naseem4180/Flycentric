@@ -1,5 +1,6 @@
 if (!process.env.NODE_ENV || process.env.NODE_ENV === 'development') {
   require('dotenv').config({ override: process.env.NODE_ENV === 'development' });
+  if (!process.env.NODE_ENV) process.env.NODE_ENV = 'development';
 }
 require('express-async-errors');
 const express = require('express');

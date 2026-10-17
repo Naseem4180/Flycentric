@@ -19,8 +19,17 @@ const RANGES = [
   { key: '90', label: '90 Days', days: 90 },
 ];
 
+function formatPct(val) {
+  if (val == null || val === '' || isNaN(Number(val))) return '—';
+  const num = Number(val);
+  return `${Math.round(num * 10) / 10}%`;
+}
+
 function dayKey(date) {
-  return date.toISOString().slice(0, 10);
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 function buildActivity(attempts, days) {
@@ -100,7 +109,7 @@ export default function StudentAnalytics() {
     return (
       <div className="page">
         <div className="container">
-          <PageSkeleton label="Calibrating flight telemetry & performance analytics..." />
+          <PageSkeleton label="Loading performance analytics..." />
         </div>
       </div>
     );
@@ -161,18 +170,18 @@ export default function StudentAnalytics() {
   const readinessScore = readiness.score;
   const readinessColor = readinessScore >= 80 ? '#16a34a' : readinessScore >= 60 ? '#f59e0b' : '#3b82f6';
   const readinessLabel = readinessScore >= 80
-    ? 'DGCA Exam Ready'
+    ? 'Exam Ready'
     : readinessScore >= 60
-    ? 'Approaching Target Standard'
+    ? 'Approaching Target'
     : readinessScore != null
-    ? 'Training In Progress'
-    : 'Telemetry Calibrating';
+    ? 'In Progress'
+    : 'Calculating';
 
   return (
     <div className="page" style={{ paddingBottom: 60 }}>
       <div className="container">
 
-        {/* FLIGHT TELEMETRY HEADER & COCKPIT CONTROLS */}
+        {/* HEADER & CONTROLS */}
         <div style={{
           display: 'flex',
           flexWrap: 'wrap',
@@ -187,21 +196,11 @@ export default function StudentAnalytics() {
           marginBottom: 24,
         }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <span className="badge badge-accent" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.72rem', padding: '3px 8px' }}>
-                <Activity size={12} /> DGCA Ground School Telemetry
-              </span>
-              {subjectId && (
-                <span className="badge" style={{ background: '#e0f2fe', color: '#0369a1', fontSize: '0.72rem', padding: '3px 8px' }}>
-                  Subject Filter Active
-                </span>
-              )}
-            </div>
             <h1 style={{ fontSize: '1.75rem', fontWeight: 900, margin: 0, color: 'var(--text)', letterSpacing: '-0.02em' }}>
-              Performance Cockpit
+              Performance &amp; Analytics
             </h1>
             <p className="muted" style={{ margin: '4px 0 0', fontSize: '0.88rem' }}>
-              Real-time predictive readiness index, syllabus domain mastery, and CBT simulator history.
+              Track your exam readiness, subject mastery, and practice performance.
             </p>
           </div>
 
@@ -224,7 +223,7 @@ export default function StudentAnalytics() {
                   cursor: 'pointer',
                 }}
               >
-                <option value="">All Ground School Subjects</option>
+                <option value="">All Subjects</option>
                 {subjects.map((sub) => (
                   <option key={sub.id} value={sub.id}>{sub.title}</option>
                 ))}
@@ -245,10 +244,10 @@ export default function StudentAnalytics() {
 
         {error && <div className="error-banner" style={{ marginBottom: 20 }}>{error}</div>}
 
-        {/* PRIMARY FLIGHT INSTRUMENTS STRIP (4 MODERN KPI CARDS) */}
+        {/* 4 KPI CARDS */}
         <div className="analytics-instruments-grid">
 
-          {/* INSTRUMENT 1: PREDICTIVE READINESS GAUGE */}
+          {/* CARD 1: EXAM READINESS */}
           <div className="analytics-instrument-card" style={{
             background: 'var(--surface)',
             borderRadius: 16,
@@ -260,7 +259,7 @@ export default function StudentAnalytics() {
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <span style={{ fontSize: '0.74rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <ShieldCheck size={14} style={{ color: readinessColor }} /> Exam Readiness Index
+                <ShieldCheck size={14} style={{ color: readinessColor }} /> Exam Readiness
               </span>
               <span style={{
                 fontSize: '0.72rem',
@@ -278,10 +277,10 @@ export default function StudentAnalytics() {
               <Gauge value={readinessScore ?? (overall.avg_score ? parseFloat(overall.avg_score) : 0)} size={92} />
               <div>
                 <div style={{ fontSize: '1.8rem', fontWeight: 900, color: 'var(--text)', lineHeight: 1 }}>
-                  {readinessScore != null ? `${readinessScore}%` : overall.avg_score ? `${overall.avg_score}%` : '—'}
+                  {readinessScore != null ? `${readinessScore}%` : overall.avg_score ? formatPct(overall.avg_score) : '—'}
                 </div>
                 <div style={{ fontSize: '0.78rem', color: 'var(--muted)', marginTop: 4 }}>
-                  Predictive DGCA Score
+                  Estimated Score
                 </div>
                 <div style={{ fontSize: '0.72rem', color: 'var(--muted)', marginTop: 2 }}>
                   Based on {readiness.basedOnAttempts || overall.attempts || 0} attempts
@@ -300,26 +299,26 @@ export default function StudentAnalytics() {
             }}>
               <div style={{ textAlign: 'center' }}>
                 <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text)' }}>
-                  {readiness.components?.recentAccuracy != null ? `${readiness.components.recentAccuracy}%` : '—'}
+                  {formatPct(readiness.components?.recentAccuracy)}
                 </div>
                 <div style={{ fontSize: '0.68rem', color: 'var(--muted)', textTransform: 'uppercase' }}>Accuracy</div>
               </div>
               <div style={{ textAlign: 'center', borderLeft: '1px solid var(--border)', borderRight: '1px solid var(--border)' }}>
                 <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text)' }}>
-                  {readiness.components?.subtopicCoverage != null ? `${readiness.components.subtopicCoverage}%` : '—'}
+                  {formatPct(readiness.components?.subtopicCoverage)}
                 </div>
                 <div style={{ fontSize: '0.68rem', color: 'var(--muted)', textTransform: 'uppercase' }}>Coverage</div>
               </div>
               <div style={{ textAlign: 'center' }}>
                 <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text)' }}>
-                  {readiness.components?.consistency != null ? `${readiness.components.consistency}%` : '—'}
+                  {formatPct(readiness.components?.consistency)}
                 </div>
-                <div style={{ fontSize: '0.68rem', color: 'var(--muted)', textTransform: 'uppercase' }}>Stability</div>
+                <div style={{ fontSize: '0.68rem', color: 'var(--muted)', textTransform: 'uppercase' }}>Consistency</div>
               </div>
             </div>
           </div>
 
-          {/* INSTRUMENT 2: OFFICIAL CBT EXAM PERFORMANCE */}
+          {/* CARD 2: OFFICIAL EXAMS */}
           <div className="analytics-instrument-card" style={{
             background: 'var(--surface)',
             borderRadius: 16,
@@ -329,24 +328,24 @@ export default function StudentAnalytics() {
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <span style={{ fontSize: '0.74rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Award size={14} style={{ color: 'var(--primary)' }} /> Official CBT Exams
+                <Award size={14} style={{ color: 'var(--primary)' }} /> Official Exams
               </span>
               <span className="badge badge-accent" style={{ fontSize: '0.7rem' }}>
-                Exam Mode
+                Official
               </span>
             </div>
 
             <div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                 <span style={{ fontSize: '2.2rem', fontWeight: 900, color: 'var(--primary)', lineHeight: 1 }}>
-                  {overall.best_score != null ? `${overall.best_score}%` : '—'}
+                  {formatPct(overall.best_score)}
                 </span>
                 <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--muted)' }}>
-                  Best Exam Score
+                  Best Score
                 </span>
               </div>
               <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginTop: 8 }}>
-                Average Official Score: <strong style={{ color: 'var(--text)' }}>{overall.avg_score != null ? `${overall.avg_score}%` : '—'}</strong>
+                Average Score: <strong style={{ color: 'var(--text)' }}>{formatPct(overall.avg_score)}</strong>
               </div>
             </div>
 
@@ -360,7 +359,7 @@ export default function StudentAnalytics() {
               fontSize: '0.78rem',
             }}>
               <span className="muted">
-                Official Exams Taken: <strong style={{ color: 'var(--text)' }}>{overall.attempts || 0}</strong>
+                Exams Taken: <strong style={{ color: 'var(--text)' }}>{overall.attempts || 0}</strong>
               </span>
               <span className="muted">
                 Unique Exams: <strong style={{ color: 'var(--text)' }}>{overall.quizzes_attempted || 0}</strong>
@@ -368,7 +367,7 @@ export default function StudentAnalytics() {
             </div>
           </div>
 
-          {/* INSTRUMENT 3: LEARNING MATRIX (PRACTICE ASSIGNMENTS) */}
+          {/* CARD 3: PRACTICE ASSIGNMENTS */}
           <div className="analytics-instrument-card" style={{
             background: 'var(--surface)',
             borderRadius: 16,
@@ -378,31 +377,31 @@ export default function StudentAnalytics() {
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <span style={{ fontSize: '0.74rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Layers size={14} style={{ color: '#16a34a' }} /> Learning Matrix
+                <Layers size={14} style={{ color: '#16a34a' }} /> Practice Assignments
               </span>
               <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '3px 8px', borderRadius: 999, background: '#dcfce7', color: '#15803d' }}>
-                Practice Assignments
+                Assignments
               </span>
             </div>
 
             <div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                 <span style={{ fontSize: '2.2rem', fontWeight: 900, color: '#16a34a', lineHeight: 1 }}>
-                  {learningMatrix?.cumulative_avg_assignment_score != null ? `${learningMatrix.cumulative_avg_assignment_score}%` : '—'}
+                  {formatPct(learningMatrix?.cumulative_avg_assignment_score)}
                 </span>
                 <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--muted)' }}>
-                  Cumulative Avg
+                  Average Score
                 </span>
               </div>
               <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginTop: 8 }}>
-                Avg of Best Scores: <strong style={{ color: 'var(--text)' }}>{learningMatrix?.avg_best_assignment_score != null ? `${learningMatrix.avg_best_assignment_score}%` : '—'}</strong>
+                Best Average: <strong style={{ color: 'var(--text)' }}>{formatPct(learningMatrix?.avg_best_assignment_score)}</strong>
               </div>
             </div>
 
             {/* Assignment Completion Progress */}
             <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: 5 }}>
-                <span className="muted">Syllabus Completion</span>
+                <span className="muted">Completion</span>
                 <strong style={{ color: 'var(--text)' }}>{learningMatrix?.assignment_completion || '0 / 0'} ({learningMatrix?.assignment_completion_ratio ?? 0}%)</strong>
               </div>
               <div style={{ width: '100%', height: 6, background: 'var(--border)', borderRadius: 999, overflow: 'hidden' }}>
@@ -417,7 +416,7 @@ export default function StudentAnalytics() {
             </div>
           </div>
 
-          {/* INSTRUMENT 4: PERFORMANCE INDICATOR (PRACTICE TESTS) */}
+          {/* CARD 4: PRACTICE TESTS */}
           <div className="analytics-instrument-card" style={{
             background: 'var(--surface)',
             borderRadius: 16,
@@ -427,24 +426,24 @@ export default function StudentAnalytics() {
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <span style={{ fontSize: '0.74rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <TrendingUp size={14} style={{ color: '#8b5cf6' }} /> Performance Indicator
+                <TrendingUp size={14} style={{ color: '#8b5cf6' }} /> Practice Tests
               </span>
               <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '3px 8px', borderRadius: 999, background: '#ede9fe', color: '#6d28d9' }}>
-                Practice Tests
+                Practice
               </span>
             </div>
 
             <div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                 <span style={{ fontSize: '2.2rem', fontWeight: 900, color: '#8b5cf6', lineHeight: 1 }}>
-                  {performanceIndicator?.avg_best_test_score != null ? `${performanceIndicator.avg_best_test_score}%` : '—'}
+                  {formatPct(performanceIndicator?.avg_best_test_score)}
                 </span>
                 <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--muted)' }}>
-                  Avg Best Test
+                  Best Average
                 </span>
               </div>
               <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginTop: 8 }}>
-                Cumulative Practice Avg: <strong style={{ color: 'var(--text)' }}>{performanceIndicator?.cumulative_avg_test_score != null ? `${performanceIndicator.cumulative_avg_test_score}%` : '—'}</strong>
+                Average Score: <strong style={{ color: 'var(--text)' }}>{formatPct(performanceIndicator?.cumulative_avg_test_score)}</strong>
               </div>
             </div>
 
@@ -458,7 +457,7 @@ export default function StudentAnalytics() {
               fontSize: '0.78rem',
             }}>
               <span className="muted">
-                Assessments Completed: <strong style={{ color: 'var(--text)' }}>{performanceIndicator?.tests_completed || 0}</strong>
+                Tests Completed: <strong style={{ color: 'var(--text)' }}>{performanceIndicator?.tests_completed || 0}</strong>
               </span>
               <Link to="/quizzes" style={{ color: 'var(--primary)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                 Practice <ArrowUpRight size={12} />
@@ -468,7 +467,7 @@ export default function StudentAnalytics() {
 
         </div>
 
-        {/* COCKPIT TABS NAVIGATION */}
+        {/* TABS NAVIGATION */}
         <div className="student-tabs-rail" style={{
           display: 'flex',
           gap: 8,
@@ -502,7 +501,7 @@ export default function StudentAnalytics() {
               transition: 'all 0.15s ease',
             }}
           >
-            <Clock size={16} /> Overview &amp; Activity History
+            <Clock size={16} /> Overview &amp; Activity
           </button>
 
           <button
@@ -528,7 +527,7 @@ export default function StudentAnalytics() {
               transition: 'all 0.15s ease',
             }}
           >
-            <Compass size={16} /> Domain Mastery &amp; Radar
+            <Compass size={16} /> Subject Mastery
             {masteryBySubject.length > 0 && (
               <span style={{ fontSize: '0.72rem', background: 'var(--border)', padding: '2px 7px', borderRadius: 999, color: 'var(--text)' }}>
                 {masteryBySubject.length}
@@ -559,7 +558,7 @@ export default function StudentAnalytics() {
               transition: 'all 0.15s ease',
             }}
           >
-            <AlertTriangle size={16} style={{ color: weakTopics.length ? '#ef4444' : 'inherit' }} /> Weak Topics Remediation
+            <AlertTriangle size={16} style={{ color: weakTopics.length ? '#ef4444' : 'inherit' }} /> Weak Topics
             {weakTopics.length > 0 && (
               <span style={{ fontSize: '0.72rem', background: '#fee2e2', color: '#b91c1c', padding: '2px 7px', borderRadius: 999, fontWeight: 800 }}>
                 {weakTopics.length}
@@ -590,7 +589,7 @@ export default function StudentAnalytics() {
               transition: 'all 0.15s ease',
             }}
           >
-            <FileCheck size={16} /> CBT Exam Logs
+            <FileCheck size={16} /> Exam History
             {attempts.length > 0 && (
               <span style={{ fontSize: '0.72rem', background: 'var(--border)', padding: '2px 7px', borderRadius: 999, color: 'var(--text)' }}>
                 {attempts.length}
@@ -600,12 +599,12 @@ export default function StudentAnalytics() {
         </div>
 
         {/* ===================================================================
-            TAB 1: OVERVIEW & ACTIVITY HISTORY
+            TAB 1: OVERVIEW & ACTIVITY
            =================================================================== */}
         {activeTab === 'overview' && (
           <div style={{ display: 'grid', gap: 24 }}>
 
-            {/* ACTIVITY HISTORY CARD */}
+            {/* ACTIVITY CARD */}
             <div style={{
               background: 'var(--surface)',
               borderRadius: 16,
@@ -625,11 +624,11 @@ export default function StudentAnalytics() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <BarChart3 size={18} style={{ color: 'var(--primary)' }} />
                     <h2 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0, color: 'var(--text)' }}>
-                      Flight Training Activity Volume
+                      Study Activity
                     </h2>
                   </div>
                   <p className="muted" style={{ margin: '4px 0 0', fontSize: '0.82rem' }}>
-                    Daily quiz submissions and flight simulation frequency over time.
+                    Daily quiz and exam activity over time.
                   </p>
                 </div>
 
@@ -659,20 +658,20 @@ export default function StudentAnalytics() {
               </div>
 
               {/* Chart Container */}
-              <div style={{ height: 260, width: '100%', marginTop: 8 }}>
-                <ResponsiveContainer width="100%" height="100%">
+              <div style={{ height: 260, minHeight: 260, width: '100%', marginTop: 8, position: 'relative' }}>
+                <ResponsiveContainer width="100%" height={260} minHeight={260} initialDimension={{ width: 600, height: 260 }}>
                   <BarChart data={activity} margin={{ top: 16, right: 16, left: -10, bottom: 20 }}>
-                    <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="3 3" />
+                    <CartesianGrid vertical={false} stroke="var(--border, #e2e8f0)" strokeDasharray="3 3" />
                     <XAxis
                       dataKey="label"
-                      tick={{ fontSize: 11, fill: 'var(--muted)' }}
+                      tick={{ fontSize: 11, fill: 'var(--muted, #64748b)' }}
                       interval={rangeDays > 14 ? Math.floor(rangeDays / 10) : 0}
-                      axisLine={{ stroke: 'var(--border)' }}
+                      axisLine={{ stroke: 'var(--border, #e2e8f0)' }}
                       tickLine={false}
                     />
                     <YAxis
                       allowDecimals={false}
-                      tick={{ fontSize: 11, fill: 'var(--muted)' }}
+                      tick={{ fontSize: 11, fill: 'var(--muted, #64748b)' }}
                       axisLine={false}
                       tickLine={false}
                       width={28}
@@ -681,19 +680,19 @@ export default function StudentAnalytics() {
                       cursor={{ fill: 'rgba(59, 130, 246, 0.08)' }}
                       contentStyle={{
                         borderRadius: 10,
-                        border: '1px solid var(--border)',
-                        background: 'var(--surface)',
-                        color: 'var(--text)',
+                        border: '1px solid var(--border, #e2e8f0)',
+                        background: 'var(--surface, #ffffff)',
+                        color: 'var(--text, #0f172a)',
                         boxShadow: 'var(--shadow-pop)',
                         fontSize: '0.82rem',
                       }}
-                      formatter={(val) => [`${val} quizzes submitted`, 'Training Activity']}
+                      formatter={(val) => [`${val} quizzes completed`, 'Activity']}
                     />
-                    <Bar dataKey="count" radius={[6, 6, 0, 0]}>
+                    <Bar dataKey="count" radius={[6, 6, 0, 0]} maxBarSize={48} isAnimationActive={false}>
                       {activity.map((d) => (
                         <Cell
                           key={d.key}
-                          fill={d.isToday ? 'var(--primary)' : d.count > 0 ? '#38bdf8' : 'var(--border)'}
+                          fill={d.isToday ? 'var(--primary, #2563eb)' : d.count > 0 ? '#38bdf8' : 'var(--border, #e2e8f0)'}
                         />
                       ))}
                     </Bar>
@@ -715,13 +714,13 @@ export default function StudentAnalytics() {
               }}>
                 <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
                   <span className="muted">
-                    Total Quizzes Completed: <strong style={{ color: 'var(--text)' }}>{totalInRange}</strong>
+                    Total Completed: <strong style={{ color: 'var(--text)' }}>{totalInRange}</strong>
                   </span>
                   <span className="muted">
-                    Active Flight Days: <strong style={{ color: 'var(--text)' }}>{activeDaysInRange} of {rangeDays} days</strong>
+                    Active Days: <strong style={{ color: 'var(--text)' }}>{activeDaysInRange} of {rangeDays} days</strong>
                   </span>
                   <span className="muted">
-                    Consistency Rate: <strong style={{ color: 'var(--text)' }}>
+                    Consistency: <strong style={{ color: 'var(--text)' }}>
                       {rangeDays > 0 ? Math.round((activeDaysInRange / rangeDays) * 100) : 0}%
                     </strong>
                   </span>
@@ -751,11 +750,11 @@ export default function StudentAnalytics() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
                   <Target size={18} style={{ color: 'var(--primary)' }} />
                   <h3 style={{ fontSize: '1.05rem', fontWeight: 800, margin: 0, color: 'var(--text)' }}>
-                    Predictive Readiness Architecture
+                    Readiness Score Breakdown
                   </h3>
                 </div>
                 <p className="muted" style={{ fontSize: '0.82rem', margin: '0 0 16px' }}>
-                  FlyCentric combines 3 authoritative training signals to estimate your DGCA board exam readiness:
+                  Your exam readiness score is calculated from three performance metrics:
                 </p>
 
                 <div style={{ display: 'grid', gap: 14 }}>
@@ -763,11 +762,11 @@ export default function StudentAnalytics() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                       <strong style={{ fontSize: '0.85rem' }}>1. Recent Accuracy (50% weight)</strong>
                       <span style={{ fontWeight: 800, color: 'var(--primary)' }}>
-                        {readiness.components?.recentAccuracy != null ? `${readiness.components.recentAccuracy}%` : '—'}
+                        {formatPct(readiness.components?.recentAccuracy)}
                       </span>
                     </div>
                     <p className="muted" style={{ fontSize: '0.76rem', margin: 0 }}>
-                      Mean score across your last 5 submitted exam attempts.
+                      Average score across your last 5 submitted attempts.
                     </p>
                   </div>
 
@@ -775,11 +774,11 @@ export default function StudentAnalytics() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                       <strong style={{ fontSize: '0.85rem' }}>2. Syllabus Coverage (30% weight)</strong>
                       <span style={{ fontWeight: 800, color: '#16a34a' }}>
-                        {readiness.components?.subtopicCoverage != null ? `${readiness.components.subtopicCoverage}%` : '—'}
+                        {formatPct(readiness.components?.subtopicCoverage)}
                       </span>
                     </div>
                     <p className="muted" style={{ fontSize: '0.76rem', margin: 0 }}>
-                      Percentage of accessible DGCA syllabus subtopics attempted at least once.
+                      Percentage of syllabus subtopics attempted at least once.
                     </p>
                   </div>
 
@@ -787,11 +786,11 @@ export default function StudentAnalytics() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                       <strong style={{ fontSize: '0.85rem' }}>3. Score Consistency (20% weight)</strong>
                       <span style={{ fontWeight: 800, color: '#8b5cf6' }}>
-                        {readiness.components?.consistency != null ? `${readiness.components.consistency}%` : '—'}
+                        {formatPct(readiness.components?.consistency)}
                       </span>
                     </div>
                     <p className="muted" style={{ fontSize: '0.76rem', margin: 0 }}>
-                      Standard deviation stability metric. High stability indicates low score variance.
+                      Score stability across attempts (lower variance indicates higher consistency).
                     </p>
                   </div>
                 </div>
@@ -813,7 +812,7 @@ export default function StudentAnalytics() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <Clock size={18} style={{ color: 'var(--primary)' }} />
                       <h3 style={{ fontSize: '1.05rem', fontWeight: 800, margin: 0, color: 'var(--text)' }}>
-                        Recent Flight Attempts
+                        Recent Attempts
                       </h3>
                     </div>
                     <button
@@ -827,7 +826,7 @@ export default function StudentAnalytics() {
 
                   {recentAttempts.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '30px 10px' }}>
-                      <p className="muted" style={{ fontSize: '0.85rem', margin: 0 }}>No recent flight attempts logged yet.</p>
+                      <p className="muted" style={{ fontSize: '0.85rem', margin: 0 }}>No recent attempts logged yet.</p>
                       <Link to="/quizzes" className="btn btn-primary btn-sm" style={{ marginTop: 12, display: 'inline-flex' }}>
                         Take a Practice Quiz →
                       </Link>
@@ -882,7 +881,7 @@ export default function StudentAnalytics() {
 
                 <div style={{ marginTop: 16, textAlign: 'center' }}>
                   <Link to="/quizzes" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }}>
-                    Open Quiz &amp; Simulator Hub →
+                    Go to Quizzes →
                   </Link>
                 </div>
               </div>
@@ -893,12 +892,12 @@ export default function StudentAnalytics() {
         )}
 
         {/* ===================================================================
-            TAB 2: DOMAIN MASTERY & RADAR SPIDER
+            TAB 2: SUBJECT MASTERY
            =================================================================== */}
         {activeTab === 'mastery' && (
           <div style={{ display: 'grid', gap: 24 }}>
 
-            {/* 360° DOMAIN SPIDER RADAR CARD */}
+            {/* SUBJECT MASTERY RADAR CARD */}
             <div style={{
               background: 'var(--surface)',
               borderRadius: 16,
@@ -911,11 +910,11 @@ export default function StudentAnalytics() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Compass size={18} style={{ color: 'var(--primary)' }} />
                     <h2 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0, color: 'var(--text)' }}>
-                      Domain Mastery — You vs DGCA Batch Average
+                      Subject Mastery vs Class Average
                     </h2>
                   </div>
                   <p className="muted" style={{ margin: '4px 0 0', fontSize: '0.82rem' }}>
-                    Comparative spider chart benchmarking your subject accuracy against peer cadets.
+                    Compare your subject accuracy against the class average.
                   </p>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: '0.78rem' }}>
@@ -923,24 +922,24 @@ export default function StudentAnalytics() {
                     <span style={{ width: 12, height: 4, background: '#2563eb', borderRadius: 2 }} /> Your Mastery
                   </span>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--muted)', fontWeight: 600 }}>
-                    <span style={{ width: 12, height: 4, background: '#94a3b8', borderRadius: 2 }} /> Batch Benchmark
+                    <span style={{ width: 12, height: 4, background: '#94a3b8', borderRadius: 2 }} /> Class Average
                   </span>
                 </div>
               </div>
 
               {radarData.length >= 3 ? (
-                <div style={{ height: 360, width: '100%', marginTop: 10 }}>
-                  <ResponsiveContainer width="100%" height="100%">
+                <div style={{ height: 360, minHeight: 360, width: '100%', marginTop: 10, position: 'relative' }}>
+                  <ResponsiveContainer width="100%" height={360} minHeight={360} initialDimension={{ width: 600, height: 360 }}>
                     <RadarChart data={radarData} outerRadius="75%">
-                      <PolarGrid stroke="var(--border)" />
+                      <PolarGrid stroke="var(--border, #e2e8f0)" />
                       <PolarAngleAxis
                         dataKey="subject"
-                        tick={{ fontSize: 11, fill: 'var(--text)', fontWeight: 600 }}
+                        tick={{ fontSize: 11, fill: 'var(--text, #0f172a)', fontWeight: 600 }}
                       />
                       <PolarRadiusAxis
                         angle={90}
                         domain={[0, 100]}
-                        tick={{ fontSize: 10, fill: 'var(--muted)' }}
+                        tick={{ fontSize: 10, fill: 'var(--muted, #64748b)' }}
                       />
                       <Radar
                         name="Your Mastery"
@@ -948,21 +947,23 @@ export default function StudentAnalytics() {
                         stroke="#2563eb"
                         fill="#2563eb"
                         fillOpacity={0.35}
+                        isAnimationActive={false}
                       />
                       <Radar
-                        name="Batch Average"
+                        name="Class Average"
                         dataKey="batchAverage"
                         stroke="#94a3b8"
                         fill="#94a3b8"
                         fillOpacity={0.15}
+                        isAnimationActive={false}
                       />
                       <Legend wrapperStyle={{ fontSize: '0.8rem', paddingTop: 10 }} />
                       <Tooltip
                         contentStyle={{
                           borderRadius: 10,
-                          border: '1px solid var(--border)',
-                          background: 'var(--surface)',
-                          color: 'var(--text)',
+                          border: '1px solid var(--border, #e2e8f0)',
+                          background: 'var(--surface, #ffffff)',
+                          color: 'var(--text, #0f172a)',
                           boxShadow: 'var(--shadow-pop)',
                           fontSize: '0.82rem',
                         }}
@@ -981,10 +982,10 @@ export default function StudentAnalytics() {
                 }}>
                   <Compass size={36} style={{ color: 'var(--muted)', margin: '0 auto 10px' }} />
                   <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 6px' }}>
-                    Multi-Subject Radar Calibrating
+                    Subject Comparison Chart
                   </h3>
                   <p className="muted" style={{ maxWidth: 460, margin: '0 auto 16px', fontSize: '0.82rem' }}>
-                    Complete practice quizzes across at least 3 distinct aviation subjects (Navigation, Meteorology, Regs, etc.) to generate the 360° comparative radar spider.
+                    Complete practice quizzes across at least 3 subjects to generate the radar comparison chart.
                   </p>
                   <Link to="/my-subjects" className="btn btn-primary btn-sm">
                     Browse Enrolled Subjects →
@@ -993,7 +994,7 @@ export default function StudentAnalytics() {
               )}
             </div>
 
-            {/* SUBTOPIC MASTERY EXPLORER */}
+            {/* SUBTOPIC MASTERY */}
             <div style={{
               background: 'var(--surface)',
               borderRadius: 16,
@@ -1006,11 +1007,11 @@ export default function StudentAnalytics() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <BookOpen size={18} style={{ color: 'var(--primary)' }} />
                     <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0, color: 'var(--text)' }}>
-                      Subtopic Syllabus Mastery Explorer
+                      Subtopic Mastery
                     </h3>
                   </div>
                   <p className="muted" style={{ margin: '4px 0 0', fontSize: '0.82rem' }}>
-                    Detailed mastery index by subtopic and syllabus chapter.
+                    Detailed performance breakdown by subtopic and chapter.
                   </p>
                 </div>
 
@@ -1058,7 +1059,7 @@ export default function StudentAnalytics() {
                 <div style={{ textAlign: 'center', padding: '30px 10px', background: 'var(--bg)', borderRadius: 12 }}>
                   <p className="muted" style={{ fontSize: '0.85rem', margin: 0 }}>
                     {masteryBySubtopic.length === 0
-                      ? 'No subtopic mastery recorded yet. Take a quiz to populate telemetry.'
+                      ? 'No subtopic mastery recorded yet. Take a quiz to view your progress.'
                       : 'No subtopics match your current search or filter criteria.'}
                   </p>
                 </div>
@@ -1127,7 +1128,7 @@ export default function StudentAnalytics() {
         )}
 
         {/* ===================================================================
-            TAB 3: WEAK TOPICS REMEDIATION QUEUE
+            TAB 3: WEAK TOPICS
            =================================================================== */}
         {activeTab === 'weakTopics' && (
           <div>
@@ -1140,14 +1141,14 @@ export default function StudentAnalytics() {
             }}>
               <div>
                 <h2 style={{ fontSize: '1.25rem', fontWeight: 800, margin: 0, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <AlertTriangle size={20} style={{ color: '#ef4444' }} /> Active Remediation Queue
+                  <AlertTriangle size={20} style={{ color: '#ef4444' }} /> Weak Topics
                 </h2>
                 <p className="muted" style={{ margin: '4px 0 0', fontSize: '0.84rem' }}>
-                  Subtopics scoring 40% or below. Immediate targeted practice will directly raise your DGCA exam pass probability.
+                  Subtopics scoring 40% or below. Targeted practice will help raise your scores.
                 </p>
               </div>
               <span className="badge" style={{ background: '#fee2e2', color: '#b91c1c', fontWeight: 800 }}>
-                {weakTopics.length} Priority Weakness{weakTopics.length === 1 ? '' : 'es'}
+                {weakTopics.length} Topic{weakTopics.length === 1 ? '' : 's'}
               </span>
             </div>
 
@@ -1164,13 +1165,13 @@ export default function StudentAnalytics() {
                   <CheckCircle2 size={30} />
                 </div>
                 <h3 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 6px', color: 'var(--text)' }}>
-                  Zero Critical Weaknesses Detected!
+                  No Weak Topics Found
                 </h3>
                 <p className="muted" style={{ maxWidth: 500, margin: '0 auto 20px', fontSize: '0.88rem' }}>
-                  All subtopics you have attempted maintain mastery above the 40% threshold. Keep taking regular CBT assessments to preserve your flight knowledge.
+                  All attempted subtopics are above 40%. Keep practicing to maintain your progress!
                 </p>
                 <Link to="/quizzes" className="btn btn-primary">
-                  Launch CBT Simulator →
+                  Go to Quizzes →
                 </Link>
               </div>
             ) : (
@@ -1206,7 +1207,7 @@ export default function StudentAnalytics() {
                           textTransform: 'uppercase',
                           letterSpacing: '0.04em',
                         }}>
-                          Critical Weakness
+                          Needs Practice
                         </span>
                         <span style={{ fontSize: '1.1rem', fontWeight: 900, color: '#ef4444' }}>
                           {w.mastery_pct}%
@@ -1223,7 +1224,7 @@ export default function StudentAnalytics() {
                       {/* Accuracy bar */}
                       <div style={{ background: 'var(--bg)', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', marginBottom: 14 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.74rem', marginBottom: 5 }}>
-                          <span className="muted">Answer Accuracy</span>
+                          <span className="muted">Accuracy</span>
                           <strong style={{ color: 'var(--text)' }}>{w.correct} / {w.answered} correct</strong>
                         </div>
                         <div style={{ width: '100%', height: 6, background: 'var(--border)', borderRadius: 999, overflow: 'hidden' }}>
@@ -1244,7 +1245,7 @@ export default function StudentAnalytics() {
                         fontWeight: 700,
                       }}
                     >
-                      Practice in Question Bank →
+                      Practice Questions →
                     </Link>
                   </div>
                 ))}
@@ -1254,7 +1255,7 @@ export default function StudentAnalytics() {
         )}
 
         {/* ===================================================================
-            TAB 4: CBT EXAM LOGS
+            TAB 4: EXAM HISTORY
            =================================================================== */}
         {activeTab === 'history' && (
           <div style={{
@@ -1276,11 +1277,11 @@ export default function StudentAnalytics() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <FileCheck size={18} style={{ color: 'var(--primary)' }} />
                   <h2 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0, color: 'var(--text)' }}>
-                    CBT Simulator &amp; Assessment History
+                    Exam History
                   </h2>
                 </div>
                 <p className="muted" style={{ margin: '4px 0 0', fontSize: '0.82rem' }}>
-                  Comprehensive archive of all submitted official exams and practice attempts.
+                  Archive of all your submitted exams and practice attempts.
                 </p>
               </div>
 
@@ -1315,7 +1316,7 @@ export default function StudentAnalytics() {
                   }}
                 >
                   <option value="all">All Modes</option>
-                  <option value="exam">Official Exam Mode</option>
+                  <option value="exam">Official Exams</option>
                   <option value="practice">Practice Mode</option>
                 </select>
 
@@ -1347,11 +1348,11 @@ export default function StudentAnalytics() {
               <div style={{ textAlign: 'center', padding: '40px 10px', background: 'var(--bg)', borderRadius: 12 }}>
                 <p className="muted" style={{ fontSize: '0.88rem', margin: 0 }}>
                   {attempts.length === 0
-                    ? 'No flight attempts found. Launch your first CBT quiz to start recording telemetry.'
+                    ? 'No attempts found. Take a quiz to view your history here.'
                     : 'No quiz attempts match your active filter filters.'}
                 </p>
                 <Link to="/quizzes" className="btn btn-primary btn-sm" style={{ marginTop: 12, display: 'inline-flex' }}>
-                  Explore CBT Quizzes →
+                  Explore Quizzes →
                 </Link>
               </div>
             ) : (
@@ -1359,7 +1360,7 @@ export default function StudentAnalytics() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.86rem' }}>
                   <thead>
                     <tr style={{ borderBottom: '2px solid var(--border)', color: 'var(--muted)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                      <th style={{ padding: '12px 14px' }}>Flight Exam / Quiz</th>
+                      <th style={{ padding: '12px 14px' }}>Exam / Quiz</th>
                       <th style={{ padding: '12px 14px' }}>Mode</th>
                       <th style={{ padding: '12px 14px' }}>Status</th>
                       <th style={{ padding: '12px 14px' }}>Score</th>

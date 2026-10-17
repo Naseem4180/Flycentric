@@ -20,6 +20,7 @@ import useAuth from '../context/useAuth';
 import Logo from '../components/Logo';
 import {
   paletteStatus,
+  getAttemptProgress,
 } from '../utils/examBehavior';
 import FormattedQuestionText from '../components/FormattedQuestionText';
 
@@ -67,7 +68,7 @@ export default function TakeExam() {
   const isExam = !isPractice;
 
   // UI / Display settings
-  const [theme, setTheme] = useState(() => localStorage.getItem('fc_cbt_theme') || 'dark');
+  const [theme, setTheme] = useState(() => localStorage.getItem('fc_theme') || localStorage.getItem('fc_cbt_theme') || 'light');
   const [fontDelta, setFontDelta] = useState(() => {
     const saved = sessionStorage.getItem('fc_cbt_font_delta');
     return saved != null ? Number(saved) : 0;
@@ -79,6 +80,8 @@ export default function TakeExam() {
   const [confirmed, setConfirmed] = useState(false);
   const [fullscreenLost, setFullscreenLost] = useState(false);
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
+  const [showTabSwitchWarning, setShowTabSwitchWarning] = useState(true);
+  const [showLeaveDialog, setShowLeaveDialog] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const [textDraft, setTextDraft] = useState({});
   const [savedIds, setSavedIds] = useState(() => new Set());
@@ -96,6 +99,8 @@ export default function TakeExam() {
   const currentStripItemRef = useRef(null);
   const entryTimeRef = useRef(Date.now());
   const lockedNoticeTimeoutRef = useRef(null);
+  const previousDocumentThemeRef = useRef(null);
+  const canReturnToPreviousPageRef = useRef(window.history.length > 1);
   const attemptRef = useRef(attempt);
   attemptRef.current = attempt;
   const confirmedRef = useRef(confirmed);
@@ -103,8 +108,18 @@ export default function TakeExam() {
 
   // Sync theme to root DOM
   useEffect(() => {
+    const root = document.documentElement;
+    previousDocumentThemeRef.current = root.getAttribute('data-theme');
     document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('fc_cbt_theme', theme);
+    window.localStorage.setItem('fc_cbt_theme', theme);
+    window.localStorage.setItem('fc_theme', theme);
+    return () => {
+      if (previousDocumentThemeRef.current) {
+        root.setAttribute('data-theme', previousDocumentThemeRef.current);
+      } else {
+        root.removeAttribute('data-theme');
+      }
+    };
   }, [theme]);
 
   // Sync font delta
@@ -121,6 +136,18 @@ export default function TakeExam() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [zoomImage]);
+
+  useEffect(() => {
+    if (!showLeaveDialog) return undefined;
+    function handleLeaveDialogKeyDown(event) {
+      if (event.key === 'Escape' && !submitting) {
+        setShowLeaveDialog(false);
+        setError('');
+      }
+    }
+    window.addEventListener('keydown', handleLeaveDialogKeyDown);
+    return () => window.removeEventListener('keydown', handleLeaveDialogKeyDown);
+  }, [showLeaveDialog, submitting]);
 
   // Auto-scroll horizontal strip on mobile/tablet when current question changes
   useEffect(() => {
@@ -283,6 +310,7 @@ export default function TakeExam() {
     function onVisibilityChange() {
       if (document.hidden && !submittedRef.current) {
         setTabSwitchCount((c) => c + 1);
+        setShowTabSwitchWarning(true);
       }
     }
     document.addEventListener('visibilitychange', onVisibilityChange);
@@ -310,16 +338,13 @@ export default function TakeExam() {
     if (!confirmed || !attempt) return undefined;
     function onPopState() {
       if (submittedRef.current) return;
-      submittedRef.current = true;
-      flushTiming();
-      api.post(`/exams/attempts/${attempt.id}/submit`, { is_auto_submitted: true, auto_submit_reason: 'screen_exit' }, { silent: true }).catch(() => {});
-      exitFullscreenIfActive();
-      safeExit();
+      window.history.pushState(null, '', window.location.href);
+      setShowLeaveDialog(true);
     }
     window.history.pushState(null, '', window.location.href);
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
-  }, [confirmed, attempt, safeExit]);
+  }, [confirmed, attempt]);
 
   useEffect(() => {
     if (!attempt?.id || submittedRef.current) return undefined;
@@ -586,6 +611,39 @@ export default function TakeExam() {
     }
   }
 
+  async function handleLeaveExam() {
+    if (submitting) return;
+    setSubmitting(true);
+    setError('');
+
+    if (attempt?.id && !submittedRef.current) {
+      submittedRef.current = true;
+      flushTiming();
+      try {
+        await api.post(`/exams/attempts/${attempt.id}/submit`, {
+          is_auto_submitted: true,
+          auto_submit_reason: 'screen_exit',
+        });
+      } catch (e) {
+        submittedRef.current = false;
+        setSubmitting(false);
+        setError(e.message || 'Could not submit the exam. Please try again.');
+        return;
+      }
+    }
+
+    setShowLeaveDialog(false);
+    exitFullscreenIfActive();
+    setSubmitting(false);
+    if (canReturnToPreviousPageRef.current) {
+      navigate(-2);
+    } else if (quiz?.subject_id) {
+      navigate(`/subjects/${quiz.subject_id}`);
+    } else {
+      navigate('/');
+    }
+  }
+
   // Question & Stats summary
   const counts = useMemo(() => {
     const isAnswered = (qq) => {
@@ -642,7 +700,7 @@ export default function TakeExam() {
     : (remaining != null ? formatClock(remaining) : '--:--:--');
   const q = questions[current];
   const initial = (user?.name || 'A').trim().charAt(0).toUpperCase();
-  const progressPercent = questions.length ? Math.round(((current + 1) / questions.length) * 100) : 0;
+  const { percentage: progressPercent } = getAttemptProgress(questions, answers, textDraft);
   const isRevealed = isPractice && q && Boolean(revealedMap[q.id]);
   const currentFeedback = q ? feedback[q.id] : null;
 
@@ -652,28 +710,27 @@ export default function TakeExam() {
         !quiz ? (
           <div className="cbt-loading">Loading assessment…</div>
         ) : (
-          <div className="page" style={{ background: 'var(--paper, #0b0f1d)', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div className="page cbt-start-screen">
             <div className="container" style={{ maxWidth: 480, margin: '0 auto' }}>
-              <div className="card exam-confirm-card" style={{ background: '#12182b', border: '1px solid #1f2945', color: '#f8fafc', padding: '28px 24px', borderRadius: 14, boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}>
-                <span style={{ fontSize: '.8rem', color: '#6366f1', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 8 }}>
+              <div className="card exam-confirm-card cbt-start-card">
+                <span className="cbt-start-eyebrow">
                   {isPractice ? 'Practice Assignment' : 'Formal Examination'}
                 </span>
-                <h2 style={{ color: '#ffffff', margin: '0 0 12px', fontSize: '1.4rem' }}>{quiz.title}</h2>
-                <p className="muted" style={{ color: '#94a3b8', fontSize: '0.9rem', lineHeight: 1.6, margin: '0 0 24px' }}>
+                <h2>{quiz.title}</h2>
+                <p className="muted cbt-start-copy">
                   {isPractice
                     ? 'This is an untimed practice assignment. You can explore questions at your own pace, get immediate explanations, and submit when you are ready.'
                     : `This is a timed attempt (${quiz.duration_minutes ? quiz.duration_minutes + ' minutes' : 'timed'}). Once you proceed, the exam opens in full-screen mode and the timer starts immediately.`}
                 </p>
                 {error && (
-                  <div style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(239, 68, 68, 0.15)', border: '1px solid #ef4444', color: '#fca5a5', marginBottom: 16, fontSize: '0.85rem' }}>
+                  <div className="cbt-start-error">
                     {error}
                   </div>
                 )}
-                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <div className="cbt-start-actions">
                   <button
                     type="button"
                     className="cbt-btn cbt-btn-confirm"
-                    style={{ flex: 1, minWidth: 140, height: 42 }}
                     onClick={beginExam}
                   >
                     {isPractice ? 'Start Assignment' : 'Proceed with exam'}
@@ -681,7 +738,6 @@ export default function TakeExam() {
                   <button
                     type="button"
                     className="cbt-btn cbt-btn-prev"
-                    style={{ height: 42 }}
                     onClick={safeExit}
                   >
                     Cancel
@@ -767,6 +823,7 @@ export default function TakeExam() {
                 onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
                 title={theme === 'dark' ? 'Switch to Bright Mode' : 'Switch to Dark Mode'}
                 aria-label="Toggle bright / dark mode"
+                aria-pressed={theme === 'dark'}
               >
                 <Moon size={13} className="cbt-theme-moon" />
                 <Sun size={13} className="cbt-theme-sun" />
@@ -786,6 +843,7 @@ export default function TakeExam() {
                   type="button"
                   className="cbt-btn-end cbt-btn-end-practice"
                   onClick={handleExit}
+                  aria-label="End practice"
                 >
                   <span className="cbt-desktop-only">End practice</span>
                   <span className="cbt-mobile-only">End</span>
@@ -817,17 +875,35 @@ export default function TakeExam() {
           {fullscreenLost && (
             <div className="cbt-banner cbt-banner-warning cbt-desktop-only">
               <span>You exited full-screen. The exam is still running.</span>
-              <button className="cbt-banner-btn" onClick={() => containerRef.current?.requestFullscreen?.().catch(() => {})}>
-                Return to full screen
-              </button>
+              <div className="cbt-banner-actions">
+                <button className="cbt-banner-btn" onClick={() => containerRef.current?.requestFullscreen?.().catch(() => {})}>
+                  Return to full screen
+                </button>
+                <button
+                  type="button"
+                  className="cbt-banner-dismiss"
+                  onClick={() => setFullscreenLost(false)}
+                  aria-label="Dismiss full-screen warning"
+                >
+                  <X size={16} />
+                </button>
+              </div>
             </div>
           )}
 
-          {tabSwitchCount > 0 && (
+          {tabSwitchCount > 0 && showTabSwitchWarning && (
             <div className="cbt-banner cbt-banner-danger">
               <span>
                 Tab/app switch detected ({tabSwitchCount}× this attempt). Stay on this screen — switching away is logged as part of exam integrity.
               </span>
+              <button
+                type="button"
+                className="cbt-banner-dismiss"
+                onClick={() => setShowTabSwitchWarning(false)}
+                aria-label="Dismiss exam warning"
+              >
+                <X size={16} />
+              </button>
             </div>
           )}
 
@@ -846,6 +922,15 @@ export default function TakeExam() {
               {questions.map((qq, idx) => {
                 const status = paletteStatus(qq.id, visited, answers, marked, confirmedMap, isPractice);
                 const isCurrent = idx === current;
+                const statusLabel = isCurrent
+                  ? 'Current question'
+                  : status === 'answered'
+                    ? 'Answered'
+                    : status === 'flagged'
+                      ? 'Marked for review'
+                      : status === 'skipped'
+                        ? 'Visited, unanswered'
+                        : 'Not visited';
                 return (
                   <button
                     key={qq.id}
@@ -853,6 +938,8 @@ export default function TakeExam() {
                     ref={isCurrent ? currentStripItemRef : null}
                     className={`cbt-strip-btn ${status} ${isCurrent ? 'is-current' : ''}`}
                     onClick={() => goTo(idx)}
+                    aria-label={`Question ${idx + 1}: ${statusLabel}`}
+                    aria-current={isCurrent ? 'step' : undefined}
                   >
                     {idx + 1}
                   </button>
@@ -1282,15 +1369,66 @@ export default function TakeExam() {
             </div>
           )}
 
+          {showLeaveDialog && (
+            <div
+              className="cbt-modal-overlay cbt-leave-overlay"
+              role="presentation"
+              onMouseDown={(event) => {
+                if (event.target === event.currentTarget && !submitting) {
+                  setShowLeaveDialog(false);
+                  setError('');
+                }
+              }}
+            >
+              <section className="cbt-modal cbt-leave-modal" role="alertdialog" aria-modal="true" aria-labelledby="leave-exam-title">
+                <button
+                  type="button"
+                  className="cbt-leave-close"
+                  onClick={() => { setShowLeaveDialog(false); setError(''); }}
+                  disabled={submitting}
+                  aria-label="Stay in the exam"
+                >
+                  <X size={18} />
+                </button>
+                <span className="cbt-modal-eyebrow">Exam in progress</span>
+                <h2 id="leave-exam-title">
+                  Leave this {isPractice ? 'practice' : 'exam'}?
+                </h2>
+                <p className="cbt-modal-copy">
+                  Leaving now will submit your current {isPractice ? 'practice' : 'exam'} attempt. You can stay and continue answering instead.
+                </p>
+                {error && <p className="cbt-leave-error" role="alert">{error}</p>}
+                <div className="cbt-modal-actions cbt-leave-actions">
+                  <button
+                    type="button"
+                    className="cbt-btn cbt-btn-prev"
+                    onClick={() => { setShowLeaveDialog(false); setError(''); }}
+                    disabled={submitting}
+                  >
+                    Stay in exam
+                  </button>
+                  <button
+                    type="button"
+                    className="cbt-btn cbt-btn-confirm"
+                    onClick={handleLeaveExam}
+                    disabled={submitting}
+                  >
+                    {submitting ? 'Submitting…' : 'Leave & submit'}
+                  </button>
+                </div>
+              </section>
+            </div>
+          )}
+
           {/* Final Submit Summary Modal */}
           {showSummary && (
             <div className="cbt-modal-overlay" role="dialog" aria-modal="true">
-              <div className="cbt-modal" style={{ background: '#12182b', border: '1px solid #1f2945', color: '#ffffff' }}>
-                <span style={{ fontSize: '.8rem', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 6 }}>
+              <div className="cbt-modal">
+                <span className="cbt-modal-eyebrow">
                   {isPractice ? 'Practice summary' : 'Exam summary'}
                 </span>
                 <h2>Ready to submit?</h2>
-                <p className="muted" style={{ color: '#94a3b8' }}>
+                <p className="cbt-modal-copy">
                   Review your progress before the final submission. This action cannot be undone.
                 </p>
                 <div className="cbt-modal-stats">
@@ -1300,7 +1438,7 @@ export default function TakeExam() {
                   <div><strong style={{ color: '#a855f7' }}>{counts.flagged}</strong><span>Marked for review</span></div>
                 </div>
                 {counts.notAnswered > 0 && !isPractice && (
-                  <p className="cbt-modal-warning" style={{ color: '#f87171', fontSize: '0.86rem', marginTop: 12 }}>
+                  <p className="cbt-modal-warning">
                     {counts.notAnswered} question{counts.notAnswered === 1 ? '' : 's'} left unanswered.
                   </p>
                 )}

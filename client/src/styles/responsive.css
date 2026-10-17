@@ -1984,6 +1984,415 @@ img, svg, video, canvas { max-width: 100%; height: auto; }
   }
 }
 
+/* ==========================================================================
+   Final mobile polish shared by student, instructor, and admin modules
+   ========================================================================== */
+@media (max-width: 768px) {
+  body {
+    font-size: 16px;
+    line-height: 1.5;
+  }
+
+  .app-shell {
+    min-height: 100dvh;
+  }
+
+  .container {
+    padding-inline: 16px;
+  }
+
+  .admin-main,
+  .admin-main-inner,
+  .page,
+  .card,
+  .table-scroll,
+  .table-wrap {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .table-scroll,
+  .table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
+  select,
+  textarea,
+  .input {
+    max-width: 100%;
+    font-size: 16px;
+  }
+
+  .btn {
+    min-height: 40px;
+  }
+
+  .page-header h1,
+  .admin-page-title {
+    font-size: clamp(1.35rem, 5vw, 1.8rem);
+    line-height: 1.2;
+  }
+}
+
+@media (max-width: 640px) {
+  .container {
+    padding-inline: 12px;
+  }
+
+  .admin-main-inner {
+    padding-inline: 12px !important;
+  }
+
+  .page-header,
+  .page-header > div,
+  .section-title {
+    min-width: 0;
+  }
+
+  .page-header,
+  .section-title {
+    gap: 10px;
+  }
+
+  .tabs-row {
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .tabs-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tabs-row > * {
+    flex: 0 0 auto;
+  }
+}
+
+/* ==========================================================================
+   CBT exam and practice UI — readable, touch-friendly, theme-aware
+   ========================================================================== */
+.cbt-modal-eyebrow {
+  display: block;
+  margin-bottom: 6px;
+  color: #94a3b8;
+  font-size: .78rem;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.cbt-modal-copy {
+  color: #94a3b8;
+}
+
+.cbt-modal-warning {
+  margin-top: 12px;
+  color: #f87171;
+  font-size: .9rem;
+}
+
+.cbt-leave-modal {
+  position: relative;
+}
+
+.cbt-leave-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid #334155;
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+}
+
+.cbt-leave-error {
+  margin: 14px 0 0;
+  color: #f87171;
+  font-size: .9rem;
+}
+
+.cbt-banner-dismiss {
+  display: grid;
+  place-items: center;
+  flex: 0 0 36px;
+  width: 36px;
+  min-height: 36px;
+  padding: 0;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+}
+
+.cbt-banner-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+[data-theme='light'] .cbt-shell {
+  background: #f4f7fb !important;
+  color: #18212f !important;
+}
+
+[data-theme='light'] .cbt-shell:fullscreen {
+  background: #f4f7fb !important;
+}
+
+[data-theme='light'] .cbt-topbar,
+[data-theme='light'] .cbt-substrip,
+[data-theme='light'] .cbt-question-header,
+[data-theme='light'] .cbt-bottombar {
+  background: #ffffff !important;
+  border-color: #dfe5ee !important;
+  color: #18212f !important;
+}
+
+[data-theme='light'] .cbt-topbar {
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .06) !important;
+}
+
+[data-theme='light'] .cbt-topbar-center,
+[data-theme='light'] .cbt-brand-text,
+[data-theme='light'] .cbt-qnum-title,
+[data-theme='light'] .cbt-question-text,
+[data-theme='light'] .cbt-option-text,
+[data-theme='light'] .cbt-candidate-name {
+  color: #18212f !important;
+}
+
+[data-theme='light'] .cbt-main,
+[data-theme='light'] .cbt-body,
+[data-theme='light'] .cbt-question-area {
+  background: #f7f9fc !important;
+  color: #18212f !important;
+}
+
+[data-theme='light'] .cbt-option {
+  background: #ffffff !important;
+  border-color: #d9e0ea !important;
+  color: #18212f !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .03);
+}
+
+[data-theme='light'] .cbt-option:hover,
+[data-theme='light'] .cbt-option.is-selected {
+  background: #f1f5ff !important;
+  border-color: #7c83f6 !important;
+}
+
+[data-theme='light'] .cbt-letter-badge {
+  background: #eef0ff !important;
+  color: #4945c7 !important;
+}
+
+[data-theme='light'] .cbt-ctrl-btn,
+[data-theme='light'] .cbt-theme-toggle,
+[data-theme='light'] .cbt-timer,
+[data-theme='light'] .cbt-pill-action,
+[data-theme='light'] .cbt-strip-btn,
+[data-theme='light'] .cbt-strip-nav,
+[data-theme='light'] .cbt-btn-prev,
+[data-theme='light'] .cbt-btn-clear,
+[data-theme='light'] .cbt-btn-next-outline {
+  background: #ffffff !important;
+  border-color: #d9e0ea !important;
+  color: #253247 !important;
+}
+
+[data-theme='light'] .cbt-progress-track {
+  background: #e2e8f0 !important;
+}
+
+[data-theme='light'] .cbt-modal {
+  background: #ffffff !important;
+  border-color: #d9e0ea !important;
+  color: #18212f !important;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, .22) !important;
+}
+
+[data-theme='light'] .cbt-modal h2 {
+  color: #18212f !important;
+}
+
+[data-theme='light'] .cbt-modal-eyebrow,
+[data-theme='light'] .cbt-modal-copy {
+  color: #64748b !important;
+}
+
+[data-theme='light'] .cbt-modal-stats div {
+  background: #f4f7fb !important;
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme='light'] .cbt-modal-stats strong {
+  color: #18212f;
+}
+
+[data-theme='light'] .cbt-leave-close {
+  border-color: #d9e0ea;
+  color: #475569;
+}
+
+@media (max-width: 767px) {
+  .cbt-shell {
+    height: 100dvh;
+    min-height: 100dvh;
+    overflow: hidden;
+  }
+
+  .cbt-topbar {
+    width: 100%;
+    min-width: 0;
+    height: 56px !important;
+    min-height: 56px !important;
+    overflow: visible !important;
+    overscroll-behavior-x: contain;
+    padding-inline: 8px !important;
+    gap: 4px !important;
+  }
+
+  .cbt-topbar-left {
+    gap: 5px !important;
+  }
+
+  .cbt-topbar-right {
+    min-width: 0;
+    gap: 4px !important;
+  }
+
+  .cbt-ctrl-btn {
+    min-width: 36px !important;
+    height: 36px !important;
+    padding-inline: 5px !important;
+    font-size: .78rem !important;
+  }
+
+  .cbt-theme-toggle {
+    width: 38px !important;
+    height: 24px !important;
+  }
+
+  .cbt-theme-toggle .cbt-theme-slider {
+    top: 3px !important;
+    left: 3px !important;
+    width: 16px !important;
+    height: 16px !important;
+  }
+
+  .cbt-theme-toggle.is-light .cbt-theme-slider {
+    transform: translateX(14px) !important;
+  }
+
+  .cbt-timer {
+    min-width: 0;
+    height: 36px !important;
+    padding-inline: 6px !important;
+  }
+
+  .cbt-timer-val {
+    font-size: .78rem !important;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .cbt-mobile-submit,
+  .cbt-btn-end {
+    min-height: 36px !important;
+    height: 36px !important;
+    padding-inline: 8px !important;
+  }
+
+  .cbt-strip-btn,
+  .cbt-strip-nav,
+  .cbt-pill-action {
+    min-width: 36px !important;
+    min-height: 36px !important;
+  }
+
+  .cbt-question-text {
+    font-size: calc(17px + var(--cbt-font-delta, 0) * 1.5px) !important;
+    line-height: 1.55 !important;
+  }
+
+  .cbt-option-text {
+    font-size: calc(16px + var(--cbt-font-delta, 0) * 1.5px) !important;
+    line-height: 1.5 !important;
+  }
+
+  .cbt-option {
+    min-height: 56px !important;
+    padding: 12px 14px !important;
+  }
+
+  .cbt-bottombar {
+    padding-bottom: max(8px, env(safe-area-inset-bottom)) !important;
+  }
+
+  .cbt-banner {
+    padding: 8px 10px !important;
+    font-size: .86rem !important;
+  }
+
+  .cbt-bottombar .cbt-btn {
+    min-height: 46px !important;
+    font-size: .82rem !important;
+  }
+
+  .cbt-modal-overlay {
+    padding: 12px !important;
+    padding-bottom: max(12px, env(safe-area-inset-bottom)) !important;
+  }
+
+  .cbt-modal {
+    width: 100% !important;
+    max-width: 520px !important;
+    max-height: min(88dvh, 720px) !important;
+    overflow-y: auto;
+    padding: 22px 18px !important;
+    border-radius: 16px !important;
+  }
+
+  .cbt-modal-actions {
+    flex-wrap: wrap;
+    gap: 8px !important;
+  }
+
+  .cbt-modal-actions .cbt-btn {
+    flex: 1 1 140px;
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 380px) {
+  .cbt-topbar {
+    padding-inline: 5px !important;
+    gap: 3px !important;
+  }
+
+  .cbt-topbar-right {
+    gap: 3px !important;
+  }
+
+  .cbt-ctrl-btn {
+    min-width: 32px !important;
+    padding-inline: 4px !important;
+  }
+
+  .cbt-timer {
+    padding-inline: 4px !important;
+  }
+}
+
 /* --------------------------------------------------------------------------
    Topbar search — hide placeholder text on very narrow screens
    -------------------------------------------------------------------------- */
@@ -4208,4 +4617,1051 @@ select.sort-select {
   .sd-summary-val { font-size: 1rem !important; }
   .page-header h1, .fc-page-header h1, .admin-main-inner h1[style] { font-size: 1.1rem !important; }
   .student-kpi-grid, .eh-summary-grid, .my-results-summary { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 6px !important; }
+}
+
+/* Final CBT overrides: keep mobile layout and both themes consistent after
+   legacy responsive rules earlier in this stylesheet. */
+.cbt-shell[data-theme='dark'] {
+  --cbt-page: #0b0f1d;
+  --cbt-surface: #0f152b;
+  --cbt-raised: #12182b;
+  --cbt-border: #26314f;
+  --cbt-text: #f8fafc;
+  --cbt-muted: #aab4c9;
+  background: var(--cbt-page) !important;
+  color: var(--cbt-text) !important;
+}
+
+.cbt-shell[data-theme='light'] {
+  --cbt-page: #f5f8fc;
+  --cbt-surface: #ffffff;
+  --cbt-raised: #ffffff;
+  --cbt-border: #dce3ed;
+  --cbt-text: #18212f;
+  --cbt-muted: #64748b;
+  background: var(--cbt-page) !important;
+  color: var(--cbt-text) !important;
+}
+
+.cbt-shell[data-theme='dark'] .cbt-topbar,
+.cbt-shell[data-theme='dark'] .cbt-substrip,
+.cbt-shell[data-theme='dark'] .cbt-question-header,
+.cbt-shell[data-theme='dark'] .cbt-bottombar {
+  background: var(--cbt-surface) !important;
+  border-color: var(--cbt-border) !important;
+  color: var(--cbt-text) !important;
+}
+
+.cbt-shell[data-theme='light'] .cbt-topbar,
+.cbt-shell[data-theme='light'] .cbt-substrip,
+.cbt-shell[data-theme='light'] .cbt-question-header,
+.cbt-shell[data-theme='light'] .cbt-bottombar {
+  background: var(--cbt-surface) !important;
+  border-color: var(--cbt-border) !important;
+  color: var(--cbt-text) !important;
+}
+
+.cbt-shell[data-theme='dark'] .cbt-main,
+.cbt-shell[data-theme='dark'] .cbt-body,
+.cbt-shell[data-theme='dark'] .cbt-question-area {
+  background: var(--cbt-page) !important;
+  color: var(--cbt-text) !important;
+}
+
+.cbt-shell[data-theme='light'] .cbt-main,
+.cbt-shell[data-theme='light'] .cbt-body,
+.cbt-shell[data-theme='light'] .cbt-question-area {
+  background: var(--cbt-page) !important;
+  color: var(--cbt-text) !important;
+}
+
+.cbt-shell[data-theme='dark'] .cbt-topbar-center,
+.cbt-shell[data-theme='dark'] .cbt-brand-text,
+.cbt-shell[data-theme='dark'] .cbt-qnum-title,
+.cbt-shell[data-theme='dark'] .cbt-question-text,
+.cbt-shell[data-theme='dark'] .cbt-option-text {
+  color: var(--cbt-text) !important;
+}
+
+.cbt-shell[data-theme='light'] .cbt-topbar-center,
+.cbt-shell[data-theme='light'] .cbt-brand-text,
+.cbt-shell[data-theme='light'] .cbt-qnum-title,
+.cbt-shell[data-theme='light'] .cbt-question-text,
+.cbt-shell[data-theme='light'] .cbt-option-text {
+  color: var(--cbt-text) !important;
+}
+
+.cbt-shell[data-theme='dark'] .cbt-option {
+  background: var(--cbt-raised) !important;
+  border-color: var(--cbt-border) !important;
+  color: var(--cbt-text) !important;
+}
+
+.cbt-shell[data-theme='light'] .cbt-option {
+  background: var(--cbt-raised) !important;
+  border-color: var(--cbt-border) !important;
+  color: var(--cbt-text) !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+}
+
+.cbt-shell[data-theme='light'] .cbt-option.is-selected {
+  background: #eff3ff !important;
+  border-color: #6965e8 !important;
+}
+
+.cbt-shell[data-theme='dark'] .cbt-ctrl-btn,
+.cbt-shell[data-theme='dark'] .cbt-theme-toggle,
+.cbt-shell[data-theme='dark'] .cbt-timer,
+.cbt-shell[data-theme='dark'] .cbt-pill-action,
+.cbt-shell[data-theme='dark'] .cbt-strip-nav,
+.cbt-shell[data-theme='dark'] .cbt-strip-btn:not(.is-current):not(.answered):not(.flagged):not(.skipped),
+.cbt-shell[data-theme='dark'] .cbt-btn-prev,
+.cbt-shell[data-theme='dark'] .cbt-btn-clear,
+.cbt-shell[data-theme='dark'] .cbt-btn-next-outline {
+  background: var(--cbt-raised) !important;
+  border-color: var(--cbt-border) !important;
+  color: var(--cbt-text) !important;
+}
+
+.cbt-shell[data-theme='light'] .cbt-ctrl-btn,
+.cbt-shell[data-theme='light'] .cbt-theme-toggle,
+.cbt-shell[data-theme='light'] .cbt-timer,
+.cbt-shell[data-theme='light'] .cbt-pill-action,
+.cbt-shell[data-theme='light'] .cbt-strip-nav,
+.cbt-shell[data-theme='light'] .cbt-strip-btn:not(.is-current):not(.answered):not(.flagged):not(.skipped),
+.cbt-shell[data-theme='light'] .cbt-btn-prev,
+.cbt-shell[data-theme='light'] .cbt-btn-clear,
+.cbt-shell[data-theme='light'] .cbt-btn-next-outline {
+  background: var(--cbt-raised) !important;
+  border-color: var(--cbt-border) !important;
+  color: var(--cbt-text) !important;
+}
+
+.cbt-shell[data-theme='light'] .cbt-timer-label,
+.cbt-shell[data-theme='light'] .cbt-progress-pct {
+  color: var(--cbt-muted) !important;
+}
+
+.cbt-shell[data-theme='light'] .cbt-progress-track {
+  background: #e3e9f1 !important;
+}
+
+.cbt-shell[data-theme='light'] .cbt-difficulty {
+  color: #475569 !important;
+}
+
+.cbt-shell[data-theme='light'] .cbt-diff-easy {
+  color: #07835d !important;
+}
+
+.cbt-shell[data-theme='light'] .cbt-diff-medium {
+  color: #a16207 !important;
+}
+
+.cbt-shell[data-theme='light'] .cbt-diff-hard {
+  color: #dc2626 !important;
+}
+
+.cbt-shell[data-theme='light'] .cbt-modal {
+  background: var(--cbt-surface) !important;
+  border-color: var(--cbt-border) !important;
+  color: var(--cbt-text) !important;
+}
+
+.cbt-shell[data-theme='light'] .cbt-modal h2,
+.cbt-shell[data-theme='light'] .cbt-modal-stats strong {
+  color: var(--cbt-text) !important;
+}
+
+.cbt-shell[data-theme='light'] .cbt-modal-copy,
+.cbt-shell[data-theme='light'] .cbt-modal-eyebrow {
+  color: var(--cbt-muted) !important;
+}
+
+.cbt-shell[data-theme='light'] .cbt-modal-stats div {
+  background: var(--cbt-page) !important;
+  border-color: var(--cbt-border) !important;
+}
+
+.cbt-shell[data-theme='light'] .cbt-leave-close {
+  border-color: var(--cbt-border);
+  color: var(--cbt-muted);
+}
+
+.cbt-start-screen {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: var(--cbt-page);
+}
+
+.cbt-start-card {
+  padding: 28px 24px;
+  border: 1px solid var(--cbt-border);
+  border-radius: 14px;
+  background: var(--cbt-surface);
+  color: var(--cbt-text);
+  box-shadow: 0 16px 42px rgba(15, 23, 42, .12);
+}
+
+.cbt-start-card h2 {
+  margin: 0 0 12px;
+  color: var(--cbt-text);
+  font-size: 1.4rem;
+}
+
+.cbt-start-eyebrow {
+  display: block;
+  margin-bottom: 8px;
+  color: #5b5bd6;
+  font-size: .8rem;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.cbt-start-copy {
+  margin: 0 0 24px;
+  color: var(--cbt-muted);
+  font-size: .95rem;
+  line-height: 1.6;
+}
+
+.cbt-start-error {
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border: 1px solid #ef4444;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, .12);
+  color: #dc2626;
+  font-size: .9rem;
+}
+
+.cbt-start-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.cbt-start-actions .cbt-btn {
+  min-height: 44px;
+}
+
+.cbt-shell[data-theme='dark'] .cbt-start-eyebrow,
+.cbt-shell[data-theme='dark'] .cbt-start-error {
+  color: #a5b4fc;
+}
+
+@media (max-width: 767px) {
+  .cbt-shell {
+    height: 100dvh;
+    min-height: 100dvh;
+  }
+
+  .cbt-topbar {
+    display: grid !important;
+    grid-template-columns: auto minmax(0, 1fr);
+    height: 56px !important;
+    min-height: 56px !important;
+    padding: 0 8px !important;
+    gap: 4px !important;
+    overflow: visible !important;
+  }
+
+  .cbt-topbar-left {
+    min-width: 0 !important;
+    gap: 5px !important;
+  }
+
+  .cbt-logo-icon-link {
+    width: 34px !important;
+    height: 34px !important;
+    border-radius: 8px !important;
+    background: transparent !important;
+    border: 0 !important;
+  }
+
+  .cbt-mode-pill {
+    padding: 3px 7px !important;
+    font-size: .72rem !important;
+  }
+
+  .cbt-topbar-right {
+    min-width: 0;
+    justify-self: end;
+    gap: 4px !important;
+  }
+
+  .cbt-font-controls {
+    gap: 3px !important;
+  }
+
+  .cbt-ctrl-btn {
+    min-width: 34px !important;
+    height: 36px !important;
+    padding: 0 5px !important;
+    font-size: .8rem !important;
+  }
+
+  .cbt-theme-toggle {
+    width: 36px !important;
+    height: 24px !important;
+    padding: 0 3px !important;
+  }
+
+  .cbt-theme-slider {
+    top: 2px !important;
+    left: 2px !important;
+    width: 18px !important;
+    height: 18px !important;
+  }
+
+  .cbt-theme-toggle.is-light .cbt-theme-slider {
+    transform: translateX(12px) !important;
+  }
+
+  .cbt-timer {
+    height: 36px !important;
+    padding: 0 6px !important;
+    gap: 4px !important;
+  }
+
+  .cbt-timer-val {
+    font-size: .75rem !important;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .cbt-mobile-submit,
+  .cbt-btn-end {
+    height: 36px !important;
+    min-height: 36px !important;
+    padding: 0 8px !important;
+    font-size: .74rem !important;
+  }
+
+  .cbt-btn-end-practice .cbt-mobile-only::after {
+    content: ' practice';
+  }
+
+  .cbt-substrip {
+    display: flex !important;
+    height: 48px;
+    min-height: 48px;
+    padding: 6px 8px !important;
+    gap: 6px !important;
+  }
+
+  .cbt-strip-scroller {
+    gap: 6px !important;
+  }
+
+  .cbt-strip-btn {
+    width: 36px !important;
+    height: 36px !important;
+    font-size: .8rem !important;
+  }
+
+  .cbt-strip-nav {
+    width: 36px !important;
+    height: 36px !important;
+  }
+
+  .cbt-question-header {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    gap: 8px 12px !important;
+    padding: 10px 12px !important;
+  }
+
+  .cbt-question-header-left {
+    grid-column: 1 / -1;
+    width: 100%;
+    gap: 10px !important;
+  }
+
+  .cbt-qnum-title {
+    font-size: .9rem !important;
+  }
+
+  .cbt-progress-wrap {
+    min-width: 0;
+    flex: 1;
+    gap: 8px !important;
+  }
+
+  .cbt-progress-track {
+    width: auto !important;
+    max-width: none !important;
+    height: 6px !important;
+    flex: 1;
+  }
+
+  .cbt-question-header-right {
+    display: contents !important;
+  }
+
+  .cbt-difficulty {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
+    font-size: .8rem !important;
+  }
+
+  .cbt-pill-action {
+    grid-row: 2;
+    min-width: 38px !important;
+    min-height: 36px !important;
+    height: 36px !important;
+    justify-content: center;
+  }
+
+  .cbt-pill-action:first-of-type {
+    grid-column: 2;
+  }
+
+  .cbt-pill-action:last-of-type {
+    grid-column: 3;
+  }
+
+  .cbt-question-area {
+    min-height: 0;
+    padding: 16px 16px 96px !important;
+  }
+
+  .cbt-question-text {
+    margin-bottom: 16px !important;
+    font-size: calc(17px + var(--cbt-font-delta, 0) * 1.5px) !important;
+    line-height: 1.55 !important;
+  }
+
+  .cbt-options {
+    gap: 10px !important;
+  }
+
+  .cbt-option {
+    min-height: 56px !important;
+    padding: 12px 14px !important;
+    gap: 10px !important;
+    border-radius: 10px !important;
+  }
+
+  .cbt-option-text {
+    font-size: calc(16px + var(--cbt-font-delta, 0) * 1.5px) !important;
+    line-height: 1.5 !important;
+  }
+
+  .cbt-letter-badge {
+    width: 28px !important;
+    height: 28px !important;
+    font-size: .8rem !important;
+  }
+
+  .cbt-bottombar {
+    position: fixed !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    z-index: 40 !important;
+    padding: 8px 10px max(8px, env(safe-area-inset-bottom)) !important;
+    gap: 6px !important;
+  }
+
+  .cbt-bottombar.is-practice {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) !important;
+  }
+
+  .cbt-bottombar.is-exam {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) !important;
+  }
+
+  .cbt-bottombar-actions {
+    display: contents !important;
+  }
+
+  .cbt-bottombar .cbt-btn {
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 46px !important;
+    height: auto !important;
+    padding: 6px 4px !important;
+    font-size: .78rem !important;
+    line-height: 1.2 !important;
+    white-space: normal !important;
+  }
+
+  .cbt-bottombar.is-practice .cbt-btn-reveal,
+  .cbt-bottombar.is-exam .cbt-btn-confirm {
+    min-height: 46px !important;
+  }
+
+  .cbt-start-screen {
+    padding: 16px 12px;
+  }
+
+  .cbt-start-card {
+    padding: 22px 18px;
+  }
+}
+
+@media (max-width: 380px) {
+  .cbt-topbar {
+    padding-inline: 5px !important;
+    gap: 3px !important;
+  }
+
+  .cbt-topbar-right {
+    gap: 3px !important;
+  }
+
+  .cbt-ctrl-btn {
+    min-width: 31px !important;
+  }
+
+  .cbt-mode-pill {
+    padding-inline: 5px !important;
+    font-size: .68rem !important;
+  }
+}
+
+@media (max-width: 400px) {
+  .cbt-btn-end-practice .cbt-mobile-only::after {
+    content: '';
+  }
+}
+
+/* Compact mobile question summary and keep typography comfortably readable. */
+@media (max-width: 767px) {
+  .cbt-question-header {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    align-items: center !important;
+    column-gap: 8px !important;
+    padding: 9px 10px !important;
+  }
+
+  .cbt-question-header-left {
+    display: flex !important;
+    grid-column: 1 !important;
+    flex: 1 1 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    gap: 7px !important;
+    justify-content: flex-start !important;
+  }
+
+  .cbt-qnum-title {
+    flex: 0 0 auto;
+    font-size: .86rem !important;
+  }
+
+  .cbt-progress-wrap {
+    display: flex !important;
+    flex: 1 1 auto !important;
+    min-width: 36px !important;
+    gap: 6px !important;
+  }
+
+  .cbt-progress-track {
+    flex: 1 1 auto !important;
+    width: auto !important;
+    min-width: 24px !important;
+    max-width: none !important;
+  }
+
+  .cbt-progress-pct {
+    flex: 0 0 auto;
+    font-size: .7rem !important;
+  }
+
+  .cbt-question-header-right {
+    grid-column: 2 !important;
+    display: flex !important;
+    flex: initial !important;
+    align-items: center !important;
+    gap: 5px !important;
+    width: auto !important;
+    min-width: max-content !important;
+    justify-content: flex-end !important;
+  }
+
+  .cbt-difficulty {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    min-height: 32px !important;
+    padding: 3px 6px !important;
+    border-radius: 7px !important;
+    font-size: .72rem !important;
+    white-space: nowrap;
+  }
+
+  .cbt-pill-action {
+    display: inline-flex !important;
+    flex: 0 0 34px !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 34px !important;
+    min-width: 34px !important;
+    min-height: 34px !important;
+    height: 34px !important;
+    padding: 0 !important;
+  }
+
+  .cbt-question-area {
+    padding: 14px 14px 96px !important;
+  }
+
+  .cbt-question-text {
+    font-size: clamp(16px, calc(17px + var(--cbt-font-delta, 0) * 1px), 22px) !important;
+    line-height: 1.5 !important;
+    margin-bottom: 14px !important;
+  }
+
+  .cbt-option-text {
+    font-size: clamp(15px, calc(16px + var(--cbt-font-delta, 0) * 1px), 21px) !important;
+    line-height: 1.45 !important;
+  }
+
+  .cbt-options {
+    gap: 7px !important;
+  }
+
+  .cbt-option {
+    min-height: 44px !important;
+    gap: 8px !important;
+    padding: 8px 10px !important;
+    border-radius: 9px !important;
+  }
+
+  .cbt-radio-indicator,
+  .cbt-checkbox-indicator {
+    width: 20px !important;
+    height: 20px !important;
+  }
+
+  .cbt-letter-badge {
+    width: 24px !important;
+    height: 24px !important;
+    font-size: .74rem !important;
+  }
+
+  .cbt-bottombar .cbt-btn {
+    font-size: .76rem !important;
+  }
+}
+
+@media (max-width: 370px) {
+  .cbt-question-header {
+    column-gap: 5px !important;
+    padding-inline: 8px !important;
+  }
+
+  .cbt-question-header-left {
+    gap: 5px !important;
+  }
+
+  .cbt-question-header-right {
+    gap: 3px !important;
+  }
+
+  .cbt-difficulty {
+    padding-inline: 5px !important;
+    font-size: .68rem !important;
+  }
+
+  .cbt-pill-action {
+    flex-basis: 32px !important;
+    width: 32px !important;
+    min-width: 32px !important;
+  }
+}
+
+/* Question numbers use the same progress colors in light and dark mode. */
+.cbt-shell .cbt-strip-btn.answered:not(.is-current) {
+  background: #079669 !important;
+  border-color: #079669 !important;
+  color: #ffffff !important;
+}
+
+.cbt-shell .cbt-strip-btn.flagged:not(.is-current) {
+  background: #e99a08 !important;
+  border-color: #e99a08 !important;
+  color: #ffffff !important;
+}
+
+.cbt-shell .cbt-strip-btn.skipped:not(.is-current) {
+  background: #dc4b4b !important;
+  border-color: #dc4b4b !important;
+  color: #ffffff !important;
+}
+
+.cbt-shell .cbt-strip-btn.not-seen:not(.is-current) {
+  background: var(--cbt-raised) !important;
+  border-color: var(--cbt-border) !important;
+  color: var(--cbt-muted) !important;
+}
+
+.cbt-shell .cbt-strip-btn.is-current {
+  background: #5b21d6 !important;
+  border-color: #5b21d6 !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(91, 33, 214, .24) !important;
+}
+
+@media (max-width: 767px) {
+  .cbt-bottombar.is-exam {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    align-items: stretch !important;
+    gap: 6px !important;
+  }
+
+  .cbt-bottombar.is-exam .cbt-bottombar-actions {
+    display: contents !important;
+  }
+
+  .cbt-bottombar.is-exam > .cbt-btn-prev,
+  .cbt-bottombar.is-exam .cbt-bottombar-actions > .cbt-btn {
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 42px !important;
+    height: 42px !important;
+    padding: 0 3px !important;
+    font-size: clamp(.62rem, 2.8vw, .72rem) !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+    word-break: keep-all !important;
+    overflow-wrap: normal !important;
+    text-align: center !important;
+  }
+
+  .cbt-bottombar.is-practice {
+    display: flex !important;
+    align-items: stretch !important;
+  }
+
+  .cbt-bottombar.is-practice .cbt-btn-prev {
+    flex: 1 1 0 !important;
+  }
+
+  .cbt-bottombar.is-practice .cbt-bottombar-actions {
+    display: flex !important;
+    flex: 2 1 0 !important;
+    min-width: 0 !important;
+    gap: 6px !important;
+  }
+
+  .cbt-bottombar.is-practice .cbt-bottombar-actions .cbt-btn {
+    flex: 1 1 0 !important;
+    min-width: 0 !important;
+    padding-inline: 4px !important;
+    font-size: .78rem !important;
+  }
+}
+
+@media (max-width: 350px) {
+  .cbt-bottombar.is-exam {
+    gap: 4px !important;
+  }
+
+  .cbt-bottombar.is-exam > .cbt-btn-prev,
+  .cbt-bottombar.is-exam .cbt-bottombar-actions > .cbt-btn {
+    padding-inline: 2px !important;
+  }
+}
+
+/* ==========================================================================
+   EXACT RESPONSIVE TYPOGRAPHY SPECIFICATION (Device / Screen Size System)
+
+   Device / screen size               Screen width   Question  Answer options  Title  Buttons  Timer  Small labels
+   Small phone                        320–374px      14px      13px            14px   12px     12px   11px
+   Standard phone                     375–413px      15px      14px            15px   12px     13px   11px
+   Large phone                        414–599px      15px      14px            15px   13px     13px   12px
+   Small tablet / narrow iPad window  600–767px      16px      14px            16px   13px     14px   12px
+   iPad mini / tablet portrait        768–819px      16px      15px            17px   13px     14px   12px
+   iPad 10–11″ portrait               820–1023px     17px      15px            18px   14px     14px   12px
+   Large iPad / tablet landscape      1024–1279px    17px      15px            18px   14px     15px   12px
+   MacBook Air 13″ / compact laptop   1280–1439px    18px      16px            20px   14px     15px   12px
+   MacBook 15″ / Windows laptop       1440–1919px    18px      16px            20px   14px     16px   13px
+   Full HD / larger desktop           1920px+        18px      16px            22px   14px     16px   13px
+   ========================================================================== */
+
+:root,
+.cbt-shell,
+body {
+  --fc-font-question: 18px;
+  --fc-font-option: 16px;
+  --fc-font-title: 20px;
+  --fc-font-button: 14px;
+  --fc-font-timer: 15px;
+  --fc-font-small-label: 12px;
+}
+
+/* 1. Small phone (320–374px) */
+@media (max-width: 374px) {
+  :root, .cbt-shell, body {
+    --fc-font-question: 14px;
+    --fc-font-option: 13px;
+    --fc-font-title: 14px;
+    --fc-font-button: 12px;
+    --fc-font-timer: 12px;
+    --fc-font-small-label: 11px;
+  }
+}
+
+/* 2. Standard phone (375–413px) */
+@media (min-width: 375px) and (max-width: 413px) {
+  :root, .cbt-shell, body {
+    --fc-font-question: 15px;
+    --fc-font-option: 14px;
+    --fc-font-title: 15px;
+    --fc-font-button: 12px;
+    --fc-font-timer: 13px;
+    --fc-font-small-label: 11px;
+  }
+}
+
+/* 3. Large phone (414–599px) */
+@media (min-width: 414px) and (max-width: 599px) {
+  :root, .cbt-shell, body {
+    --fc-font-question: 15px;
+    --fc-font-option: 14px;
+    --fc-font-title: 15px;
+    --fc-font-button: 13px;
+    --fc-font-timer: 13px;
+    --fc-font-small-label: 12px;
+  }
+}
+
+/* 4. Small tablet / narrow iPad window (600–767px) */
+@media (min-width: 600px) and (max-width: 767px) {
+  :root, .cbt-shell, body {
+    --fc-font-question: 16px;
+    --fc-font-option: 14px;
+    --fc-font-title: 16px;
+    --fc-font-button: 13px;
+    --fc-font-timer: 14px;
+    --fc-font-small-label: 12px;
+  }
+}
+
+/* 5. iPad mini / tablet portrait (768–819px) */
+@media (min-width: 768px) and (max-width: 819px) {
+  :root, .cbt-shell, body {
+    --fc-font-question: 16px;
+    --fc-font-option: 15px;
+    --fc-font-title: 17px;
+    --fc-font-button: 13px;
+    --fc-font-timer: 14px;
+    --fc-font-small-label: 12px;
+  }
+}
+
+/* 6. iPad 10–11″ portrait (820–1023px) */
+@media (min-width: 820px) and (max-width: 1023px) {
+  :root, .cbt-shell, body {
+    --fc-font-question: 17px;
+    --fc-font-option: 15px;
+    --fc-font-title: 18px;
+    --fc-font-button: 14px;
+    --fc-font-timer: 14px;
+    --fc-font-small-label: 12px;
+  }
+}
+
+/* 7. Large iPad / tablet landscape (1024–1279px) */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  :root, .cbt-shell, body {
+    --fc-font-question: 17px;
+    --fc-font-option: 15px;
+    --fc-font-title: 18px;
+    --fc-font-button: 14px;
+    --fc-font-timer: 15px;
+    --fc-font-small-label: 12px;
+  }
+}
+
+/* 8. MacBook Air 13″ / compact laptop (1280–1439px) */
+@media (min-width: 1280px) and (max-width: 1439px) {
+  :root, .cbt-shell, body {
+    --fc-font-question: 18px;
+    --fc-font-option: 16px;
+    --fc-font-title: 20px;
+    --fc-font-button: 14px;
+    --fc-font-timer: 15px;
+    --fc-font-small-label: 12px;
+  }
+}
+
+/* 9. MacBook 15″ / Windows laptop (1440–1919px) */
+@media (min-width: 1440px) and (max-width: 1919px) {
+  :root, .cbt-shell, body {
+    --fc-font-question: 18px;
+    --fc-font-option: 16px;
+    --fc-font-title: 20px;
+    --fc-font-button: 14px;
+    --fc-font-timer: 16px;
+    --fc-font-small-label: 13px;
+  }
+}
+
+/* 10. Full HD / larger desktop (1920px+) */
+@media (min-width: 1920px) {
+  :root, .cbt-shell, body {
+    --fc-font-question: 18px;
+    --fc-font-option: 16px;
+    --fc-font-title: 22px;
+    --fc-font-button: 14px;
+    --fc-font-timer: 16px;
+    --fc-font-small-label: 13px;
+  }
+}
+
+/* --- Element Typography Rules --------------------------------------------- */
+
+/* 1. Question */
+.cbt-shell .cbt-question-text,
+.cbt-shell .formatted-question-content,
+.cbt-shell .formatted-question-content p,
+.cbt-shell .formatted-question-content li,
+.cbt-shell .cbt-question-text p,
+.cbt-shell .cbt-question-text li,
+.review-question-text,
+.question-text-block,
+.qb-preview-text,
+.q-text {
+  font-size: calc(var(--fc-font-question) + (var(--cbt-font-delta, 0) * 1.5px)) !important;
+  line-height: 1.6 !important;
+  font-family: var(--font-body, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif) !important;
+}
+
+/* 2. Answer options */
+.cbt-shell .cbt-option-text,
+.cbt-shell .cbt-option,
+.cbt-shell .cbt-options .cbt-option-text,
+.cbt-shell .cbt-options .cbt-option,
+.review-option-text,
+.option-text-block,
+.option-text {
+  font-size: calc(var(--fc-font-option) + (var(--cbt-font-delta, 0) * 1.5px)) !important;
+  line-height: 1.5 !important;
+  font-family: var(--font-body, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif) !important;
+}
+
+/* 3. Title */
+.cbt-shell .cbt-topbar-center,
+.cbt-shell .cbt-brand-text,
+.cbt-shell .cbt-header-title,
+.cbt-shell .cbt-qnum-title,
+.cbt-shell .cbt-start-title,
+.cbt-shell .cbt-start-card h1,
+.cbt-shell .cbt-expl-title,
+.cbt-shell .cbt-modal h2,
+.cbt-shell .cbt-modal-title,
+.exam-title,
+.review-title {
+  font-size: var(--fc-font-title) !important;
+  font-family: var(--font-display, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif) !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.015em !important;
+}
+
+/* 4. Buttons */
+.cbt-shell .cbt-btn,
+.cbt-shell .cbt-btn-prev,
+.cbt-shell .cbt-btn-next-primary,
+.cbt-shell .cbt-btn-next-outline,
+.cbt-shell .cbt-btn-clear,
+.cbt-shell .cbt-btn-confirm,
+.cbt-shell .cbt-btn-mark,
+.cbt-shell .cbt-btn-reveal,
+.cbt-shell .cbt-btn-autoreveal,
+.cbt-shell .cbt-bottombar .cbt-btn,
+.cbt-shell .cbt-bottombar.is-exam .cbt-btn,
+.cbt-shell .cbt-bottombar.is-practice .cbt-btn,
+.cbt-shell .cbt-bottombar.is-exam > .cbt-btn-prev,
+.cbt-shell .cbt-bottombar.is-exam .cbt-bottombar-actions > .cbt-btn,
+.cbt-shell .cbt-bottombar.is-practice .cbt-bottombar-actions .cbt-btn,
+.cbt-shell .cbt-btn-end,
+.cbt-shell .cbt-mobile-submit,
+.cbt-shell .cbt-start-btn,
+.cbt-shell .cbt-leave-btn {
+  font-size: var(--fc-font-button) !important;
+  font-family: var(--font-body, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif) !important;
+  font-weight: 600 !important;
+}
+
+/* 5. Timer */
+.cbt-shell .cbt-timer,
+.cbt-shell .cbt-timer-val,
+.cbt-shell .cbt-timer-label,
+.cbt-shell .cbt-timer span,
+.exam-timer,
+.timer-display,
+.timer-val {
+  font-size: var(--fc-font-timer) !important;
+  font-family: var(--font-mono, monospace) !important;
+  font-variant-numeric: tabular-nums !important;
+}
+
+/* 6. Small labels */
+.cbt-shell .cbt-difficulty,
+.cbt-shell .cbt-pill-action,
+.cbt-shell .cbt-pill-action span,
+.cbt-shell .cbt-mode-pill,
+.cbt-shell .cbt-progress-pct,
+.cbt-shell .cbt-letter-badge,
+.cbt-shell .cbt-image-zoom-badge,
+.cbt-shell .cbt-instruction-text,
+.cbt-shell .cbt-strip-btn,
+.cbt-shell .cbt-banner,
+.cbt-shell .cbt-banner-btn,
+.cbt-shell .cbt-locked-toast,
+.cbt-shell .cbt-ctrl-btn,
+.cbt-shell .cbt-modal-eyebrow,
+.cbt-shell .cbt-expl-correct-text,
+.cbt-difficulty,
+.cbt-mode-pill {
+  font-size: var(--fc-font-small-label) !important;
+  font-family: var(--font-body, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif) !important;
+}
+
+@media (max-width: 767px) {
+  .cbt-shell .cbt-options {
+    gap: 8px !important;
+  }
+
+  .cbt-shell .cbt-option {
+    min-height: 54px !important;
+    gap: 10px !important;
+    padding: 10px 12px !important;
+    border-radius: 10px !important;
+  }
+
+  .cbt-shell .cbt-option .cbt-radio-indicator {
+    display: none !important;
+  }
+
+  .cbt-shell .cbt-option .cbt-letter-badge {
+    width: 32px !important;
+    height: 32px !important;
+    flex: 0 0 32px !important;
+    border: 1px solid var(--cbt-border) !important;
+    border-radius: 8px !important;
+  }
+
+  .cbt-shell[data-theme='light'] .cbt-option .cbt-letter-badge {
+    background: #f1f5f9 !important;
+    color: #526176 !important;
+  }
+
+  .cbt-shell .cbt-option.is-selected:not(.is-correct):not(.is-incorrect) .cbt-letter-badge {
+    background: #3730a3 !important;
+    border-color: #4f46e5 !important;
+    color: #ffffff !important;
+  }
 }

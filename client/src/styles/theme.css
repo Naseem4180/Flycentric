@@ -39,6 +39,14 @@
   --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Monaco, Consolas, monospace;
 
+  /* Standard Responsive Typography Targets */
+  --fc-font-question: 18px;
+  --fc-font-option: 16px;
+  --fc-font-title: 20px;
+  --fc-font-button: 14px;
+  --fc-font-timer: 15px;
+  --fc-font-small-label: 12px;
+
   /* --- Surfaces & text -------------------------------------------------- */
   --background: #f8fafc;
   --surface: #ffffff;

@@ -851,13 +851,13 @@ tbody tr:hover { background: var(--page-bg); }
 .auth-divider {
   display: flex;
   align-items: center;
-  margin: 18px 0;
-  gap: 12px;
-  color: #64748b;
-  font-size: 0.78rem;
+  margin: 24px 0 20px;
+  gap: 14px;
+  color: #94a3b8;
+  font-size: 0.74rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
 }
 
 .auth-divider::before,
@@ -868,11 +868,37 @@ tbody tr:hover { background: var(--page-bg); }
   background: #e2e8f0;
 }
 
+.btn-google-auth {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 16px;
+  height: 46px;
+  background: #ffffff !important;
+  color: #334155 !important;
+  border: 1.5px solid #e2e8f0 !important;
+  border-radius: 10px !important;
+  font-size: 0.93rem !important;
+  font-weight: 600 !important;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05) !important;
+  box-sizing: border-box;
+}
+
 .btn-google-auth:hover:not(:disabled) {
   background: #f8fafc !important;
-  border-color: #94a3b8 !important;
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.08) !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08) !important;
   transform: translateY(-1px);
+}
+
+.btn-google-auth:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05) !important;
 }
 
 .auth-signup-text {
@@ -1484,8 +1510,8 @@ tbody tr:hover { background: var(--page-bg); }
   user-select: none;
 }
 .cbt-question-text {
-  font-size: calc(1.04rem + var(--cbt-font-delta, 0) * 0.07rem);
-  font-weight: 500; line-height: 1.65;
+  font-size: calc(var(--fc-font-question, 18px) + var(--cbt-font-delta, 0) * 1.5px);
+  font-weight: 500; line-height: 1.6;
   color: #ffffff;
   margin-bottom: 24px;
   white-space: pre-wrap;
@@ -1672,7 +1698,7 @@ tbody tr:hover { background: var(--page-bg); }
 }
 
 .cbt-option-text {
-  font-size: calc(0.95rem + var(--cbt-font-delta, 0) * 0.07rem);
+  font-size: calc(var(--fc-font-option, 16px) + var(--cbt-font-delta, 0) * 1.5px);
   color: #ffffff; line-height: 1.5; flex: 1;
 }
 .cbt-option-status-icon {

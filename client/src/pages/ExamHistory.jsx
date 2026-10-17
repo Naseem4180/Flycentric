@@ -131,7 +131,7 @@ export default function ExamHistory() {
   return (
     <div className="admin-main-inner exam-history">
       <div className="page-header">
-        <h1>Exam History</h1>
+        <h1>Performance</h1>
         <p className="muted">
           Every lesson you can take, with each attempt scored separately — best, latest and your first three tries.
         </p>

@@ -688,7 +688,7 @@ router.get('/my-purchases', authenticate, async (req, res) => {
 });
 
 // Fetch detailed JSON receipt data for an order
-router.get('/:id/receipt', authenticate, async (req, res) => {
+router.get('/:id(\\d+)/receipt', authenticate, async (req, res) => {
   const isStaff = req.user.role === 'admin' || req.user.role === 'instructor';
   const query = `
     SELECT p.*, u.name AS student_name, u.email AS student_email, u.phone AS student_phone,
@@ -710,7 +710,7 @@ router.get('/:id/receipt', authenticate, async (req, res) => {
 });
 
 // Render official, printable Tax Invoice & Payment Receipt in HTML/PDF format
-router.get('/:id/receipt/html', authenticate, async (req, res) => {
+router.get('/:id(\\d+)/receipt/html', authenticate, async (req, res) => {
   const isStaff = req.user.role === 'admin' || req.user.role === 'instructor';
   const query = `
     SELECT p.*, u.name AS student_name, u.email AS student_email, u.phone AS student_phone,
@@ -734,7 +734,7 @@ router.get('/:id/receipt/html', authenticate, async (req, res) => {
 });
 
 // Resend payment receipt email
-router.post('/:id/resend-receipt', authenticate, async (req, res) => {
+router.post('/:id(\\d+)/resend-receipt', authenticate, async (req, res) => {
   const isStaff = req.user.role === 'admin' || req.user.role === 'instructor';
   const query = `
     SELECT p.*, u.name, u.email, b.title AS bundle_title
@@ -765,7 +765,7 @@ router.get('/', authenticate, authorize('admin'), async (req, res) => {
 });
 
 // Admin-initiated refund with audit trail
-router.post('/:id/refund', authenticate, authorize('admin'), async (req, res) => {
+router.post('/:id(\\d+)/refund', authenticate, authorize('admin'), async (req, res) => {
   const result = await pool.query(
     "UPDATE payments SET status = 'refunded' WHERE id = $1 AND status = 'paid' RETURNING *",
     [req.params.id]

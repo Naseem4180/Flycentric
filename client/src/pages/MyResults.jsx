@@ -107,7 +107,7 @@ export default function MyResults() {
     <div className="admin-main-inner">
       <div className="page-header">
         <div>
-          <h1>My Quiz Results</h1>
+          <h1>My Exam History</h1>
           <p className="muted">Review your scores, filter by subject or chapter, and jump straight back into a retake.</p>
         </div>
       </div>

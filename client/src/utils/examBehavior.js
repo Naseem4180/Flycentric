@@ -145,3 +145,15 @@ export function getAvailableActions(isExam) {
   }
   return ['previous', 'reveal_answer', 'next'];
 }
+
+export function getAttemptProgress(questions, answers, textDraft = {}) {
+  const attemptedCount = questions.reduce((count, question) => {
+    const answer = textDraft[question.id] ?? answers[question.id];
+    return answer != null && String(answer).trim() !== '' ? count + 1 : count;
+  }, 0);
+
+  return {
+    attemptedCount,
+    percentage: questions.length ? Math.round((attemptedCount / questions.length) * 100) : 0,
+  };
+}

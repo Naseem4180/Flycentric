@@ -9,6 +9,7 @@ import {
   handleMarkReviewAndNext,
   paletteStatus,
   getAvailableActions,
+  getAttemptProgress,
   createSerializedSaveQueue,
 } from '../client/src/utils/examBehavior.js';
 
@@ -181,4 +182,26 @@ test('8. Answer saves are ordered and the queue recovers after a failed save', a
   await queue.enqueue(async () => { events.push('after-failure'); });
   await queue.flush();
   assert.equal(events.at(-1), 'after-failure', 'a failed request does not block later saves');
+});
+
+test('9. Attempt progress counts answered questions, not the current question position', () => {
+  const questions = [{ id: 901 }, { id: 902 }, { id: 903 }, { id: 904 }];
+  const progress = getAttemptProgress(questions, { 904: 'C', 902: 'A' });
+
+  assert.deepEqual(progress, { attemptedCount: 2, percentage: 50 });
+});
+
+test('10. Attempt progress includes text drafts and ignores empty answers', () => {
+  const questions = [{ id: 1001 }, { id: 1002 }, { id: 1003 }];
+  const progress = getAttemptProgress(
+    questions,
+    { 1001: '   ', 1002: 'B' },
+    { 1001: '  typed answer  ' },
+  );
+
+  assert.deepEqual(progress, { attemptedCount: 2, percentage: 67 });
+  assert.deepEqual(getAttemptProgress(questions, { 1001: ' ', 1002: '' }), {
+    attemptedCount: 0,
+    percentage: 0,
+  });
 });

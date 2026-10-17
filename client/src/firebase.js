@@ -12,12 +12,12 @@ import {
 } from 'firebase/auth';
 
 const DEFAULT_FIREBASE_CONFIG = {
-  apiKey: 'AIzaSyAFaU3Vibd9OpGAXiLPl0sfuxxeQTtOUe0',
+  apiKey: 'AIzaSyAFaU3V1bd9OpGAXlLP10sfuxxeQTtOUo0',
   authDomain: 'flycentric-4d4ab.firebaseapp.com',
   projectId: 'flycentric-4d4ab',
   storageBucket: 'flycentric-4d4ab.firebasestorage.app',
   messagingSenderId: '994438784413',
-  appId: '1:994438784413:web:7ea1d1eb9067c625b33b74',
+  appId: '1:994438784413:web:7ca1d1cb9067c625b33b74',
 };
 
 export function getFirebaseConfig() {

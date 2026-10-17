@@ -69,6 +69,23 @@ export default function Register() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
+  // OTP Verification Modal states
+  const [showOtpModal, setShowOtpModal] = useState(false);
+  const [otp, setOtp] = useState('');
+  const [devOtp, setDevOtp] = useState(null);
+  const [otpError, setOtpError] = useState('');
+  const [otpBusy, setOtpBusy] = useState(false);
+  const [resendSeconds, setResendSeconds] = useState(0);
+
+  // Countdown timer for resending OTP
+  useEffect(() => {
+    if (resendSeconds <= 0) return;
+    const timer = setInterval(() => {
+      setResendSeconds((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendSeconds]);
+
   // Resize and compress avatar client-side to ensure fast, lightweight payloads
   function handlePhotoSelect(e) {
     const file = e.target.files?.[0];
@@ -129,7 +146,7 @@ export default function Register() {
     }
   }
 
-  // Validate form & directly register account (no OTP required)
+  // Validate form & dispatch OTP verification email
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
@@ -171,6 +188,61 @@ export default function Register() {
 
     setBusy(true);
     try {
+      const res = await api.post('/auth/send-registration-otp', {
+        email: form.email.trim(),
+        name: form.name.trim(),
+      }, { auth: false });
+
+      if (res?.devOtp) {
+        setDevOtp(res.devOtp);
+      } else {
+        setDevOtp(null);
+      }
+
+      setOtp('');
+      setOtpError('');
+      setResendSeconds(60);
+      setShowOtpModal(true);
+    } catch (err) {
+      setError(err.message || 'Failed to send verification code. Please check your email.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Resend OTP email
+  async function handleResendOtp() {
+    if (resendSeconds > 0 || otpBusy) return;
+    setOtpBusy(true);
+    setOtpError('');
+    try {
+      const res = await api.post('/auth/send-registration-otp', {
+        email: form.email.trim(),
+        name: form.name.trim(),
+      }, { auth: false });
+      if (res?.devOtp) {
+        setDevOtp(res.devOtp);
+      }
+      setResendSeconds(60);
+    } catch (err) {
+      setOtpError(err.message || 'Failed to resend code');
+    } finally {
+      setOtpBusy(false);
+    }
+  }
+
+  // Submit OTP to complete registration
+  async function handleVerifyAndRegister(e) {
+    if (e) e.preventDefault();
+    const cleanOtp = otp.trim();
+    if (!cleanOtp || cleanOtp.length !== 6) {
+      setOtpError('Please enter the 6-digit code sent to your email');
+      return;
+    }
+
+    setOtpBusy(true);
+    setOtpError('');
+    try {
       await register({
         name: form.name.trim(),
         email: form.email.trim(),
@@ -181,12 +253,14 @@ export default function Register() {
         city: form.city.trim() || null,
         avatar_data: avatarData || null,
         role: 'student',
+        otp: cleanOtp,
       });
+      setShowOtpModal(false);
       navigate('/dashboard');
     } catch (err) {
-      setError(err.message || 'Registration failed. Please try again.');
+      setOtpError(err.message || 'Verification failed. Please check the code.');
     } finally {
-      setBusy(false);
+      setOtpBusy(false);
     }
   }
 
@@ -213,13 +287,14 @@ export default function Register() {
             </div>
           )}
 
-          <div style={{ marginBottom: 20 }}>
-            <GoogleLoginButton
-              text="Sign up with Google"
-              separatorText="or sign up with email"
-              onSuccess={handleGoogleRegister}
-              onError={(err) => setError(err.message)}
-            />
+          <GoogleLoginButton
+            text="Sign up with Google"
+            onSuccess={handleGoogleRegister}
+            onError={(err) => setError(err.message)}
+          />
+
+          <div className="auth-divider">
+            <span>or register with email</span>
           </div>
 
           <form onSubmit={handleSubmit} className="auth-form" noValidate>
@@ -490,6 +565,194 @@ export default function Register() {
           </p>
         </div>
       </div>
+
+      {/* Email OTP Verification Modal */}
+      {showOtpModal && (
+        <Modal
+          open={showOtpModal}
+          onClose={() => !otpBusy && setShowOtpModal(false)}
+          size="sm"
+          title="Verify Your Email"
+        >
+          <div style={{ textAlign: 'center', padding: '10px 0 6px' }}>
+            <div style={{
+              width: 52,
+              height: 52,
+              borderRadius: '50%',
+              background: '#eff6ff',
+              color: '#2563eb',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginBottom: 14,
+            }}>
+              <Mail size={26} />
+            </div>
+
+            <h3 style={{ margin: '0 0 8px', fontSize: '1.2rem', fontWeight: 800, color: '#0f172a' }}>
+              Check your inbox
+            </h3>
+
+            <p style={{ margin: '0 0 16px', fontSize: '0.88rem', color: '#64748b', lineHeight: 1.5 }}>
+              We sent a 6-digit verification code to<br />
+              <strong style={{ color: '#0f172a' }}>{form.email}</strong>
+            </p>
+
+            {devOtp && (
+              <div style={{
+                background: '#eff6ff',
+                border: '1.5px dashed #60a5fa',
+                borderRadius: 8,
+                padding: '10px 14px',
+                marginBottom: 16,
+                textAlign: 'left',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 8,
+              }}>
+                <div>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#1e40af', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Local / Test OTP
+                  </div>
+                  <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#1d4ed8', letterSpacing: '2px', fontFamily: 'monospace' }}>
+                    {devOtp}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOtp(devOtp);
+                    setOtpError('');
+                  }}
+                  style={{
+                    background: '#2563eb',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: 6,
+                    padding: '6px 12px',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Auto-fill
+                </button>
+              </div>
+            )}
+
+            {otpError && (
+              <div style={{
+                background: '#fef2f2',
+                border: '1px solid #fecaca',
+                color: '#b91c1c',
+                padding: '9px 14px',
+                borderRadius: 8,
+                fontSize: '0.82rem',
+                marginBottom: 16,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                textAlign: 'left',
+              }}>
+                <AlertCircle size={15} style={{ flexShrink: 0 }} />
+                <span>{otpError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleVerifyAndRegister}>
+              <div style={{ marginBottom: 18 }}>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  value={otp}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+                    setOtp(val);
+                    if (val.length === 6) setOtpError('');
+                  }}
+                  placeholder="• • • • • •"
+                  autoFocus
+                  style={{
+                    width: '100%',
+                    textAlign: 'center',
+                    fontSize: '1.75rem',
+                    fontWeight: 800,
+                    letterSpacing: '12px',
+                    padding: '12px 16px',
+                    borderRadius: 10,
+                    border: '2px solid #cbd5e1',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                    fontFamily: 'monospace',
+                    color: '#0f172a',
+                    background: '#f8fafc',
+                  }}
+                  onFocus={(e) => { e.target.style.borderColor = '#2563eb'; e.target.style.background = '#ffffff'; }}
+                  onBlur={(e) => { e.target.style.borderColor = '#cbd5e1'; e.target.style.background = '#f8fafc'; }}
+                />
+                <span style={{ display: 'block', fontSize: '0.76rem', color: '#94a3b8', marginTop: 6 }}>
+                  Enter the 6-digit code from your email
+                </span>
+              </div>
+
+              <Button
+                type="submit"
+                variant="primary"
+                loading={otpBusy}
+                disabled={otp.length !== 6 || otpBusy}
+                style={{
+                  width: '100%',
+                  justifyContent: 'center',
+                  padding: '12px',
+                  fontSize: '0.94rem',
+                  fontWeight: 700,
+                  borderRadius: 8,
+                  marginBottom: 12,
+                }}
+              >
+                {otpBusy ? 'Verifying…' : 'Verify & Complete Registration'}
+              </Button>
+            </form>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, fontSize: '0.82rem' }}>
+              <button
+                type="button"
+                onClick={() => setShowOtpModal(false)}
+                style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: 0 }}
+              >
+                Change email
+              </button>
+
+              <div>
+                {resendSeconds > 0 ? (
+                  <span style={{ color: '#94a3b8' }}>
+                    Resend code in <strong>{resendSeconds}s</strong>
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleResendOtp}
+                    disabled={otpBusy}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#2563eb',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      padding: 0,
+                    }}
+                  >
+                    Resend Code
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

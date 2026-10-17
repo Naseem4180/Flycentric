@@ -162,23 +162,24 @@ export default function GoogleLoginButton({
     alignItems: 'center',
     justifyContent: 'center',
     gap: '10px',
-    padding: '11px 16px',
+    padding: '10px 16px',
+    height: '46px',
     background: '#ffffff',
-    color: '#1f2937',
-    border: '1.5px solid #d1d5db',
+    color: '#1e293b',
+    border: '1.5px solid #cbd5e1',
     borderRadius: '10px',
-    fontSize: '0.88rem',
+    fontSize: '0.94rem',
     fontWeight: '600',
     cursor: disabled || submitting ? 'not-allowed' : 'pointer',
     transition: 'all 0.15s ease',
-    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.06)',
     boxSizing: 'border-box',
     outline: 'none',
   };
 
   return (
     <>
-      <div style={{ width: '100%', margin: '0 0 4px', boxSizing: 'border-box' }}>
+      <div style={{ width: '100%', margin: '0', boxSizing: 'border-box' }}>
         <button
           type="button"
           className="btn-google-auth"

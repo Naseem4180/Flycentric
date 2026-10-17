@@ -83,7 +83,7 @@ router.post('/send-registration-otp', authLimiter, async (req, res) => {
     );
 
     // Enqueue verification email via transactional mail worker
-    enqueueMail({
+    const mailResult = await enqueueMail({
       to: cleanEmail,
       subject: `Your FlyCentric Verification Code: ${otp}`,
       template: 'otp-verification',
@@ -94,17 +94,18 @@ router.post('/send-registration-otp', authLimiter, async (req, res) => {
       },
     }).catch((mailErr) => {
       console.warn('[auth] Failed to enqueue verification email:', mailErr.message);
+      return { delivered: false, error: mailErr.message };
     });
 
     res.json({
       ok: true,
       message: `A 6-digit verification code has been sent to ${cleanEmail}.`,
       expiresInSeconds: 600,
-      devOtp: process.env.NODE_ENV === 'development' && !isEmailConfigured ? otp : undefined,
+      devOtp: !isEmailConfigured || process.env.NODE_ENV === 'development' ? otp : undefined,
     });
   } catch (err) {
     console.error('Error sending registration OTP:', err);
-    res.status(500).json({ error: 'Failed to send verification code. Please try again.' });
+    res.status(500).json({ error: 'Failed to send verification code. Please check your email configuration or try again.' });
   }
 });
 
@@ -139,19 +140,22 @@ router.post('/register', authLimiter, async (req, res) => {
     const existing = await pool.query('SELECT id FROM users WHERE email = $1', [cleanEmail]);
     if (existing.rows.length) return res.status(409).json({ error: 'Email already registered' });
 
-    // Verify OTP for student registrations if provided
-    if (otp && String(otp).trim()) {
-      const cleanOtp = String(otp).trim();
-      const otpRes = await pool.query(
-        `SELECT id FROM email_verifications
-         WHERE email = $1 AND otp = $2 AND expires_at > now() AND verified = false
-         ORDER BY created_at DESC LIMIT 1`,
-        [cleanEmail, cleanOtp]
-      );
-      if (otpRes.rows.length) {
-        await pool.query('UPDATE email_verifications SET verified = true WHERE id = $1', [otpRes.rows[0].id]);
-      }
+    // Strictly verify OTP for email verification
+    const cleanOtp = String(otp || '').trim();
+    if (!cleanOtp) {
+      return res.status(400).json({ error: 'Email verification code (OTP) is required. Please check your email for the code.' });
     }
+
+    const otpRes = await pool.query(
+      `SELECT id FROM email_verifications
+       WHERE email = $1 AND otp = $2 AND expires_at > now() AND verified = false
+       ORDER BY created_at DESC LIMIT 1`,
+      [cleanEmail, cleanOtp]
+    );
+    if (!otpRes.rows.length) {
+      return res.status(400).json({ error: 'Invalid or expired verification code. Please check your email or click Resend Code.' });
+    }
+    await pool.query('UPDATE email_verifications SET verified = true WHERE id = $1', [otpRes.rows[0].id]);
 
     let savedAvatarUrl = null;
     try {

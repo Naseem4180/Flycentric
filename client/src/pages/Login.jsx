@@ -117,6 +117,10 @@ export default function Login() {
             </button>
           </form>
 
+          <div className="auth-divider">
+            <span>or continue with</span>
+          </div>
+
           <GoogleLoginButton
             onSuccess={handleGoogleLogin}
             onError={(err) => setError(err.message)}

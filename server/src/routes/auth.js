@@ -328,6 +328,32 @@ router.get('/config', (req, res) => {
   });
 });
 
+let firebaseCertsCache = {
+  certs: null,
+  expiresAt: 0,
+};
+
+async function getFirebaseCert(kid) {
+  const now = Date.now();
+  if (!firebaseCertsCache.certs || firebaseCertsCache.expiresAt < now || !firebaseCertsCache.certs[kid]) {
+    const res = await fetch('https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com', {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch Firebase certificates: HTTP ${res.status}`);
+    }
+    const certs = await res.json();
+    const cacheControl = res.headers.get('cache-control') || '';
+    const maxAgeMatch = cacheControl.match(/max-age=(\d+)/);
+    const ttlSeconds = maxAgeMatch ? parseInt(maxAgeMatch[1], 10) : 3600;
+    firebaseCertsCache = {
+      certs,
+      expiresAt: now + (ttlSeconds * 1000),
+    };
+  }
+  return firebaseCertsCache.certs?.[kid] || null;
+}
+
 // Google identity must come from a token verified by Google's APIs. Never
 // accept a client-provided email, subject, name, or avatar as proof of identity.
 router.post('/google', authLimiter, async (req, res) => {
@@ -341,27 +367,72 @@ router.post('/google', authLimiter, async (req, res) => {
 
   try {
     if (req.body.credential) {
-      // 1. Google ID Token (from Google Identity Services or Firebase getIdToken)
-      const response = await fetch(
-        `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(req.body.credential)}`,
-        { signal: AbortSignal.timeout(8000) }
+      const rawCredential = String(req.body.credential).trim();
+      let decoded = null;
+      try {
+        decoded = jwt.decode(rawCredential, { complete: true });
+      } catch (_) {}
+
+      const isFirebaseToken = Boolean(
+        decoded?.payload?.iss && String(decoded.payload.iss).startsWith('https://securetoken.google.com/')
       );
-      if (response.ok) {
-        const claims = await response.json();
-        // Check audience if clientId is set
-        if (expectedAudience && claims.aud !== expectedAudience) {
-          return res.status(401).json({ error: 'Google ID token is not valid for this application.' });
+
+      if (isFirebaseToken) {
+        // Firebase Auth ID Token (from Firebase Google Sign-In)
+        const expectedProjectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || 'flycentric-4d4ab';
+        const kid = decoded.header?.kid;
+        const cert = kid ? await getFirebaseCert(kid) : null;
+        if (!cert) {
+          return res.status(401).json({ error: 'Google rejected that credential.' });
         }
+        let claims;
+        try {
+          claims = jwt.verify(rawCredential, cert, {
+            algorithms: ['RS256'],
+            audience: expectedProjectId,
+            issuer: `https://securetoken.google.com/${expectedProjectId}`,
+          });
+        } catch (err) {
+          if (err.name === 'TokenExpiredError') {
+            return res.status(401).json({ error: 'Google credential has expired. Please sign in again.' });
+          }
+          if (err.message?.includes('jwt audience invalid') || err.message?.includes('jwt issuer invalid')) {
+            return res.status(401).json({ error: 'Google ID token is not valid for this application.' });
+          }
+          return res.status(401).json({ error: 'Google rejected that credential.' });
+        }
+
         if (claims.email_verified === true || claims.email_verified === 'true') {
           googleProfile = {
             googleId: claims.sub,
             email: claims.email,
-            name: claims.name || claims.given_name || claims.email?.split('@')[0],
+            name: claims.name || claims.email?.split('@')[0],
             avatar_url: claims.picture || null,
           };
         }
       } else {
-        return res.status(401).json({ error: 'Google rejected that credential.' });
+        // Standard Google OAuth ID Token (accounts.google.com / Google Identity Services)
+        const response = await fetch(
+          `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(rawCredential)}`,
+          { signal: AbortSignal.timeout(8000) }
+        );
+        if (response.ok) {
+          const claims = await response.json();
+          // Check audience if clientId is set
+          if (expectedAudience && claims.aud !== expectedAudience) {
+            return res.status(401).json({ error: 'Google ID token is not valid for this application.' });
+          }
+          if (claims.email_verified === true || claims.email_verified === 'true') {
+            googleProfile = {
+              googleId: claims.sub,
+              email: claims.email,
+              name: claims.name || claims.given_name || claims.email?.split('@')[0],
+              avatar_url: claims.picture || null,
+            };
+          }
+        } else {
+          return res.status(401).json({ error: 'Google rejected that credential.' });
+        }
       }
     }
 

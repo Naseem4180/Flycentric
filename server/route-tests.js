@@ -11,6 +11,7 @@
 const path = require('path');
 const assert = require('assert');
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 
 process.env.JWT_ACCESS_SECRET = 'test-access-secret';
 process.env.JWT_REFRESH_SECRET = 'test-refresh-secret';
@@ -746,6 +747,105 @@ check('auth: Google ID token for a different OAuth client is rejected', async ()
     }
     assert.strictEqual(databaseCalls, 0);
   });
+});
+
+check('auth: verified Firebase ID token creates a student session', async () => {
+  const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+  });
+
+  const firebaseToken = jwt.sign(
+    {
+      iss: 'https://securetoken.google.com/flycentric-4d4ab',
+      aud: 'flycentric-4d4ab',
+      sub: 'firebase-user-999',
+      email: 'firebase-cadet@example.com',
+      email_verified: true,
+      name: 'Firebase Cadet',
+    },
+    privateKey,
+    { algorithm: 'RS256', keyid: 'firebase-test-kid', expiresIn: '1h' }
+  );
+
+  const originalFetch = global.fetch;
+  global.fetch = async (url, options) => {
+    if (String(url).includes('securetoken@system.gserviceaccount.com')) {
+      return new Response(JSON.stringify({
+        'firebase-test-kid': publicKey,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return originalFetch(url, options);
+  };
+
+  handler = (sql, params) => {
+    if (/SELECT \* FROM users WHERE LOWER\(TRIM\(email\)\)/.test(sql)) return { rows: [] };
+    if (/INSERT INTO users/.test(sql)) {
+      return { rows: [{ id: 45, email: params[0], name: params[1], role: 'student', institution_id: null, status: 'active' }] };
+    }
+    if (/INSERT INTO user_sessions/.test(sql)) return { rows: [{ id: 91 }] };
+    return { rows: [] };
+  };
+
+  try {
+    await withMockedMailProvider(true, [], async () => {
+      const app = makeApp('/api/auth', './src/routes/auth');
+      const { status, body } = await request(app, {
+        method: 'POST', url: '/api/auth/google', body: { credential: firebaseToken },
+      });
+      assert.strictEqual(status, 200);
+      assert.strictEqual(body.user.email, 'firebase-cadet@example.com');
+      assert.strictEqual(body.user.role, 'student');
+      assert.ok(body.accessToken);
+    });
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+check('auth: Firebase ID token for a different project is rejected', async () => {
+  const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+  });
+
+  const attackerFirebaseToken = jwt.sign(
+    {
+      iss: 'https://securetoken.google.com/attacker-project-id',
+      aud: 'attacker-project-id',
+      sub: 'firebase-user-999',
+      email: 'attacker@example.com',
+      email_verified: true,
+      name: 'Attacker Cadet',
+    },
+    privateKey,
+    { algorithm: 'RS256', keyid: 'attacker-kid', expiresIn: '1h' }
+  );
+
+  const originalFetch = global.fetch;
+  global.fetch = async (url, options) => {
+    if (String(url).includes('securetoken@system.gserviceaccount.com')) {
+      return new Response(JSON.stringify({
+        'attacker-kid': publicKey,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return originalFetch(url, options);
+  };
+
+  try {
+    await withMockedMailProvider(true, [], async () => {
+      const app = makeApp('/api/auth', './src/routes/auth');
+      const { status, body } = await request(app, {
+        method: 'POST', url: '/api/auth/google', body: { credential: attackerFirebaseToken },
+      });
+      assert.strictEqual(status, 401);
+      assert.match(body.error, /not valid for this application|rejected that credential/);
+    });
+  } finally {
+    global.fetch = originalFetch;
+  }
 });
 
 /* ------------------------------- runner -------------------------------- */

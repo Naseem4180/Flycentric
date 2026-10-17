@@ -513,6 +513,12 @@ export default function TakeExam() {
     const hasAnswer = answers[qId] != null && String(answers[qId]).trim() !== '';
     if (hasAnswer) {
       setConfirmedMap((prev) => ({ ...prev, [qId]: true }));
+      setMarked((prev) => {
+        if (!prev || !prev.has(qId)) return prev;
+        const next = new Set(prev);
+        next.delete(qId);
+        return next;
+      });
       selectAnswer(qId, answers[qId]);
     }
     setLockedNotice(false);
@@ -654,7 +660,7 @@ export default function TakeExam() {
       return Boolean(confirmedMap[qq.id] && answers[qq.id] != null && String(answers[qq.id]).trim() !== '');
     };
     const answered = questions.filter(isAnswered).length;
-    const flagged = questions.filter((qq) => marked.has(qq.id)).length;
+    const flagged = questions.filter((qq) => marked.has(qq.id) && !isAnswered(qq)).length;
     const skipped = questions.filter((qq) => !isAnswered(qq) && visited.has(qq.id) && !marked.has(qq.id)).length;
     const untouched = questions.length - answered - skipped - flagged;
     return {

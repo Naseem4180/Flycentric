@@ -71,8 +71,10 @@ export function handleOptionSelect(state, { questionId, key, isExam }) {
 export function handleConfirm(state, { questionId, totalQuestions }) {
   const hasAnswer = state.answers[questionId] != null && String(state.answers[questionId]).trim() !== '';
   const nextConfirmed = { ...state.confirmedMap };
+  const nextMarked = new Set(state.marked);
   if (hasAnswer) {
     nextConfirmed[questionId] = true;
+    nextMarked.delete(questionId);
   }
 
   const nextCurrent = state.current < totalQuestions - 1 ? state.current + 1 : state.current;
@@ -81,6 +83,7 @@ export function handleConfirm(state, { questionId, totalQuestions }) {
   return {
     ...state,
     confirmedMap: nextConfirmed,
+    marked: nextMarked,
     current: nextCurrent,
     visited: nextVisited,
     lockedNotice: false,
@@ -133,6 +136,7 @@ export function paletteStatus(qId, visited, answers, marked, confirmedMap, isPra
     ? (answers[qId] != null && String(answers[qId]).trim() !== '')
     : Boolean(confirmedMap[qId] && answers[qId] != null && String(answers[qId]).trim() !== '');
 
+  if (hasAnswer && (isPractice || confirmedMap[qId])) return 'answered';
   if (marked && marked.has(qId)) return 'flagged';
   if (hasAnswer) return 'answered';
   if (visited && visited.has(qId)) return 'skipped';

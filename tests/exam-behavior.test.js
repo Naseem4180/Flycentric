@@ -205,3 +205,36 @@ test('10. Attempt progress includes text drafts and ignores empty answers', () =
     percentage: 0,
   });
 });
+
+test('11. Exam mode: revisiting a marked-for-review question and confirming clears review flag and transitions palette status to answered', () => {
+  let state = createInitialExamState({
+    questions: [{ id: 1101 }, { id: 1102 }],
+    quizType: 'exam',
+  });
+
+  // Select option 'B' on question 1101 and Mark for Review & Next
+  state = handleOptionSelect(state, { questionId: 1101, key: 'B', isExam: true });
+  state = handleMarkReviewAndNext(state, { questionId: 1101, totalQuestions: 2 });
+
+  assert.ok(state.marked.has(1101), 'Question 1101 should be marked for review');
+  assert.equal(
+    paletteStatus(1101, state.visited, state.answers, state.marked, state.confirmedMap, false),
+    'flagged',
+    'Palette status must be flagged (orange) while marked for review'
+  );
+
+  // Return to question 1101
+  state = { ...state, current: 0 };
+
+  // Click Confirm
+  state = handleConfirm(state, { questionId: 1101, totalQuestions: 2 });
+
+  assert.equal(state.marked.has(1101), false, 'Marked flag must be cleared upon confirm');
+  assert.equal(state.confirmedMap[1101], true, 'Question must be confirmed');
+  assert.equal(
+    paletteStatus(1101, state.visited, state.answers, state.marked, state.confirmedMap, false),
+    'answered',
+    'Palette status must transition to answered (green) once confirmed'
+  );
+});
+

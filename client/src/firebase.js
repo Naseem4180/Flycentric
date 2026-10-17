@@ -12,7 +12,7 @@ import {
 } from 'firebase/auth';
 
 const DEFAULT_FIREBASE_CONFIG = {
-  apiKey: 'AIzaSyAFaU3V1bd9OpGAXlLP10sfuxxeQTtOUo0',
+  apiKey: '',
   authDomain: 'flycentric-4d4ab.firebaseapp.com',
   projectId: 'flycentric-4d4ab',
   storageBucket: 'flycentric-4d4ab.firebasestorage.app',
@@ -30,12 +30,12 @@ export function getFirebaseConfig() {
   } catch (_) {}
 
   return {
-    apiKey: import.meta.env.VITE_FIREBASE_API_KEY || localStorage.getItem('fc_firebase_api_key') || DEFAULT_FIREBASE_CONFIG.apiKey,
-    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || localStorage.getItem('fc_firebase_auth_domain') || DEFAULT_FIREBASE_CONFIG.authDomain,
-    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || localStorage.getItem('fc_firebase_project_id') || DEFAULT_FIREBASE_CONFIG.projectId,
-    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || localStorage.getItem('fc_firebase_storage_bucket') || DEFAULT_FIREBASE_CONFIG.storageBucket,
-    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || localStorage.getItem('fc_firebase_messaging_sender_id') || DEFAULT_FIREBASE_CONFIG.messagingSenderId,
-    appId: import.meta.env.VITE_FIREBASE_APP_ID || localStorage.getItem('fc_firebase_app_id') || DEFAULT_FIREBASE_CONFIG.appId,
+    apiKey: (import.meta.env.VITE_FIREBASE_API_KEY || '').trim() || localStorage.getItem('fc_firebase_api_key') || '',
+    authDomain: (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '').trim() || localStorage.getItem('fc_firebase_auth_domain') || DEFAULT_FIREBASE_CONFIG.authDomain,
+    projectId: (import.meta.env.VITE_FIREBASE_PROJECT_ID || '').trim() || localStorage.getItem('fc_firebase_project_id') || DEFAULT_FIREBASE_CONFIG.projectId,
+    storageBucket: (import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '').trim() || localStorage.getItem('fc_firebase_storage_bucket') || DEFAULT_FIREBASE_CONFIG.storageBucket,
+    messagingSenderId: (import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '').trim() || localStorage.getItem('fc_firebase_messaging_sender_id') || DEFAULT_FIREBASE_CONFIG.messagingSenderId,
+    appId: (import.meta.env.VITE_FIREBASE_APP_ID || '').trim() || localStorage.getItem('fc_firebase_app_id') || DEFAULT_FIREBASE_CONFIG.appId,
   };
 }
 
